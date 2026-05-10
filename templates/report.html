@@ -79,10 +79,11 @@ table.diff span { white-space: pre; }
 <div class="header">
     <h1>代码比对报告</h1>
     <h2>项目: {{ project_name }}</h2>
-    <div class="meta">
-        {{ project_path }} &nbsp;|&nbsp; {{ vcs_type }} &nbsp;|&nbsp;
+    <div class="meta" style="display:flex;align-items:center;gap:16px;">
+        <span>{{ project_path }} &nbsp;|&nbsp; {{ vcs_type }} &nbsp;|&nbsp;
         旧版本: {{ old_version }} → 新版本: {{ new_version }} &nbsp;|&nbsp;
-        {{ generated_at }}
+        {{ generated_at }}</span>
+        <button onclick="openSummary()" style="padding:6px 14px;background:#27ae60;color:white;border:none;border-radius:4px;cursor:pointer;font-size:13px;white-space:nowrap;">📋 查看变更清单</button>
     </div>
 </div>
 
@@ -271,6 +272,54 @@ function showDiff(file) {
     panel.appendChild(tableWrapper);
 
     container.appendChild(panel);
+}
+
+// ===== 变更清单弹窗 =====
+function openSummary() {
+    var w = window.open('', '_blank', 'width=860,height=700');
+    var html = '<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><title>变更清单 - {{ project_name | e }}</title>';
+    html += '<style>';
+    html += '*{margin:0;padding:0;box-sizing:border-box}';
+    html += 'body{font-family:\"Microsoft YaHei\",\"Segoe UI\",sans-serif;background:#f5f5f5;padding:24px}';
+    html += 'h1{font-size:20px;margin-bottom:4px}';
+    html += 'h2{font-size:14px;font-weight:normal;color:#888;margin-bottom:20px}';
+    html += '.section{margin-bottom:20px}';
+    html += '.section h3{font-size:15px;padding:8px 14px;border-radius:6px 6px 0 0;color:white}';
+    html += '.section h3.added{background:#27ae60}';
+    html += '.section h3.modified{background:#2980b9}';
+    html += '.section h3.deleted{background:#e74c3c}';
+    html += '.section ul{background:white;border-radius:0 0 6px 6px;list-style:none;padding:8px 0}';
+    html += '.section li{padding:5px 20px;font-family:Consolas,\"Courier New\",monospace;font-size:13px;border-bottom:1px solid #f0f0f0}';
+    html += '.section li:last-child{border-bottom:none}';
+    html += '.count{font-size:12px;font-weight:normal;opacity:.8;margin-left:8px}';
+    html += '.empty{color:#bbb;text-align:center;padding:20px}';
+    html += '</style></head><body>';
+    html += '<h1>📋 变更清单</h1>';
+    html += '<h2>{{ project_name | e }} &nbsp;|&nbsp; {{ old_version | e }} → {{ new_version | e }}</h2>';
+
+    var groups = {A:[], M:[], D:[]};
+    fileData.forEach(function(f) {
+        if (groups[f.type]) groups[f.type].push(f.path);
+    });
+    var labels = {A:'新增文件', M:'修改文件', D:'删除文件'};
+    var clss = {A:'added', M:'modified', D:'deleted'};
+    ['A','M','D'].forEach(function(t) {
+        var list = groups[t];
+        html += '<div class=\"section\">';
+        html += '<h3 class=\"' + clss[t] + '\">' + labels[t] + '<span class=\"count\">(' + list.length + ' 个)</span></h3>';
+        html += '<ul>';
+        if (list.length === 0) {
+            html += '<li class=\"empty\">无</li>';
+        } else {
+            list.sort().forEach(function(p) {
+                html += '<li>' + esc(p) + '</li>';
+            });
+        }
+        html += '</ul></div>';
+    });
+    html += '</body></html>';
+    w.document.write(html);
+    w.document.close();
 }
 
 // ===== 展开/折叠全部 =====
