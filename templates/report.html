@@ -97,6 +97,11 @@ table.diff span { white-space: pre; }
     <div class="sidebar">
         <div class="sidebar-header">
             <span>文件列表</span>
+            <span style="display:flex;gap:4px;">
+                <span onclick="toggleAll(true)" style="cursor:pointer;font-size:11px;color:#2980b9;user-select:none;">展开全部</span>
+                <span style="color:#ccc;">|</span>
+                <span onclick="toggleAll(false)" style="cursor:pointer;font-size:11px;color:#2980b9;user-select:none;">折叠全部</span>
+            </span>
             <div class="legend">
                 <span class="leg"><span class="dot added"></span>新增</span>
                 <span class="leg"><span class="dot modified"></span>修改</span>
@@ -266,6 +271,23 @@ function showDiff(file) {
     panel.appendChild(tableWrapper);
 
     container.appendChild(panel);
+}
+
+// ===== 展开/折叠全部 =====
+function toggleAll(expand) {
+    document.querySelectorAll('#tree .children').forEach(function(el) {
+        if (expand) {
+            el.classList.add('open');
+        } else {
+            el.classList.remove('open');
+        }
+    });
+    document.querySelectorAll('#tree .row .icon').forEach(function(icon) {
+        icon.textContent = expand ? '▼' : '▶';
+    });
+    // 根节点保持一致
+    var rootIcon = document.querySelector('#tree .root-row .icon');
+    if (rootIcon) rootIcon.textContent = expand ? '▼' : '▶';
 }
 
 // ===== 启动 =====
