@@ -12,11 +12,11 @@ class FileExporter:
         self.vcs = vcs
 
     def export(self, old_dir: str, new_dir: str):
-        """导出新旧版本的变更文件"""
-        if not os.path.exists(old_dir):
-            os.makedirs(old_dir)
-        if not os.path.exists(new_dir):
-            os.makedirs(new_dir)
+        """导出新旧版本的变更文件（先清空目标目录再导出）"""
+        for d in (old_dir, new_dir):
+            if os.path.isdir(d):
+                shutil.rmtree(d)
+            os.makedirs(d, exist_ok=True)
 
         for file_diff in self.diff_result.files:
             if file_diff.change_type == ChangeType.DELETED:

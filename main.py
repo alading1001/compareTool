@@ -297,8 +297,8 @@ class CompareToolApp:
 
         if msgs:
             return messagebox.askyesno(
-                "确认覆盖",
-                "以下目标已有内容，是否覆盖？\n\n" + "\n\n".join(msgs)
+                "确认清空并重新导出",
+                "以下目标已有内容，将被清空后重新导出：\n\n" + "\n\n".join(msgs)
             )
         return True
 
