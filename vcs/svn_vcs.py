@@ -28,13 +28,13 @@ class SVNVCS(BaseVCS):
             if not line:
                 continue
             # 格式: "M       path/to/file" 或 "A       path/to/file"
-            # 注意: SVN的M可能是文件内容修改或属性修改
             code = line[0].strip()
             path = line[1:].strip()
-            # 转换为相对于项目根目录的路径
-            # svn diff --summarize 可能返回绝对路径
+            # svn diff 返回的是相对于项目目录的路径，先拼成绝对路径再算相对路径
+            # 避免 Python 进程的 CWD 干扰 os.path.relpath 的结果
+            abs_path = os.path.normpath(os.path.join(self.project_path, path))
             try:
-                rel_path = os.path.relpath(path, self.project_path)
+                rel_path = os.path.relpath(abs_path, self.project_path)
             except ValueError:
                 rel_path = path
 
@@ -62,7 +62,7 @@ class SVNVCS(BaseVCS):
 
     def get_file_content_working(self, file_path: str) -> str:
         full_path = os.path.join(self.project_path, file_path)
-        if not os.path.exists(full_path):
+        if not os.path.exists(full_path) or os.path.isdir(full_path):
             return ""
         with open(full_path, "r", encoding="utf-8", errors="replace") as f:
             return f.read()

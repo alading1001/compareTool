@@ -65,7 +65,12 @@ class DiffEngine:
             new_version=new_version,
         )
 
+        import os
         for cf in changed_files:
+            # 跳过目录（SVN 会把目录也作为变更项）
+            full_path = os.path.join(self.vcs.project_path, cf.path)
+            if os.path.isdir(full_path):
+                continue
             file_diff = self._diff_file(old_version, new_version, cf)
             result.files.append(file_diff)
 
