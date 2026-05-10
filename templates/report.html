@@ -50,12 +50,12 @@ body { font-family: "Microsoft YaHei","Segoe UI",sans-serif; height: 100vh; over
 #tree .children { padding-left: 16px; }
 #tree .root-row { font-weight: bold; font-size: 14px; border-bottom: 1px solid #eee; margin-bottom: 2px; padding: 6px 14px; }
 
-.main { flex: 1; overflow-y: auto; }
+.main { flex: 1; overflow: auto; }
 .empty-state { display: flex; align-items: center; justify-content: center; height: 100%; color: #bbb; font-size: 16px; flex-direction: column; gap: 8px; }
 .empty-state .tip { font-size: 13px; color: #ccc; }
 .diff-panel { display: none; }
-.diff-panel.active { display: block; }
-.diff-file-header { padding: 10px 20px; background: #f0f0f0; border-bottom: 1px solid #ddd; font-family: Consolas,"Courier New",monospace; font-size: 13px; position: sticky; top: 0; z-index: 2; }
+.diff-panel.active { display: block; overflow-x: auto; }
+.diff-file-header { padding: 10px 20px; background: #f0f0f0; border-bottom: 1px solid #ddd; font-family: Consolas,"Courier New",monospace; font-size: 13px; position: sticky; top: 0; z-index: 2; white-space: nowrap; }
 .diff-file-header .change-tag { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 11px; color: white; margin-right: 8px; }
 .diff-file-header .change-tag.A { background: #27ae60; }
 .diff-file-header .change-tag.M { background: #2980b9; }
@@ -64,14 +64,14 @@ body { font-family: "Microsoft YaHei","Segoe UI",sans-serif; height: 100vh; over
 /* difflib 表格样式 */
 table.diff { font-family: Consolas,"Courier New",monospace; font-size: 12px; width: 100%; border-collapse: collapse; }
 table.diff th { background: #e8e8e8; padding: 6px 8px; text-align: left; font-size: 12px; border: 1px solid #ccc; }
-table.diff td { padding: 0 6px; border: 1px solid #eee; vertical-align: top; line-height: 1.5; }
+table.diff td { padding: 0 4px; border: 1px solid #eee; vertical-align: top; line-height: 1.5; }
 table.diff .diff_header { background: #e8e8e8; }
 table.diff .diff_next { display: none; }
 table.diff .diff_add { background: #d4fcd4; }
 table.diff .diff_sub { background: #fdd; }
 table.diff .diff_chg { background: #fff3b0; }
 table.diff td.diff_header { color: #888; font-size: 11px; text-align: right; width: 1%; white-space: nowrap; padding: 0 4px; }
-table.diff span { display: block; white-space: pre-wrap; word-break: break-all; }
+table.diff span { white-space: pre; }
 </style>
 </head>
 <body>
