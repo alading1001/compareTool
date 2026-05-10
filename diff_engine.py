@@ -54,8 +54,23 @@ class DiffResult:
 class DiffEngine:
     """差异比对引擎"""
 
+    # 二进制/归档文件扩展名，不展示具体内容差异
+    BINARY_EXTS = {
+        ".jar", ".war", ".ear", ".aar",
+        ".zip", ".tar", ".gz", ".bz2", ".7z", ".rar",
+        ".class", ".so", ".dll", ".exe", ".bin",
+        ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".svg",
+        ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+        ".ttf", ".otf", ".woff", ".woff2",
+        ".mp3", ".mp4", ".avi", ".mov",
+    }
+
     def __init__(self, vcs):
         self.vcs = vcs
+
+    def _is_binary(self, file_path: str) -> bool:
+        ext = os.path.splitext(file_path)[1].lower()
+        return ext in self.BINARY_EXTS
 
     def generate_diff(self, old_version: str, new_version: str) -> DiffResult:
         """生成两个版本之间的完整差异"""
@@ -81,6 +96,11 @@ class DiffEngine:
 
     def _diff_file(self, old_version: str, new_version: str, cf: ChangedFile) -> FileDiff:
         file_diff = FileDiff(file_path=cf.path, change_type=cf.change_type)
+
+        # 二进制文件：只标记变更，不展示内容差异
+        if self._is_binary(cf.path):
+            file_diff.side_by_side_html = self._binary_placeholder(cf)
+            return file_diff
 
         if cf.change_type == ChangeType.ADDED:
             file_diff.old_content = ""
@@ -114,6 +134,19 @@ class DiffEngine:
                 old_lines, new_lines, cf.path)
 
         return file_diff
+
+    def _binary_placeholder(self, cf: ChangedFile) -> str:
+        """二进制文件：占位提示"""
+        ext = os.path.splitext(cf.path)[1].upper()
+        label = {"A": "新增", "M": "修改", "D": "删除"}.get(cf.change_type.value, "变更")
+        return (
+            f'<div style="padding:40px;text-align:center;color:#888;font-size:15px;">'
+            f'<div style="font-size:48px;margin-bottom:16px;">📦</div>'
+            f'<div><b>{cf.path}</b></div>'
+            f'<div style="margin-top:8px;">{ext} 二进制归档文件 &mdash; {label}</div>'
+            f'<div style="font-size:12px;margin-top:4px;color:#bbb;">不支持差异内容展示，仅标记文件变更状态</div>'
+            f'</div>'
+        )
 
     def _side_by_side_html(self, old_lines, new_lines, path):
         """生成左右对比的HTML表格"""

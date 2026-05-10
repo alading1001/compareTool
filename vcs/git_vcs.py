@@ -5,6 +5,32 @@ from typing import List
 from .base import BaseVCS, ChangedFile, ChangeType
 
 
+def _unescape_git_path(raw: str) -> str:
+    """解码 Git 的 C 风格转义路径（core.quotepath 默认开启时中文等字符会被转义）
+    例: \"\\347\\274\\226\\350\\257\\221.bat\" → 编译.bat
+    """
+    if raw.startswith('"') and raw.endswith('"'):
+        raw = raw[1:-1]
+        # 将 \nnn 八进制转义还原为字节再 UTF-8 解码
+        result = []
+        i = 0
+        while i < len(raw):
+            if raw[i] == '\\' and i + 3 < len(raw) and raw[i+1:i+4].isdigit():
+                # 八进制转义：最多取3位八进制数字
+                end = i + 1
+                while end < len(raw) and end - i <= 3 and raw[end] in '01234567':
+                    end += 1
+                octal = raw[i+1:end]
+                byte_val = int(octal, 8)
+                result.append(byte_val)
+                i = end
+            else:
+                result.append(ord(raw[i]))
+                i += 1
+        raw = bytes(result).decode("utf-8", errors="replace")
+    return raw
+
+
 class GitVCS(BaseVCS):
     """Git版本控制实现"""
 
@@ -27,7 +53,7 @@ class GitVCS(BaseVCS):
                 continue
             parts = line.split("\t")
             code = parts[0]
-            path = parts[-1]
+            path = _unescape_git_path(parts[-1])
 
             change_map = {
                 "A": ChangeType.ADDED,
@@ -36,7 +62,7 @@ class GitVCS(BaseVCS):
             }
 
             if code.startswith("R"):
-                old_path = parts[1] if len(parts) > 2 else ""
+                old_path = _unescape_git_path(parts[1]) if len(parts) > 2 else ""
                 files.append(ChangedFile(
                     path=path, change_type=ChangeType.RENAMED, old_path=old_path
                 ))

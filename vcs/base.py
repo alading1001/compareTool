@@ -50,12 +50,16 @@ class BaseVCS(ABC):
         if '/' not in pattern and '**' not in pattern:
             pattern = '**/' + pattern
 
-        # 将 ** 替换为占位符
-        pattern = pattern.replace('**', '\x00')
+        # **/ 替换为占位符（可选目录前缀，包括根目录）
+        pattern = pattern.replace('**/', '\x00')
+        # 将剩余的 ** 替换为占位符
+        pattern = pattern.replace('**', '\x01')
         # 转义正则特殊字符
         regex = re.escape(pattern)
-        # ** 匹配任意层级目录
-        regex = regex.replace('\x00', '.*')
+        # \x00 表示 **/ → 可选目录前缀
+        regex = regex.replace('\x00', '(.*/)?')
+        # \x01 表示 ** → 任意字符（用于 target/** 尾部的 **）
+        regex = regex.replace('\x01', '.*')
         # 单个 * 匹配单级目录内的任意字符（不含 /）
         regex = regex.replace(r'\*', '[^/]*')
 

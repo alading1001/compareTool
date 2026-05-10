@@ -88,15 +88,29 @@ class CompareToolApp:
         exclude_frame.grid(row=5, column=0, columnspan=3, sticky=tk.EW, pady=(0, 10))
         self.exclude_text = tk.Text(exclude_frame, height=4, wrap=tk.NONE)
         self.exclude_text.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        java_defaults = (
-            "*.class\n*.jar\n*.war\n*.ear\n"
-            "target/**\nbuild/**\nbin/**\ndist/**\n"
-            ".git/**\n.svn/**\n"
-            ".idea/**\n.settings/**\n.project\n.classpath\n"
-            "node_modules/**\n**/__pycache__/**\n*.pyc\n"
-            ".DS_Store\nThumbs.db"
-        )
-        self.exclude_text.insert("1.0", self._config.get("exclude_rules", java_defaults))
+        # 优先从 paichu.txt 读取排除规则，找不到再用历史配置
+        paichu_path = os.path.join(BASE_DIR, "paichu.txt")
+        if os.path.exists(paichu_path):
+            with open(paichu_path, "rb") as pf:
+                raw = pf.read()
+            for enc in ("utf-8", "gbk"):
+                try:
+                    default_excludes = raw.decode(enc).strip()
+                    break
+                except UnicodeDecodeError:
+                    continue
+            else:
+                default_excludes = raw.decode("utf-8", errors="replace").strip()
+        else:
+            default_excludes = self._config.get("exclude_rules", (
+                "*.class\n*.war\n*.ear\n"
+                "target/**\nbuild/**\nbin/**\ndist/**\n"
+                ".git/**\n.svn/**\n"
+                ".idea/**\n.settings/**\n.project\n.classpath\n"
+                "node_modules/**\n**/__pycache__/**\n*.pyc\n"
+                ".DS_Store\nThumbs.db"
+            ))
+        self.exclude_text.insert("1.0", default_excludes)
         exclude_scroll = ttk.Scrollbar(exclude_frame, orient=tk.VERTICAL, command=self.exclude_text.yview)
         exclude_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self.exclude_text.config(yscrollcommand=exclude_scroll.set)
