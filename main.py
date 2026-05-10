@@ -377,9 +377,11 @@ class CompareToolApp:
             new_export = self.new_export_var.get().strip()
             if old_export or new_export:
                 exporter = FileExporter(diff_result, vcs)
+                project_name = os.path.basename(os.path.normpath(project_path))
                 exporter.export(
                     old_export or os.path.join(self._default_output, "old_version_files"),
-                    new_export or os.path.join(self._default_output, "new_version_files")
+                    new_export or os.path.join(self._default_output, "new_version_files"),
+                    project_name=project_name
                 )
 
             # 保存配置

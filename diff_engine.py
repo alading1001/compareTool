@@ -1,4 +1,5 @@
 import difflib
+import os
 from dataclasses import dataclass, field
 from typing import List, Dict
 from vcs.base import ChangedFile, ChangeType
@@ -24,6 +25,7 @@ class FileDiff:
 class DiffResult:
     """完整差异比对结果"""
     project_path: str
+    project_name: str
     vcs_type: str
     old_version: str
     new_version: str
@@ -60,12 +62,12 @@ class DiffEngine:
 
         result = DiffResult(
             project_path=self.vcs.project_path,
+            project_name=os.path.basename(os.path.normpath(self.vcs.project_path)),
             vcs_type=type(self.vcs).__name__,
             old_version=old_version,
             new_version=new_version,
         )
 
-        import os
         for cf in changed_files:
             # 跳过目录（SVN 会把目录也作为变更项）
             full_path = os.path.join(self.vcs.project_path, cf.path)

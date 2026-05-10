@@ -16,6 +16,7 @@ class ReportGenerator:
         summary = diff_result.summary
         template = self.env.get_template("report.html")
         html = template.render(
+            project_name=diff_result.project_name,
             project_path=diff_result.project_path,
             vcs_type=diff_result.vcs_type,
             old_version=diff_result.old_version,

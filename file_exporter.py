@@ -11,8 +11,12 @@ class FileExporter:
         self.diff_result = diff_result
         self.vcs = vcs
 
-    def export(self, old_dir: str, new_dir: str):
+    def export(self, old_dir: str, new_dir: str, project_name: str = ""):
         """导出新旧版本的变更文件（先清空目标目录再导出）"""
+        if project_name:
+            old_dir = os.path.join(old_dir, project_name)
+            new_dir = os.path.join(new_dir, project_name)
+
         for d in (old_dir, new_dir):
             if os.path.isdir(d):
                 shutil.rmtree(d)
