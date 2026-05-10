@@ -29,7 +29,7 @@ python main.py
 ### 打包为 exe
 
 ```bash
-build.bat
+直接执行build.txt里面的命令
 ```
 
 打包后的 exe 在 `dist/CompareTool.exe`，可直接分发使用。
