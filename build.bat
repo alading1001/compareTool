@@ -22,6 +22,7 @@ python -m PyInstaller ^
     --windowed ^
     --name "CompareTool" ^
     --add-data "templates;templates" ^
+    --add-data "paichu.txt;." ^
     --clean ^
     main.py
 
