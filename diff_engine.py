@@ -13,6 +13,7 @@ class FileDiff:
     old_content: str = ""
     new_content: str = ""
     unified_diff: str = ""
+    side_by_side_html: str = ""
     added_lines: int = 0
     deleted_lines: int = 0
 
@@ -82,55 +83,69 @@ class DiffEngine:
         file_diff = FileDiff(file_path=cf.path, change_type=cf.change_type)
 
         if cf.change_type == ChangeType.ADDED:
-            # 新文件，旧版本无内容
             file_diff.old_content = ""
             file_diff.new_content = self.vcs.get_file_content_working(cf.path)
             file_diff.deleted_lines = 0
-            file_diff.added_lines = len(file_diff.new_content.split("\n")) if file_diff.new_content else 0
-            file_diff.unified_diff = self._format_new_file(file_diff.new_content, cf.path)
+            file_diff.added_lines = len(file_diff.new_content.splitlines()) if file_diff.new_content else 0
+            file_diff.side_by_side_html = self._side_by_side_empty_vs_new(
+                file_diff.new_content, cf.path)
 
         elif cf.change_type == ChangeType.DELETED:
-            # 删除文件，新版本无内容
             file_diff.old_content = self.vcs.get_file_content(old_version, cf.path)
             file_diff.new_content = ""
-            file_diff.deleted_lines = len(file_diff.old_content.split("\n")) if file_diff.old_content else 0
+            file_diff.deleted_lines = len(file_diff.old_content.splitlines()) if file_diff.old_content else 0
             file_diff.added_lines = 0
-            file_diff.unified_diff = self._format_deleted_file(file_diff.old_content, cf.path)
+            file_diff.side_by_side_html = self._side_by_side_old_vs_empty(
+                file_diff.old_content, cf.path)
 
         else:
-            # 修改或重命名
             file_diff.old_content = self.vcs.get_file_content(old_version, cf.path)
             file_diff.new_content = self.vcs.get_file_content_working(cf.path)
 
-            old_lines = file_diff.old_content.splitlines(keepends=True)
-            new_lines = file_diff.new_content.splitlines(keepends=True)
+            old_lines = file_diff.old_content.splitlines()
+            new_lines = file_diff.new_content.splitlines()
 
-            diff_lines = list(difflib.unified_diff(
-                old_lines, new_lines,
-                fromfile=f"a/{cf.path} ({old_version})",
-                tofile=f"b/{cf.path} ({new_version})",
-                lineterm=""
-            ))
+            # 统计行数
+            file_diff.added_lines = max(0, len(new_lines) - len(old_lines))
+            file_diff.deleted_lines = max(0, len(old_lines) - len(new_lines))
 
-            file_diff.unified_diff = "\n".join(diff_lines)
-
-            # 统计增删行数
-            for line in diff_lines:
-                if line.startswith("+") and not line.startswith("+++"):
-                    file_diff.added_lines += 1
-                elif line.startswith("-") and not line.startswith("---"):
-                    file_diff.deleted_lines += 1
+            # side-by-side HTML
+            file_diff.side_by_side_html = self._side_by_side_html(
+                old_lines, new_lines, cf.path)
 
         return file_diff
 
-    def _format_new_file(self, content: str, path: str) -> str:
-        lines = [f"--- /dev/null", f"+++ b/{path} (new file)", "@@ -0,0 +1,{len(content.splitlines())} @@"]
-        for line in content.splitlines():
-            lines.append(f"+{line}")
-        return "\n".join(lines)
+    def _side_by_side_html(self, old_lines, new_lines, path):
+        """生成左右对比的HTML表格"""
+        hd = difflib.HtmlDiff(tabsize=4)
+        return hd.make_table(
+            old_lines, new_lines,
+            fromdesc=f'旧版本: {path}',
+            todesc=f'新版本: {path}',
+            context=True,
+            numlines=3
+        )
 
-    def _format_deleted_file(self, content: str, path: str) -> str:
-        lines = [f"--- a/{path} (deleted)", f"+++ /dev/null", f"@@ -1,{len(content.splitlines())} +0,0 @@"]
-        for line in content.splitlines():
-            lines.append(f"-{line}")
-        return "\n".join(lines)
+    def _side_by_side_empty_vs_new(self, new_content, path):
+        """新增文件：左侧空，右侧新内容"""
+        old_lines = []
+        new_lines = new_content.splitlines() if new_content else []
+        hd = difflib.HtmlDiff(tabsize=4)
+        return hd.make_table(
+            old_lines, new_lines,
+            fromdesc='(新文件)',
+            todesc=f'新版本: {path}',
+            context=False
+        )
+
+    def _side_by_side_old_vs_empty(self, old_content, path):
+        """删除文件：左侧旧内容，右侧空"""
+        old_lines = old_content.splitlines() if old_content else []
+        new_lines = []
+        hd = difflib.HtmlDiff(tabsize=4)
+        return hd.make_table(
+            old_lines, new_lines,
+            fromdesc=f'旧版本: {path}',
+            todesc='(已删除)',
+            context=False
+        )

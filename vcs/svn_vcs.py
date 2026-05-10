@@ -6,6 +6,16 @@ from typing import List
 from .base import BaseVCS, ChangedFile, ChangeType
 
 
+def _decode_bytes(data: bytes) -> str:
+    """自动检测编码：UTF-8 → GBK → 回退"""
+    for enc in ("utf-8", "gbk"):
+        try:
+            return data.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return data.decode("utf-8", errors="replace")
+
+
 class SVNVCS(BaseVCS):
     """SVN版本控制实现"""
 
@@ -18,6 +28,18 @@ class SVNVCS(BaseVCS):
         )
         if result.returncode != 0:
             raise RuntimeError(f"SVN命令失败: {' '.join(args)}\n{result.stderr}")
+        return result.stdout
+
+    def _run_bytes(self, args: list) -> bytes:
+        """执行SVN命令并返回原始字节（用于获取文件内容）"""
+        result = subprocess.run(
+            ["svn"] + args,
+            cwd=self.project_path,
+            capture_output=True,
+            timeout=30
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"SVN命令失败: {' '.join(args)}")
         return result.stdout
 
     def _parse_svn_diff_summarize(self, old_rev: str, new_rev: str) -> List[ChangedFile]:
@@ -54,9 +76,8 @@ class SVNVCS(BaseVCS):
 
     def get_file_content(self, version: str, file_path: str) -> str:
         try:
-            # 构建完整SVN URL或使用本地路径
-            # svn cat -rVERSION path
-            return self._run(["cat", f"-r{version}", file_path])
+            data = self._run_bytes(["cat", f"-r{version}", file_path])
+            return _decode_bytes(data)
         except RuntimeError:
             return ""
 
@@ -64,8 +85,8 @@ class SVNVCS(BaseVCS):
         full_path = os.path.join(self.project_path, file_path)
         if not os.path.exists(full_path) or os.path.isdir(full_path):
             return ""
-        with open(full_path, "r", encoding="utf-8", errors="replace") as f:
-            return f.read()
+        with open(full_path, "rb") as f:
+            return _decode_bytes(f.read())
 
     def get_versions(self) -> List[str]:
         """获取SVN的最近50个revision（从HEAD:1查询，确保拿到最新）"""

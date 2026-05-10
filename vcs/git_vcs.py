@@ -46,17 +46,37 @@ class GitVCS(BaseVCS):
 
     def get_file_content(self, version: str, file_path: str) -> str:
         try:
-            return self._run(["show", f"{version}:{file_path}"])
-        except RuntimeError:
-            # 文件在该版本不存在（新增文件在旧版本中）
+            result = subprocess.run(
+                ["git", "show", f"{version}:{file_path}"],
+                cwd=self.project_path,
+                capture_output=True,
+                timeout=30
+            )
+            if result.returncode != 0:
+                return ""
+            data = result.stdout
+            for enc in ("utf-8", "gbk"):
+                try:
+                    return data.decode(enc)
+                except UnicodeDecodeError:
+                    continue
+            return data.decode("utf-8", errors="replace")
+        except (subprocess.TimeoutExpired, RuntimeError):
             return ""
 
     def get_file_content_working(self, file_path: str) -> str:
         full_path = os.path.join(self.project_path, file_path)
         if not os.path.exists(full_path) or os.path.isdir(full_path):
             return ""
-        with open(full_path, "r", encoding="utf-8", errors="replace") as f:
-            return f.read()
+        with open(full_path, "rb") as f:
+            data = f.read()
+        # 自动检测编码
+        for enc in ("utf-8", "gbk"):
+            try:
+                return data.decode(enc)
+            except UnicodeDecodeError:
+                continue
+        return data.decode("utf-8", errors="replace")
 
     def get_versions(self) -> List[str]:
         result = []
