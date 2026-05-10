@@ -1,0 +1,8 @@
+{
+  "project_path": "C:/Users/12939/Desktop/aaa",
+  "vcs_type": "svn",
+  "exclude_rules": "*.class\n*.jar\n*.war\n*.ear\ntarget/**\nbuild/**\nbin/**\ndist/**\n.git/**\n.svn/**\n.idea/**\n.settings/**\n.project\n.classpath\nnode_modules/**\n**/__pycache__/**\n*.pyc\n.DS_Store\nThumbs.db",
+  "report_path": "C:\\Users\\12939\\Desktop\\222\\diff_report.html",
+  "old_export_path": "C:\\Users\\12939\\Desktop\\222\\old_version_files",
+  "new_export_path": "C:\\Users\\12939\\Desktop\\222\\new_version_files"
+}

@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>代码比对报告 - {{ project_path }}</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: "Microsoft YaHei", "Segoe UI", sans-serif; background: #f5f5f5; color: #333; }
+.container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+
+.header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; border-radius: 8px; margin-bottom: 20px; }
+.header h1 { font-size: 24px; margin-bottom: 10px; }
+.header .meta { font-size: 14px; opacity: 0.9; line-height: 1.8; }
+
+.summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.summary-card { background: white; border-radius: 8px; padding: 16px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+.summary-card .number { font-size: 28px; font-weight: bold; }
+.summary-card .label { font-size: 13px; color: #888; margin-top: 4px; }
+.card-total .number { color: #667eea; }
+.card-added .number { color: #27ae60; }
+.card-modified .number { color: #f39c12; }
+.card-deleted .number { color: #e74c3c; }
+.card-lines-added .number { color: #2ecc71; }
+.card-lines-deleted .number { color: #e74c3c; }
+
+.toolbar { background: white; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.toolbar input { flex: 1; min-width: 200px; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
+.toolbar select { padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
+.toolbar button { padding: 8px 16px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+.toolbar button:hover { background: #5a6fd6; }
+
+.file-list { background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 20px; }
+.file-list-header { padding: 14px 20px; border-bottom: 1px solid #eee; font-weight: bold; font-size: 15px; display: flex; justify-content: space-between; align-items: center; }
+.file-item { padding: 10px 20px; border-bottom: 1px solid #f0f0f0; display: flex; align-items: center; gap: 10px; cursor: pointer; transition: background 0.15s; }
+.file-item:hover { background: #f8f9ff; }
+.file-item:last-child { border-bottom: none; }
+.file-item .tag { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 12px; font-weight: bold; min-width: 24px; text-align: center; }
+.tag-A { background: #d5f5e3; color: #27ae60; }
+.tag-M { background: #fdebd0; color: #e67e22; }
+.tag-D { background: #fadbd8; color: #e74c3c; }
+.tag-R { background: #d6eaf8; color: #2980b9; }
+.file-item .path { font-family: "Consolas", "Courier New", monospace; font-size: 13px; flex: 1; word-break: break-all; }
+.file-item .stats { font-size: 12px; color: #999; white-space: nowrap; }
+.file-item .stats .add { color: #27ae60; }
+.file-item .stats .del { color: #e74c3c; }
+
+.diff-section { margin-bottom: 20px; }
+.diff-header { background: #2c3e50; color: #ecf0f1; padding: 12px 20px; border-radius: 8px 8px 0 0; font-family: "Consolas", "Courier New", monospace; font-size: 13px; word-break: break-all; display: flex; justify-content: space-between; align-items: center; }
+.diff-header .change-badge { font-size: 12px; padding: 3px 10px; border-radius: 3px; }
+.badge-new-file { background: #27ae60; color: white; }
+.badge-deleted { background: #e74c3c; color: white; }
+.badge-modified { background: #f39c12; color: white; }
+.diff-content { background: #1e1e1e; border-radius: 0 0 8px 8px; overflow-x: auto; font-family: "Consolas", "Courier New", monospace; font-size: 13px; line-height: 1.5; }
+.diff-content pre { padding: 16px; margin: 0; color: #d4d4d4; }
+.diff-line { display: block; padding: 0 8px; white-space: pre; }
+.diff-line.add { background: #1b3a1b; color: #8ae08a; }
+.diff-line.del { background: #3a1b1b; color: #e08a8a; }
+.diff-line.hdr { background: #2a2a3a; color: #88aacc; }
+.diff-line.info { background: #2a2a3a; color: #ccc; }
+
+.empty-state { text-align: center; padding: 40px 20px; color: #999; }
+
+.footer { text-align: center; padding: 20px; color: #999; font-size: 12px; }
+
+/* 平滑滚动 */
+html { scroll-behavior: smooth; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<div class="header">
+    <h1>代码比对报告</h1>
+    <div class="meta">
+        <div>项目路径: {{ project_path }}</div>
+        <div>版本控制: {{ vcs_type }}</div>
+        <div>旧版本: {{ old_version }} &nbsp;→&nbsp; 新版本: {{ new_version }}</div>
+        <div>生成时间: {{ generated_at }}</div>
+    </div>
+</div>
+
+<div class="summary">
+    <div class="summary-card card-total">
+        <div class="number">{{ summary.total_files }}</div>
+        <div class="label">变更文件总数</div>
+    </div>
+    <div class="summary-card card-added">
+        <div class="number">{{ summary.added_files }}</div>
+        <div class="label">新增文件</div>
+    </div>
+    <div class="summary-card card-modified">
+        <div class="number">{{ summary.modified_files }}</div>
+        <div class="label">修改文件</div>
+    </div>
+    <div class="summary-card card-deleted">
+        <div class="number">{{ summary.deleted_files }}</div>
+        <div class="label">删除文件</div>
+    </div>
+    <div class="summary-card card-lines-added">
+        <div class="number">{{ summary.total_added_lines }}</div>
+        <div class="label">新增行数</div>
+    </div>
+    <div class="summary-card card-lines-deleted">
+        <div class="number">{{ summary.total_deleted_lines }}</div>
+        <div class="label">删除行数</div>
+    </div>
+</div>
+
+<div class="toolbar">
+    <input type="text" id="filterInput" placeholder="搜索文件名..." oninput="filterFiles()">
+    <select id="typeFilter" onchange="filterFiles()">
+        <option value="all">全部类型</option>
+        <option value="A">新增</option>
+        <option value="M">修改</option>
+        <option value="D">删除</option>
+    </select>
+    <button onclick="collapseAll()">折叠全部</button>
+    <button onclick="expandAll()">展开全部</button>
+    <span style="font-size:13px;color:#999;" id="filterCount">{{ summary.total_files }} 个文件</span>
+</div>
+
+{% if files %}
+<div class="file-list" id="fileList">
+    <div class="file-list-header">
+        <span>变更文件列表</span>
+        <span style="font-size:12px;color:#999;">点击跳转到差异详情</span>
+    </div>
+    {% for file in files %}
+    <div class="file-item" data-type="{{ file.change_type.value }}" onclick="document.getElementById('diff-{{ loop.index }}').scrollIntoView({behavior:'smooth'})">
+        <span class="tag tag-{{ file.change_type.value }}">
+            {% if file.change_type.value == 'A' %}新增
+            {% elif file.change_type.value == 'M' %}修改
+            {% elif file.change_type.value == 'D' %}删除
+            {% elif file.change_type.value == 'R' %}重命名
+            {% endif %}
+        </span>
+        <span class="path">{{ file.file_path }}</span>
+        <span class="stats">
+            {% if file.added_lines > 0 %}<span class="add">+{{ file.added_lines }}</span> {% endif %}
+            {% if file.deleted_lines > 0 %}<span class="del">-{{ file.deleted_lines }}</span>{% endif %}
+        </span>
+    </div>
+    {% endfor %}
+</div>
+
+{% for file in files %}
+<div class="diff-section" id="diff-{{ loop.index }}">
+    <div class="diff-header">
+        <span>
+            {% if file.change_type.value == 'A' %}
+            <span style="color:#8ae08a;">[新增]</span> {{ file.file_path }}
+            {% elif file.change_type.value == 'D' %}
+            <span style="color:#e08a8a;">[删除]</span> {{ file.file_path }}
+            {% elif file.change_type.value == 'R' %}
+            <span style="color:#88aacc;">[重命名]</span> {{ file.file_path }}
+            {% else %}
+            <span style="color:#e08a8a;">[修改]</span> {{ file.file_path }}
+            {% endif %}
+        </span>
+        <span>
+            {% if file.added_lines > 0 %}<span style="color:#8ae08a;">+{{ file.added_lines }}</span> {% endif %}
+            {% if file.deleted_lines > 0 %}<span style="color:#e08a8a;">-{{ file.deleted_lines }}</span>{% endif %}
+        </span>
+    </div>
+    <div class="diff-content">
+        <pre>{% if file.unified_diff %}{% for line in file.unified_diff.split('\n') %}<span class="diff-line{% if line.startswith('+') and not line.startswith('+++') %} add{% elif line.startswith('-') and not line.startswith('---') %} del{% elif line.startswith('@@') %} info{% elif line.startswith('---') or line.startswith('+++') %} hdr{% endif %}">{{ line }}</span>
+{% endfor %}{% else %}<span class="diff-line" style="color:#999;">(无差异内容)</span>{% endif %}</pre>
+    </div>
+</div>
+{% endfor %}
+
+{% else %}
+<div class="empty-state">
+    <p>未检测到文件变更</p>
+</div>
+{% endif %}
+
+<div class="footer">
+    Generated by CompareTool · {{ generated_at }}
+</div>
+
+</div>
+
+<script>
+function filterFiles() {
+    var keyword = document.getElementById('filterInput').value.toLowerCase();
+    var type = document.getElementById('typeFilter').value;
+    var items = document.querySelectorAll('#fileList .file-item');
+    var count = 0;
+    items.forEach(function(item) {
+        var path = item.querySelector('.path').textContent.toLowerCase();
+        var fileType = item.getAttribute('data-type');
+        var match = (type === 'all' || type === fileType) && path.includes(keyword);
+        item.style.display = match ? 'flex' : 'none';
+        if (match) count++;
+    });
+    document.getElementById('filterCount').textContent = count + ' / {{ summary.total_files }} 个文件';
+}
+
+function collapseAll() {
+    document.querySelectorAll('.diff-content').forEach(function(el) { el.style.display = 'none'; });
+}
+function expandAll() {
+    document.querySelectorAll('.diff-content').forEach(function(el) { el.style.display = ''; });
+}
+</script>
+
+</body>
+</html>

@@ -1,0 +1,89 @@
+import re
+import subprocess
+import os
+from typing import List
+
+from .base import BaseVCS, ChangedFile, ChangeType
+
+
+class SVNVCS(BaseVCS):
+    """SVN版本控制实现"""
+
+    def _run(self, args: list) -> str:
+        result = subprocess.run(
+            ["svn"] + args,
+            cwd=self.project_path,
+            capture_output=True, text=True,
+            encoding="utf-8", errors="replace"
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"SVN命令失败: {' '.join(args)}\n{result.stderr}")
+        return result.stdout
+
+    def _parse_svn_diff_summarize(self, old_rev: str, new_rev: str) -> List[ChangedFile]:
+        """使用 svn diff --summarize 获取变更文件列表"""
+        output = self._run(["diff", "--summarize", f"-r{old_rev}:{new_rev}"])
+        files = []
+        for line in output.strip().split("\n"):
+            if not line:
+                continue
+            # 格式: "M       path/to/file" 或 "A       path/to/file"
+            # 注意: SVN的M可能是文件内容修改或属性修改
+            code = line[0].strip()
+            path = line[1:].strip()
+            # 转换为相对于项目根目录的路径
+            # svn diff --summarize 可能返回绝对路径
+            try:
+                rel_path = os.path.relpath(path, self.project_path)
+            except ValueError:
+                rel_path = path
+
+            change_map = {
+                "A": ChangeType.ADDED,
+                "M": ChangeType.MODIFIED,
+                "D": ChangeType.DELETED,
+                "R": ChangeType.RENAMED,
+            }
+            if code in change_map:
+                files.append(ChangedFile(path=rel_path, change_type=change_map[code]))
+        return files
+
+    def get_changed_files(self, old_version: str, new_version: str) -> List[ChangedFile]:
+        files = self._parse_svn_diff_summarize(old_version, new_version)
+        return self._filter_files(files)
+
+    def get_file_content(self, version: str, file_path: str) -> str:
+        try:
+            # 构建完整SVN URL或使用本地路径
+            # svn cat -rVERSION path
+            return self._run(["cat", f"-r{version}", file_path])
+        except RuntimeError:
+            return ""
+
+    def get_file_content_working(self, file_path: str) -> str:
+        full_path = os.path.join(self.project_path, file_path)
+        if not os.path.exists(full_path):
+            return ""
+        with open(full_path, "r", encoding="utf-8", errors="replace") as f:
+            return f.read()
+
+    def get_versions(self) -> List[str]:
+        """获取SVN的最近50个revision（从HEAD:1查询，确保拿到最新）"""
+        try:
+            output = self._run(["log", "-r", "HEAD:1", "-l", "50"])
+            revisions = []
+            for line in output.split("\n"):
+                m = re.match(r'^r(\d+) \|', line.strip())
+                if m:
+                    revisions.append(f"r{m.group(1)}")
+            return revisions
+        except RuntimeError:
+            return []
+
+    def check_version_exists(self, version: str) -> bool:
+        rev = version.lstrip("r")
+        try:
+            self._run(["log", f"-r{rev}", "--limit", "1"])
+            return True
+        except RuntimeError:
+            return False
