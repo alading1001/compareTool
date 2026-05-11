@@ -168,9 +168,6 @@ class CompareToolApp:
 
         self._version_target = "old"
 
-        # 根据初始 vcs_var 切换 UI
-        self._on_vcs_changed()
-
         # ── 输出路径 ──
         ttk.Label(main, text="输出路径设置:", font=("", 10, "bold")).grid(row=12, column=0, sticky=tk.W, pady=(10, 4))
 
@@ -215,13 +212,16 @@ class CompareToolApp:
 
         main.columnconfigure(0, weight=1)
 
-        # 初始化输出路径（有缓存值时自动填充）
+        # 初始化输出路径和 VCS UI
         self._update_output_paths()
+        self._on_vcs_changed()
 
     # ========== 界面交互 ==========
 
     def _update_output_paths(self):
         """根据输出目录和项目名自动计算三条路径"""
+        if not hasattr(self, "output_dir_var"):
+            return
         output_dir = self.output_dir_var.get().strip()
         if not output_dir:
             self.report_path_var.set("")
@@ -262,6 +262,7 @@ class CompareToolApp:
             self.new_folder_btn.pack(side=tk.LEFT, padx=(6, 0))
             self.version_listbox.grid_remove()
             self.fill_btn_frame.grid_remove()
+            self.report_path_var.set("")
         else:
             # 显示项目目录
             self.project_label.grid()
@@ -274,6 +275,8 @@ class CompareToolApp:
             self.new_vcs_btn.pack(side=tk.LEFT, padx=(6, 0))
             self.version_listbox.grid_remove()
             self.fill_btn_frame.grid_remove()
+            # 切回 Git/SVN，按项目名重新计算路径
+            self._update_output_paths()
 
     def _browse_project(self):
         path = filedialog.askdirectory(title="选择项目目录")
