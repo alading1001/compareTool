@@ -81,6 +81,12 @@ class SVNVCS(BaseVCS):
         except RuntimeError:
             return ""
 
+    def get_file_content_bytes(self, version: str, file_path: str) -> bytes:
+        try:
+            return self._run_bytes(["cat", f"-r{version}", file_path])
+        except RuntimeError:
+            return b""
+
     def get_file_content_working(self, file_path: str) -> str:
         full_path = os.path.join(self.project_path, file_path)
         if not os.path.exists(full_path) or os.path.isdir(full_path):

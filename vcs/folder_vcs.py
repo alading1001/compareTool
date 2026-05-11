@@ -49,8 +49,14 @@ class FolderVCS(BaseVCS):
 
         return self._filter_files(result)
 
+    def _resolve_version_dir(self, version: str) -> str:
+        """根据版本标识解析实际目录路径"""
+        if version in ("old", self.old_dir):
+            return self.old_dir
+        return self.new_dir
+
     def get_file_content(self, version: str, file_path: str) -> str:
-        folder = self.old_dir if version == "old" else self.new_dir
+        folder = self._resolve_version_dir(version)
         full_path = os.path.join(folder, file_path)
         if not os.path.isfile(full_path):
             return ""
@@ -62,6 +68,14 @@ class FolderVCS(BaseVCS):
             except UnicodeDecodeError:
                 continue
         return data.decode("utf-8", errors="replace")
+
+    def get_file_content_bytes(self, version: str, file_path: str) -> bytes:
+        folder = self._resolve_version_dir(version)
+        full_path = os.path.join(folder, file_path)
+        if not os.path.isfile(full_path):
+            return b""
+        with open(full_path, "rb") as f:
+            return f.read()
 
     def get_file_content_working(self, file_path: str) -> str:
         return self.get_file_content("new", file_path)

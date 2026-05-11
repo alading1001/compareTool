@@ -86,6 +86,11 @@ class BaseVCS(ABC):
         """从工作目录读取文件内容（代表新版本）"""
         ...
 
+    def get_file_content_bytes(self, version: str, file_path: str) -> bytes:
+        """获取指定版本的文件原始字节（用于二进制文件导出）"""
+        content = self.get_file_content(version, file_path)
+        return content.encode("utf-8") if content else b""
+
     @abstractmethod
     def get_versions(self) -> List[str]:
         """获取可用的版本列表（tags/branches/revisions）"""
