@@ -345,8 +345,8 @@ class CompareToolApp:
 
     # ========== 生成报告 ==========
 
-    def _check_overwrite(self):
-        """检查输出路径是否已有内容，需要确认覆盖"""
+    def _check_overwrite(self, project_name=""):
+        """检查本项目导出子目录是否已有内容"""
         msgs = []
 
         report_path = self.report_path_var.get().strip()
@@ -354,17 +354,21 @@ class CompareToolApp:
             msgs.append(f"• 报告文件已存在:\n  {report_path}")
 
         old_export = self.old_export_var.get().strip()
-        if old_export and os.path.isdir(old_export) and os.listdir(old_export):
-            msgs.append(f"• 旧版本导出目录非空:\n  {old_export}")
+        if old_export and project_name:
+            old_target = os.path.join(old_export, project_name)
+            if os.path.isdir(old_target) and os.listdir(old_target):
+                msgs.append(f"• 旧版本导出目录已有本项目内容:\n  {old_target}")
 
         new_export = self.new_export_var.get().strip()
-        if new_export and os.path.isdir(new_export) and os.listdir(new_export):
-            msgs.append(f"• 新版本导出目录非空:\n  {new_export}")
+        if new_export and project_name:
+            new_target = os.path.join(new_export, project_name)
+            if os.path.isdir(new_target) and os.listdir(new_target):
+                msgs.append(f"• 新版本导出目录已有本项目内容:\n  {new_target}")
 
         if msgs:
             return messagebox.askyesno(
                 "确认清空并重新导出",
-                "以下目标已有内容，将被清空后重新导出：\n\n" + "\n\n".join(msgs)
+                "以下目标已有本项目内容，将被清空后重新导出：\n\n" + "\n\n".join(msgs)
             )
         return True
 
@@ -411,7 +415,9 @@ class CompareToolApp:
                 new_export = os.path.join(self._default_output, "new_version_files")
                 self.new_export_var.set(new_export)
 
-        if not self._check_overwrite():
+        project_name = os.path.basename(os.path.normpath(
+            new_version if is_folder else project_path))
+        if not self._check_overwrite(project_name):
             return
 
         self.generate_btn.config(state=tk.DISABLED)
