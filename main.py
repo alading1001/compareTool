@@ -70,6 +70,8 @@ class CompareToolApp:
         self.project_dir_frame.grid(row=1, column=0, columnspan=3, sticky=tk.EW, pady=(0, 10))
         self.dir_entry = ttk.Entry(self.project_dir_frame)
         self.dir_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.dir_entry.bind("<KeyRelease>", lambda e: self._update_output_paths())
+        self.dir_entry.bind("<FocusOut>", lambda e: self._update_output_paths())
         ttk.Button(self.project_dir_frame, text="浏览...", command=self._browse_project).pack(side=tk.LEFT, padx=(6, 0))
         # 恢复上次项目路径
         last_project = self._config.get("project_path", "")
@@ -122,6 +124,7 @@ class CompareToolApp:
         # ── 版本 / 文件夹选择 ──
         self.old_version_var = tk.StringVar()
         self.new_version_var = tk.StringVar()
+        self.new_version_var.trace_add("write", lambda *_: self._update_output_paths())
 
         # 旧版本标签（动态切换）
         self.old_label = ttk.Label(main, text="旧版本 (改动前):", font=("", 10))
@@ -171,30 +174,35 @@ class CompareToolApp:
         # ── 输出路径 ──
         ttk.Label(main, text="输出路径设置:", font=("", 10, "bold")).grid(row=12, column=0, sticky=tk.W, pady=(10, 4))
 
-        ttk.Label(main, text="比对报告保存到:").grid(row=13, column=0, sticky=tk.W)
+        ttk.Label(main, text="输出目录:").grid(row=13, column=0, sticky=tk.W)
+        output_dir_frame = ttk.Frame(main)
+        output_dir_frame.grid(row=14, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
+        self.output_dir_var = tk.StringVar(value=self._config.get("output_dir", ""))
+        self.output_dir_var.trace_add("write", lambda *_: self._update_output_paths())
+        ttk.Entry(output_dir_frame, textvariable=self.output_dir_var).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Button(output_dir_frame, text="浏览...", command=lambda: self._browse_dir(self.output_dir_var)).pack(side=tk.LEFT, padx=(6, 0))
+
+        ttk.Label(main, text="比对报告保存到 (自动生成):").grid(row=15, column=0, sticky=tk.W)
         report_frame = ttk.Frame(main)
-        report_frame.grid(row=14, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
-        self.report_path_var = tk.StringVar(value=self._config.get("report_path", ""))
-        ttk.Entry(report_frame, textvariable=self.report_path_var).pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Button(report_frame, text="浏览...", command=lambda: self._browse_save_file(self.report_path_var, "HTML文件", "*.html")).pack(side=tk.LEFT, padx=(6, 0))
+        report_frame.grid(row=16, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
+        self.report_path_var = tk.StringVar()
+        ttk.Entry(report_frame, textvariable=self.report_path_var, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        ttk.Label(main, text="旧版本变更文件导出到:").grid(row=15, column=0, sticky=tk.W)
+        ttk.Label(main, text="旧版本变更文件导出到 (自动生成):").grid(row=17, column=0, sticky=tk.W)
         old_export_frame = ttk.Frame(main)
-        old_export_frame.grid(row=16, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
-        self.old_export_var = tk.StringVar(value=self._config.get("old_export_path", ""))
-        ttk.Entry(old_export_frame, textvariable=self.old_export_var).pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Button(old_export_frame, text="浏览...", command=lambda: self._browse_dir(self.old_export_var)).pack(side=tk.LEFT, padx=(6, 0))
+        old_export_frame.grid(row=18, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
+        self.old_export_var = tk.StringVar()
+        ttk.Entry(old_export_frame, textvariable=self.old_export_var, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        ttk.Label(main, text="新版本变更文件导出到:").grid(row=17, column=0, sticky=tk.W)
+        ttk.Label(main, text="新版本变更文件导出到 (自动生成):").grid(row=19, column=0, sticky=tk.W)
         new_export_frame = ttk.Frame(main)
-        new_export_frame.grid(row=18, column=0, columnspan=3, sticky=tk.EW, pady=(0, 10))
-        self.new_export_var = tk.StringVar(value=self._config.get("new_export_path", ""))
-        ttk.Entry(new_export_frame, textvariable=self.new_export_var).pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Button(new_export_frame, text="浏览...", command=lambda: self._browse_dir(self.new_export_var)).pack(side=tk.LEFT, padx=(6, 0))
+        new_export_frame.grid(row=20, column=0, columnspan=3, sticky=tk.EW, pady=(0, 10))
+        self.new_export_var = tk.StringVar()
+        ttk.Entry(new_export_frame, textvariable=self.new_export_var, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         # ── 底部 ──
         bottom_frame = ttk.Frame(main)
-        bottom_frame.grid(row=19, column=0, columnspan=3, sticky=tk.EW, pady=(6, 0))
+        bottom_frame.grid(row=21, column=0, columnspan=3, sticky=tk.EW, pady=(6, 0))
 
         self.progress = ttk.Progressbar(bottom_frame, mode="indeterminate")
         self.progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 12))
@@ -207,7 +215,32 @@ class CompareToolApp:
 
         main.columnconfigure(0, weight=1)
 
+        # 初始化输出路径（有缓存值时自动填充）
+        self._update_output_paths()
+
     # ========== 界面交互 ==========
+
+    def _update_output_paths(self):
+        """根据输出目录和项目名自动计算三条路径"""
+        output_dir = self.output_dir_var.get().strip()
+        if not output_dir:
+            self.report_path_var.set("")
+            self.old_export_var.set("")
+            self.new_export_var.set("")
+            return
+
+        # 计算项目名
+        project_path = self.dir_entry.get().strip()
+        is_folder = self.vcs_var.get() == "folder"
+        if is_folder:
+            new_folder = self.new_version_var.get().strip()
+            project_name = os.path.basename(os.path.normpath(new_folder)) if new_folder else "project"
+        else:
+            project_name = os.path.basename(os.path.normpath(project_path)) if project_path else "project"
+
+        self.report_path_var.set(os.path.join(output_dir, f"{project_name}_diff.html"))
+        self.old_export_var.set(os.path.join(output_dir, "oldVersion"))
+        self.new_export_var.set(os.path.join(output_dir, "newVersion"))
 
     def _on_vcs_changed(self):
         """VCS 类型切换时更新界面"""
@@ -247,6 +280,7 @@ class CompareToolApp:
         if path:
             self.dir_entry.delete(0, tk.END)
             self.dir_entry.insert(0, path)
+            self._update_output_paths()
 
     def _browse_dir(self, var):
         path = filedialog.askdirectory(title="选择保存目录")
@@ -398,22 +432,13 @@ class CompareToolApp:
                 messagebox.showwarning("提示", "请输入旧版本和新版本")
                 return
 
-        # 检查输出路径是否为空；第一次使用时路径为空则取桌面默认
         report_path = self.report_path_var.get().strip()
         old_export = self.old_export_var.get().strip()
         new_export = self.new_export_var.get().strip()
 
-        if not report_path and not old_export and not new_export:
-            # 第一次使用，用默认值
-            if not report_path:
-                report_path = os.path.join(self._default_output, "diff_report.html")
-                self.report_path_var.set(report_path)
-            if not old_export:
-                old_export = os.path.join(self._default_output, "old_version_files")
-                self.old_export_var.set(old_export)
-            if not new_export:
-                new_export = os.path.join(self._default_output, "new_version_files")
-                self.new_export_var.set(new_export)
+        if not report_path:
+            messagebox.showwarning("提示", "请先选择输出目录")
+            return
 
         project_name = os.path.basename(os.path.normpath(
             new_version if is_folder else project_path))
@@ -460,14 +485,9 @@ class CompareToolApp:
 
             old_export = self.old_export_var.get().strip()
             new_export = self.new_export_var.get().strip()
-            if old_export or new_export:
-                exporter = FileExporter(diff_result, vcs)
-                project_name = diff_result.project_name
-                exporter.export(
-                    old_export or os.path.join(self._default_output, "old_version_files"),
-                    new_export or os.path.join(self._default_output, "new_version_files"),
-                    project_name=project_name
-                )
+            exporter = FileExporter(diff_result, vcs)
+            project_name = diff_result.project_name
+            exporter.export(old_export, new_export, project_name=project_name)
 
             # 保存配置
             self._save_current_config()
@@ -504,9 +524,7 @@ class CompareToolApp:
             "project_path": self.dir_entry.get().strip(),
             "vcs_type": self.vcs_var.get(),
             "exclude_rules": self.exclude_text.get("1.0", tk.END).strip(),
-            "report_path": self.report_path_var.get().strip(),
-            "old_export_path": self.old_export_var.get().strip(),
-            "new_export_path": self.new_export_var.get().strip(),
+            "output_dir": self.output_dir_var.get().strip(),
         }
         _save_config(data)
 
