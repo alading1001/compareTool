@@ -197,6 +197,7 @@ function renderTree(node, container, isRoot) {
             var isOpen = rootChildren.classList.contains('open');
             rootChildren.classList.toggle('open');
             rootRow.querySelector('.icon').textContent = isOpen ? '▶' : '▼';
+            clearDiff();
         });
         container.appendChild(rootChildren);
         container = rootChildren;
@@ -228,6 +229,7 @@ function renderTree(node, container, isRoot) {
             var isOpen = childrenDiv.classList.contains('open');
             childrenDiv.classList.toggle('open');
             row.querySelector('.icon').textContent = isOpen ? '▶' : '▼';
+            clearDiff();
         });
 
         container.appendChild(wrapper);
@@ -251,6 +253,11 @@ function renderTree(node, container, isRoot) {
 
         container.appendChild(row);
     });
+}
+
+function clearDiff() {
+    document.getElementById('emptyState').style.display = 'flex';
+    document.getElementById('diffContainer').innerHTML = '';
 }
 
 // ===== 右侧差异显示 =====
@@ -312,7 +319,7 @@ function openSummary() {
             html += '<li class=\"empty\">无</li>';
         } else {
             list.sort().forEach(function(p) {
-                html += '<li>' + esc(p) + '</li>';
+                html += '<li>' + esc('{{ project_name | e }}/' + p) + '</li>';
             });
         }
         html += '</ul></div>';
