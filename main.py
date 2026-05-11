@@ -252,6 +252,7 @@ class CompareToolApp:
     def _on_vcs_changed(self):
         """VCS 类型切换时更新界面"""
         is_folder = self.vcs_var.get() == "folder"
+        self.status_var.set("就绪")
 
         # 临时解绑 trace，避免 set("") 触发 _update_output_paths 中间态
         try:
