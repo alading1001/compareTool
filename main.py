@@ -53,6 +53,7 @@ class CompareToolApp:
             self.root.iconbitmap(icon_path)
 
         self._default_output = os.path.join(os.path.expanduser("~"), "Desktop")
+        self._update_after_id = None
         self._config = _load_config()
         self._build_ui()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -124,7 +125,7 @@ class CompareToolApp:
         # ── 版本 / 文件夹选择 ──
         self.old_version_var = tk.StringVar()
         self.new_version_var = tk.StringVar()
-        self.new_version_var.trace_add("write", lambda *_: self._update_output_paths())
+        self._new_version_cb_id = self.new_version_var.trace_add("write", lambda *_: self._update_output_paths())
 
         # 旧版本标签（动态切换）
         self.old_label = ttk.Label(main, text="旧版本 (改动前):", font=("", 10))
@@ -213,15 +214,21 @@ class CompareToolApp:
         main.columnconfigure(0, weight=1)
 
         # 初始化输出路径和 VCS UI
-        self._update_output_paths()
         self._on_vcs_changed()
 
     # ========== 界面交互 ==========
 
-    def _update_output_paths(self):
-        """根据输出目录和项目名自动计算三条路径"""
+    def _update_output_paths(self, *_):
+        """防抖：合并高频调用，延迟 50ms 执行"""
         if not hasattr(self, "output_dir_var"):
             return
+        if self._update_after_id:
+            self.root.after_cancel(self._update_after_id)
+        self._update_after_id = self.root.after(50, self._do_update_output_paths)
+
+    def _do_update_output_paths(self):
+        """根据输出目录和项目名自动计算三条路径"""
+        self._update_after_id = None
         output_dir = self.output_dir_var.get().strip()
         if not output_dir:
             self.report_path_var.set("")
@@ -246,7 +253,12 @@ class CompareToolApp:
         """VCS 类型切换时更新界面"""
         is_folder = self.vcs_var.get() == "folder"
 
-        # 清空旧/新版本输入
+        # 临时解绑 trace，避免 set("") 触发 _update_output_paths 中间态
+        try:
+            cb_name = self.new_version_var.trace_remove("write", self._new_version_cb_id)
+        except (AttributeError, tk.TclError):
+            pass
+
         self.old_version_var.set("")
         self.new_version_var.set("")
 
@@ -277,6 +289,9 @@ class CompareToolApp:
             self.fill_btn_frame.grid_remove()
             # 切回 Git/SVN，按项目名重新计算路径
             self._update_output_paths()
+
+        # 重新绑定 trace
+        self._new_version_cb_id = self.new_version_var.trace_add("write", lambda *_: self._update_output_paths())
 
     def _browse_project(self):
         path = filedialog.askdirectory(title="选择项目目录")

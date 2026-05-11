@@ -24,7 +24,7 @@ class SVNVCS(BaseVCS):
         """仓库 URL，懒加载并缓存"""
         if not hasattr(self, '_cached_repo_url'):
             try:
-                self._cached_repo_url = self._run(["info", "--show-item", "url"]).strip()
+                self._cached_repo_url = self._run(["info", "--non-interactive", "--show-item", "url"]).strip()
             except RuntimeError:
                 self._cached_repo_url = ""
         return self._cached_repo_url

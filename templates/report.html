@@ -173,9 +173,13 @@ function getDirType(node) {
     var types = [];
     node.files.forEach(function(f) { types.push(f.data.type); });
     Object.values(node.children).forEach(function(c) { types.push(getDirType(c)); });
-    if (types.indexOf('D') >= 0) return 'D';
-    if (types.indexOf('M') >= 0) return 'M';
-    if (types.indexOf('A') >= 0) return 'A';
+    var hasD = types.indexOf('D') >= 0;
+    var hasM = types.indexOf('M') >= 0;
+    var hasA = types.indexOf('A') >= 0;
+    // 只有全部为同一类型时才显示标签，混合类型不显示
+    if (hasD && !hasM && !hasA) return 'D';
+    if (hasM && !hasD && !hasA) return 'M';
+    if (hasA && !hasD && !hasM) return 'A';
     return '';
 }
 
