@@ -18,6 +18,7 @@ CONFIG_FILE = os.path.join(CONFIG_DIR, "compareTool_config.json")
 
 from vcs.git_vcs import GitVCS
 from vcs.svn_vcs import SVNVCS
+from vcs.folder_vcs import FolderVCS
 from diff_engine import DiffEngine
 from report_generator import ReportGenerator
 from file_exporter import FileExporter
@@ -63,12 +64,13 @@ class CompareToolApp:
         main.pack(fill=tk.BOTH, expand=True)
 
         # ── 项目目录 ──
-        ttk.Label(main, text="项目目录:", font=("", 10)).grid(row=0, column=0, sticky=tk.W, pady=(0, 2))
-        dir_frame = ttk.Frame(main)
-        dir_frame.grid(row=1, column=0, columnspan=3, sticky=tk.EW, pady=(0, 10))
-        self.dir_entry = ttk.Entry(dir_frame)
+        self.project_label = ttk.Label(main, text="项目目录:", font=("", 10))
+        self.project_label.grid(row=0, column=0, sticky=tk.W, pady=(0, 2))
+        self.project_dir_frame = ttk.Frame(main)
+        self.project_dir_frame.grid(row=1, column=0, columnspan=3, sticky=tk.EW, pady=(0, 10))
+        self.dir_entry = ttk.Entry(self.project_dir_frame)
         self.dir_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Button(dir_frame, text="浏览...", command=self._browse_project).pack(side=tk.LEFT, padx=(6, 0))
+        ttk.Button(self.project_dir_frame, text="浏览...", command=self._browse_project).pack(side=tk.LEFT, padx=(6, 0))
         # 恢复上次项目路径
         last_project = self._config.get("project_path", "")
         if last_project:
@@ -79,8 +81,10 @@ class CompareToolApp:
         vcs_frame = ttk.Frame(main)
         vcs_frame.grid(row=3, column=0, columnspan=3, sticky=tk.W, pady=(0, 10))
         self.vcs_var = tk.StringVar(value=self._config.get("vcs_type", "git"))
-        ttk.Radiobutton(vcs_frame, text="Git", variable=self.vcs_var, value="git").pack(side=tk.LEFT, padx=(0, 20))
-        ttk.Radiobutton(vcs_frame, text="SVN", variable=self.vcs_var, value="svn").pack(side=tk.LEFT)
+        self.vcs_var.trace_add("write", lambda *_: self._on_vcs_changed())
+        ttk.Radiobutton(vcs_frame, text="Git", variable=self.vcs_var, value="git").pack(side=tk.LEFT, padx=(0, 16))
+        ttk.Radiobutton(vcs_frame, text="SVN", variable=self.vcs_var, value="svn").pack(side=tk.LEFT, padx=(0, 16))
+        ttk.Radiobutton(vcs_frame, text="文件夹", variable=self.vcs_var, value="folder").pack(side=tk.LEFT)
 
         # ── 排除规则 ──
         ttk.Label(main, text="排除规则 (每行一个，支持 * 和 ** 通配符):", font=("", 10)).grid(row=4, column=0, sticky=tk.W, pady=(0, 4))
@@ -115,25 +119,37 @@ class CompareToolApp:
         exclude_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self.exclude_text.config(yscrollcommand=exclude_scroll.set)
 
-        # ── 版本选择 ──
+        # ── 版本 / 文件夹选择 ──
         self.old_version_var = tk.StringVar()
         self.new_version_var = tk.StringVar()
 
-        ttk.Label(main, text="旧版本 (改动前):", font=("", 10)).grid(row=6, column=0, sticky=tk.W, pady=(0, 2))
+        # 旧版本标签（动态切换）
+        self.old_label = ttk.Label(main, text="旧版本 (改动前):", font=("", 10))
+        self.old_label.grid(row=6, column=0, sticky=tk.W, pady=(0, 2))
+
         old_frame = ttk.Frame(main)
         old_frame.grid(row=7, column=0, columnspan=3, sticky=tk.EW, pady=(0, 8))
         self.old_entry = ttk.Entry(old_frame, textvariable=self.old_version_var)
         self.old_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Button(old_frame, text="获取版本列表", command=lambda: self._fetch_versions("old")).pack(side=tk.LEFT, padx=(6, 0))
+        self.old_vcs_btn = ttk.Button(old_frame, text="获取版本列表", command=lambda: self._fetch_versions("old"))
+        self.old_vcs_btn.pack(side=tk.LEFT, padx=(6, 0))
+        self.old_folder_btn = ttk.Button(old_frame, text="浏览...", command=lambda: self._browse_dir(self.old_version_var))
+        # 文件夹浏览按钮初始隐藏
 
-        ttk.Label(main, text="新版本 (改动后):", font=("", 10)).grid(row=8, column=0, sticky=tk.W, pady=(0, 2))
+        # 新版本标签（动态切换）
+        self.new_label = ttk.Label(main, text="新版本 (改动后):", font=("", 10))
+        self.new_label.grid(row=8, column=0, sticky=tk.W, pady=(0, 2))
+
         new_frame = ttk.Frame(main)
         new_frame.grid(row=9, column=0, columnspan=3, sticky=tk.EW, pady=(0, 8))
         self.new_entry = ttk.Entry(new_frame, textvariable=self.new_version_var)
         self.new_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Button(new_frame, text="获取版本列表", command=lambda: self._fetch_versions("new")).pack(side=tk.LEFT, padx=(6, 0))
+        self.new_vcs_btn = ttk.Button(new_frame, text="获取版本列表", command=lambda: self._fetch_versions("new"))
+        self.new_vcs_btn.pack(side=tk.LEFT, padx=(6, 0))
+        self.new_folder_btn = ttk.Button(new_frame, text="浏览...", command=lambda: self._browse_dir(self.new_version_var))
+        # 文件夹浏览按钮初始隐藏
 
-        # 版本列表 + 填入按钮
+        # 版本列表 + 填入按钮（仅 Git/SVN 模式使用）
         self.version_listbox = tk.Listbox(main, height=7, exportselection=False)
         self.version_listbox.grid(row=10, column=0, columnspan=3, sticky=tk.EW, pady=(0, 4))
         self.version_listbox.grid_remove()
@@ -148,6 +164,9 @@ class CompareToolApp:
         ttk.Button(fill_btn_frame, text="← 填入选中版本", command=self._fill_selected_version).pack(side=tk.RIGHT)
 
         self._version_target = "old"
+
+        # 根据初始 vcs_var 切换 UI
+        self._on_vcs_changed()
 
         # ── 输出路径 ──
         ttk.Label(main, text="输出路径设置:", font=("", 10, "bold")).grid(row=12, column=0, sticky=tk.W, pady=(10, 4))
@@ -189,6 +208,39 @@ class CompareToolApp:
         main.columnconfigure(0, weight=1)
 
     # ========== 界面交互 ==========
+
+    def _on_vcs_changed(self):
+        """VCS 类型切换时更新界面"""
+        is_folder = self.vcs_var.get() == "folder"
+
+        # 清空旧/新版本输入
+        self.old_version_var.set("")
+        self.new_version_var.set("")
+
+        if is_folder:
+            # 隐藏项目目录
+            self.project_label.grid_remove()
+            self.project_dir_frame.grid_remove()
+            self.old_label.config(text="旧版本文件夹:")
+            self.new_label.config(text="新版本文件夹:")
+            self.old_vcs_btn.pack_forget()
+            self.old_folder_btn.pack(side=tk.LEFT, padx=(6, 0))
+            self.new_vcs_btn.pack_forget()
+            self.new_folder_btn.pack(side=tk.LEFT, padx=(6, 0))
+            self.version_listbox.grid_remove()
+            self.fill_btn_frame.grid_remove()
+        else:
+            # 显示项目目录
+            self.project_label.grid()
+            self.project_dir_frame.grid()
+            self.old_label.config(text="旧版本 (改动前):")
+            self.new_label.config(text="新版本 (改动后):")
+            self.old_folder_btn.pack_forget()
+            self.old_vcs_btn.pack(side=tk.LEFT, padx=(6, 0))
+            self.new_folder_btn.pack_forget()
+            self.new_vcs_btn.pack(side=tk.LEFT, padx=(6, 0))
+            self.version_listbox.grid_remove()
+            self.fill_btn_frame.grid_remove()
 
     def _browse_project(self):
         path = filedialog.askdirectory(title="选择项目目录")
@@ -321,16 +373,26 @@ class CompareToolApp:
         old_version = self.old_version_var.get().strip()
         new_version = self.new_version_var.get().strip()
         vcs_type = self.vcs_var.get()
+        is_folder = vcs_type == "folder"
 
-        if not project_path:
-            messagebox.showwarning("提示", "请选择项目目录")
-            return
-        if not os.path.isdir(project_path):
-            messagebox.showwarning("提示", "项目目录不存在")
-            return
-        if not old_version or not new_version:
-            messagebox.showwarning("提示", "请输入旧版本和新版本")
-            return
+        if is_folder:
+            # 文件夹模式：验证两个文件夹路径
+            if not old_version or not os.path.isdir(old_version):
+                messagebox.showwarning("提示", "旧版本文件夹不存在，请选择有效的文件夹")
+                return
+            if not new_version or not os.path.isdir(new_version):
+                messagebox.showwarning("提示", "新版本文件夹不存在，请选择有效的文件夹")
+                return
+        else:
+            if not project_path:
+                messagebox.showwarning("提示", "请选择项目目录")
+                return
+            if not os.path.isdir(project_path):
+                messagebox.showwarning("提示", "项目目录不存在")
+                return
+            if not old_version or not new_version:
+                messagebox.showwarning("提示", "请输入旧版本和新版本")
+                return
 
         # 检查输出路径是否为空；第一次使用时路径为空则取桌面默认
         report_path = self.report_path_var.get().strip()
@@ -363,7 +425,9 @@ class CompareToolApp:
 
     def _do_generate(self, project_path, vcs_type, old_version, new_version):
         try:
-            if vcs_type == "git":
+            if vcs_type == "folder":
+                vcs = FolderVCS(old_version, new_version)
+            elif vcs_type == "git":
                 vcs = GitVCS(project_path)
             else:
                 vcs = SVNVCS(project_path)
@@ -372,12 +436,13 @@ class CompareToolApp:
             if exclude_text:
                 vcs.set_exclude_patterns(exclude_text.split("\n"))
 
-            if not vcs.check_version_exists(old_version):
-                self._show_error(f"旧版本不存在: {old_version}")
-                return
-            if not vcs.check_version_exists(new_version):
-                self._show_error(f"新版本不存在: {new_version}")
-                return
+            if vcs_type != "folder":
+                if not vcs.check_version_exists(old_version):
+                    self._show_error(f"旧版本不存在: {old_version}")
+                    return
+                if not vcs.check_version_exists(new_version):
+                    self._show_error(f"新版本不存在: {new_version}")
+                    return
 
             engine = DiffEngine(vcs)
             diff_result = engine.generate_diff(old_version, new_version)
@@ -391,7 +456,7 @@ class CompareToolApp:
             new_export = self.new_export_var.get().strip()
             if old_export or new_export:
                 exporter = FileExporter(diff_result, vcs)
-                project_name = os.path.basename(os.path.normpath(project_path))
+                project_name = diff_result.project_name
                 exporter.export(
                     old_export or os.path.join(self._default_output, "old_version_files"),
                     new_export or os.path.join(self._default_output, "new_version_files"),

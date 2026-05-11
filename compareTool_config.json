@@ -1,5 +1,5 @@
 {
-  "project_path": "D:/java/snx_idea_workspace/zhyg_cloud_system",
+  "project_path": "D:/java/snx_idea_workspace/zhyg_cloud_web",
   "vcs_type": "git",
   "exclude_rules": "*.class\r\n*.war\r\n*.ear\r\ntarget/**\r\nbuild/**\r\nbin/**\r\ndist/**\r\n.git/**\r\n.svn/**\r\n.idea/**\r\n.settings/**\r\n.project\r\n.classpath\r\nnode_modules/**\r\n**/__pycache__/**\r\n*.pyc\r\n.DS_Store\r\nThumbs.db\r\n.gradle/**\r\n.vscode/**\r\ngradle/**\r\nlogs/**\r\n*.log\r\nout/**\r\n.gitignore\r\ngradle.properties\r\ngradlew\r\ngradlew.bat\r\nREADME.md\r\nsettings.gradle\r\n编译.bat",
   "report_path": "C:/Users/12939/Desktop/333/aaa.html",
