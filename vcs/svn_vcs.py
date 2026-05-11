@@ -19,6 +19,16 @@ def _decode_bytes(data: bytes) -> str:
 class SVNVCS(BaseVCS):
     """SVN版本控制实现"""
 
+    @property
+    def _repo_url(self) -> str:
+        """仓库 URL，懒加载并缓存"""
+        if not hasattr(self, '_cached_repo_url'):
+            try:
+                self._cached_repo_url = self._run(["info", "--show-item", "url"]).strip()
+            except RuntimeError:
+                self._cached_repo_url = ""
+        return self._cached_repo_url
+
     def _run(self, args: list) -> str:
         result = subprocess.run(
             ["svn"] + args,
@@ -39,7 +49,8 @@ class SVNVCS(BaseVCS):
             timeout=30
         )
         if result.returncode != 0:
-            raise RuntimeError(f"SVN命令失败: {' '.join(args)}")
+            stderr = result.stderr.decode("utf-8", errors="replace") if result.stderr else ""
+            raise RuntimeError(f"SVN命令失败: {' '.join(args)}\n{stderr}")
         return result.stdout
 
     def _parse_svn_diff_summarize(self, old_rev: str, new_rev: str) -> List[ChangedFile]:
@@ -76,14 +87,18 @@ class SVNVCS(BaseVCS):
 
     def get_file_content(self, version: str, file_path: str) -> str:
         try:
-            data = self._run_bytes(["cat", f"-r{version}", file_path])
+            rev = version.lstrip("r")
+            url = f"{self._repo_url}/{file_path.replace(chr(92), '/')}@{rev}"
+            data = self._run_bytes(["cat", url])
             return _decode_bytes(data)
         except RuntimeError:
             return ""
 
     def get_file_content_bytes(self, version: str, file_path: str) -> bytes:
         try:
-            return self._run_bytes(["cat", f"-r{version}", file_path])
+            rev = version.lstrip("r")
+            url = f"{self._repo_url}/{file_path.replace(chr(92), '/')}@{rev}"
+            return self._run_bytes(["cat", url])
         except RuntimeError:
             return b""
 
