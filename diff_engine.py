@@ -65,8 +65,9 @@ class DiffEngine:
         ".mp3", ".mp4", ".avi", ".mov",
     }
 
-    def __init__(self, vcs):
+    def __init__(self, vcs, show_full_context: bool = True):
         self.vcs = vcs
+        self.show_full_context = show_full_context
 
     def _is_binary(self, file_path: str) -> bool:
         ext = os.path.splitext(file_path)[1].lower()
@@ -151,13 +152,21 @@ class DiffEngine:
     def _side_by_side_html(self, old_lines, new_lines, path):
         """生成左右对比的HTML表格"""
         hd = difflib.HtmlDiff(tabsize=4)
-        return hd.make_table(
-            old_lines, new_lines,
-            fromdesc=f'旧版本: {path}',
-            todesc=f'新版本: {path}',
-            context=True,
-            numlines=3
-        )
+        if self.show_full_context:
+            return hd.make_table(
+                old_lines, new_lines,
+                fromdesc=f'旧版本: {path}',
+                todesc=f'新版本: {path}',
+                context=False
+            )
+        else:
+            return hd.make_table(
+                old_lines, new_lines,
+                fromdesc=f'旧版本: {path}',
+                todesc=f'新版本: {path}',
+                context=True,
+                numlines=3
+            )
 
     def _side_by_side_empty_vs_new(self, new_content, path):
         """新增文件：左侧空，右侧新内容"""

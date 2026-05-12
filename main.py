@@ -48,11 +48,11 @@ class CompareToolApp:
         self.root.resizable(True, True)
         self.root.minsize(600, 700)
         # 窗口居中显示
-        w, h = 760, 920
+        w, h = 760, 960
         ws = self.root.winfo_screenwidth()
         hs = self.root.winfo_screenheight()
         x = (ws - w) // 2
-        y = (hs - h) // 2
+        y = 20  # 距离屏幕顶部20像素
         self.root.geometry(f"{w}x{h}+{x}+{y}")
 
         icon_path = os.path.join(BASE_DIR, "icon.ico")
@@ -211,24 +211,31 @@ class CompareToolApp:
         # ── 显示选项 ──
         ttk.Label(main, text="显示选项:", font=("", 10, "bold")).grid(row=21, column=0, sticky=tk.W, pady=(10, 4))
         show_root_frame = ttk.Frame(main)
-        show_root_frame.grid(row=22, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
-        ttk.Label(show_root_frame, text="报告树根节点及变更清单使用项目名称:").pack(side=tk.LEFT)
+        show_root_frame.grid(row=22, column=0, columnspan=3, sticky=tk.EW, pady=(0, 4))
+        ttk.Label(show_root_frame, text="报告树及变更清单使用项目名:").pack(side=tk.LEFT)
         self.show_project_root_var = tk.StringVar(value="yes")
         ttk.Radiobutton(show_root_frame, text="是", variable=self.show_project_root_var, value="yes").pack(side=tk.LEFT, padx=(6, 2))
         ttk.Radiobutton(show_root_frame, text="否", variable=self.show_project_root_var, value="no").pack(side=tk.LEFT)
 
+        show_ctx_frame = ttk.Frame(main)
+        show_ctx_frame.grid(row=23, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
+        ttk.Label(show_ctx_frame, text="差异展示方式:").pack(side=tk.LEFT)
+        self.show_full_context_var = tk.StringVar(value="yes")
+        ttk.Radiobutton(show_ctx_frame, text="全部内容", variable=self.show_full_context_var, value="yes").pack(side=tk.LEFT, padx=(6, 2))
+        ttk.Radiobutton(show_ctx_frame, text="仅差异上下文", variable=self.show_full_context_var, value="no").pack(side=tk.LEFT)
+
         # ── SVN 设置 (仅在 SVN 模式显示) ──
         self.svn_path_label = ttk.Label(main, text="SVN 可执行文件路径 (可选，留空使用系统默认):", font=("", 10, "bold"))
-        self.svn_path_label.grid(row=23, column=0, sticky=tk.W, pady=(10, 4))
+        self.svn_path_label.grid(row=24, column=0, sticky=tk.W, pady=(10, 4))
         self.svn_path_frame = ttk.Frame(main)
-        self.svn_path_frame.grid(row=24, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
+        self.svn_path_frame.grid(row=25, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
         self.svn_path_var = tk.StringVar(value=self._config.get("svn_path", ""))
         ttk.Entry(self.svn_path_frame, textvariable=self.svn_path_var).pack(side=tk.LEFT, fill=tk.X, expand=True)
         ttk.Button(self.svn_path_frame, text="浏览...", command=lambda: self._browse_svn_path()).pack(side=tk.LEFT, padx=(6, 0))
 
         # ── 底部 ──
         bottom_frame = ttk.Frame(main)
-        bottom_frame.grid(row=25, column=0, columnspan=3, sticky=tk.EW, pady=(6, 0))
+        bottom_frame.grid(row=26, column=0, columnspan=3, sticky=tk.EW, pady=(6, 0))
 
         self.progress = ttk.Progressbar(bottom_frame, mode="indeterminate")
         self.progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 12))
@@ -547,7 +554,8 @@ class CompareToolApp:
                     return
 
             info("获取变更文件列表...")
-            engine = DiffEngine(vcs)
+            show_full = self.show_full_context_var.get() == "yes"
+            engine = DiffEngine(vcs, show_full_context=show_full)
             diff_result = engine.generate_diff(old_version, new_version)
             info(f"变更文件数: {len(diff_result.files)}")
 
