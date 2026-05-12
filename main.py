@@ -52,7 +52,7 @@ class CompareToolApp:
         ws = self.root.winfo_screenwidth()
         hs = self.root.winfo_screenheight()
         x = (ws - w) // 2
-        y = 20  # 距离屏幕顶部20像素
+        y = 0
         self.root.geometry(f"{w}x{h}+{x}+{y}")
 
         icon_path = os.path.join(BASE_DIR, "icon.ico")
