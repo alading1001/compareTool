@@ -24,7 +24,7 @@ body { font-family: "Microsoft YaHei","Segoe UI",sans-serif; height: 100vh; over
 
 .body { display: flex; flex: 1; overflow: hidden; }
 
-.sidebar { width: 330px; min-width: 250px; border-right: 1px solid #e0e0e0; display: flex; flex-direction: column; }
+.sidebar { width: 370px; min-width: 280px; border-right: 1px solid #e0e0e0; display: flex; flex-direction: column; }
 .sidebar-header { padding: 10px 14px; border-bottom: 1px solid #eee; font-weight: bold; font-size: 13px; background: #f7f7f7; display: flex; justify-content: space-between; }
 .sidebar-header .legend { font-weight: normal; font-size: 11px; display: flex; gap: 10px; }
 .legend .leg { display: flex; align-items: center; gap: 3px; }
@@ -121,6 +121,7 @@ table.diff span { white-space: pre; }
             <span class="flt a on" onclick="toggleFilter('A', this)">新增</span>
             <span class="flt m on" onclick="toggleFilter('M', this)">修改</span>
             <span class="flt d on" onclick="toggleFilter('D', this)">删除</span>
+            <span style="font-size:10px;color:#bbb;margin-left:4px;">点击标签过滤，支持任意组合</span>
         </div>
         <div id="tree"></div>
     </div>
