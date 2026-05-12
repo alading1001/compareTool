@@ -19,7 +19,7 @@ echo [2/2] 开始打包...
 
 python -m PyInstaller ^
     --onefile ^
-    --windowed ^
+    --console ^
     --name "CompareTool" ^
     --add-data "templates;templates" ^
     --add-data "paichu.txt;." ^
