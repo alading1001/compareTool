@@ -44,7 +44,7 @@ class CompareToolApp:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("代码比对报告工具")
-        self.root.geometry("760x770")
+        self.root.geometry("760x860")
         self.root.resizable(True, True)
         self.root.minsize(600, 700)
 
@@ -198,9 +198,18 @@ class CompareToolApp:
         self.new_export_var = tk.StringVar()
         ttk.Entry(new_export_frame, textvariable=self.new_export_var, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True)
 
+        # ── 显示选项 ──
+        ttk.Label(main, text="显示选项:", font=("", 10, "bold")).grid(row=21, column=0, sticky=tk.W, pady=(10, 4))
+        show_root_frame = ttk.Frame(main)
+        show_root_frame.grid(row=22, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
+        ttk.Label(show_root_frame, text="报告树根节点及变更清单使用项目名称:").pack(side=tk.LEFT)
+        self.show_project_root_var = tk.StringVar(value="yes")
+        ttk.Radiobutton(show_root_frame, text="是", variable=self.show_project_root_var, value="yes").pack(side=tk.LEFT, padx=(6, 2))
+        ttk.Radiobutton(show_root_frame, text="否", variable=self.show_project_root_var, value="no").pack(side=tk.LEFT)
+
         # ── 底部 ──
         bottom_frame = ttk.Frame(main)
-        bottom_frame.grid(row=21, column=0, columnspan=3, sticky=tk.EW, pady=(6, 0))
+        bottom_frame.grid(row=23, column=0, columnspan=3, sticky=tk.EW, pady=(6, 0))
 
         self.progress = ttk.Progressbar(bottom_frame, mode="indeterminate")
         self.progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 12))
@@ -500,7 +509,8 @@ class CompareToolApp:
             report_path = self.report_path_var.get().strip()
             template_dir = os.path.join(BASE_DIR, "templates")
             report_gen = ReportGenerator(template_dir)
-            report_gen.generate(diff_result, report_path)
+            show_project_root = self.show_project_root_var.get() == "yes"
+            report_gen.generate(diff_result, report_path, show_project_root=show_project_root)
 
             old_export = self.old_export_var.get().strip()
             new_export = self.new_export_var.get().strip()

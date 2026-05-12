@@ -12,7 +12,7 @@ class ReportGenerator:
             template_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates")
         self.env = Environment(loader=FileSystemLoader(template_dir))
 
-    def generate(self, diff_result: DiffResult, output_path: str):
+    def generate(self, diff_result: DiffResult, output_path: str, show_project_root: bool = True):
         summary = diff_result.summary
         template = self.env.get_template("report.html")
         html = template.render(
@@ -23,6 +23,7 @@ class ReportGenerator:
             new_version=diff_result.new_version,
             summary=summary,
             files=diff_result.files,
+            show_project_root=show_project_root,
             generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         )
 

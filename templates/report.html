@@ -148,7 +148,11 @@ function esc(s) {
 
 // ===== 构建文件树 =====
 function buildTree(files) {
+{% if show_project_root %}
     var root = {name: "{{ project_name | e }}", children: {}, files: []};
+{% else %}
+    var root = {name: "", children: {}, files: []};
+{% endif %}
 
     files.forEach(function(f) {
         var parts = f.path.split('/');
@@ -188,6 +192,7 @@ var treeRoot = buildTree(fileData);
 
 function renderTree(node, container, isRoot) {
     if (isRoot) {
+{% if show_project_root %}
         // 根节点：项目名称文件夹
         var rootRow = document.createElement('div');
         rootRow.className = 'row root-row';
@@ -205,6 +210,9 @@ function renderTree(node, container, isRoot) {
         });
         container.appendChild(rootChildren);
         container = rootChildren;
+{% else %}
+        // 不显示项目名根节点
+{% endif %}
     }
 
     // 子目录
@@ -288,7 +296,11 @@ function showDiff(file) {
 // ===== 变更清单弹窗 =====
 function openSummary() {
     var w = window.open('', '_blank', 'width=860,height=700');
+{% if show_project_root %}
     var html = '<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><title>变更清单 - {{ project_name | e }}</title>';
+{% else %}
+    var html = '<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><title>变更清单</title>';
+{% endif %}
     html += '<style>';
     html += '*{margin:0;padding:0;box-sizing:border-box}';
     html += 'body{font-family:\"Microsoft YaHei\",\"Segoe UI\",sans-serif;background:#f5f5f5;padding:24px}';
@@ -306,7 +318,11 @@ function openSummary() {
     html += '.empty{color:#bbb;text-align:center;padding:20px}';
     html += '</style></head><body>';
     html += '<h1>📋 变更清单</h1>';
+{% if show_project_root %}
     html += '<h2>{{ project_name | e }} &nbsp;|&nbsp; {{ old_version | e }} → {{ new_version | e }}</h2>';
+{% else %}
+    html += '<h2>{{ old_version | e }} → {{ new_version | e }}</h2>';
+{% endif %}
 
     var groups = {A:[], M:[], D:[]};
     fileData.forEach(function(f) {
@@ -323,7 +339,11 @@ function openSummary() {
             html += '<li class=\"empty\">无</li>';
         } else {
             list.sort().forEach(function(p) {
+{% if show_project_root %}
                 html += '<li>' + esc('{{ project_name | e }}/' + p) + '</li>';
+{% else %}
+                html += '<li>' + esc(p) + '</li>';
+{% endif %}
             });
         }
         html += '</ul></div>';
