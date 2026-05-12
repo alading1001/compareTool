@@ -4,6 +4,7 @@ import os
 from typing import List
 
 from .base import BaseVCS, ChangedFile, ChangeType
+from logger import info, warn, error, cmd as log_cmd
 
 
 def _decode_bytes(data: bytes) -> str:
@@ -30,27 +31,35 @@ class SVNVCS(BaseVCS):
         return self._cached_repo_url
 
     def _run(self, args: list) -> str:
+        full_cmd = ["svn"] + args
+        info(f"SVN cmd (text): {' '.join(full_cmd)}")
         result = subprocess.run(
-            ["svn"] + args,
+            full_cmd,
             cwd=self.project_path,
             capture_output=True, text=True,
             encoding="utf-8", errors="replace"
         )
         if result.returncode != 0:
+            warn(f"SVN cmd FAIL: rc={result.returncode} stderr={result.stderr[:200]}")
             raise RuntimeError(f"SVN命令失败: {' '.join(args)}\n{result.stderr}")
+        info(f"SVN cmd OK: rc=0")
         return result.stdout
 
     def _run_bytes(self, args: list) -> bytes:
         """执行SVN命令并返回原始字节（用于获取文件内容）"""
+        full_cmd = ["svn"] + args
+        info(f"SVN cmd (bytes): {' '.join(full_cmd)}")
         result = subprocess.run(
-            ["svn"] + args,
+            full_cmd,
             cwd=self.project_path,
             capture_output=True,
             timeout=30
         )
         if result.returncode != 0:
             stderr = result.stderr.decode("utf-8", errors="replace") if result.stderr else ""
+            warn(f"SVN bytes FAIL: rc={result.returncode} stderr={stderr[:200]}")
             raise RuntimeError(f"SVN命令失败: {' '.join(args)}\n{stderr}")
+        info(f"SVN bytes OK: rc=0, len={len(result.stdout)}")
         return result.stdout
 
     def _parse_svn_diff_summarize(self, old_rev: str, new_rev: str) -> List[ChangedFile]:

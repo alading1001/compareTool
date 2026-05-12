@@ -22,6 +22,7 @@ from vcs.folder_vcs import FolderVCS
 from diff_engine import DiffEngine
 from report_generator import ReportGenerator
 from file_exporter import FileExporter
+from logger import info, warn, error
 
 
 def _load_config():
@@ -44,9 +45,15 @@ class CompareToolApp:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("代码比对报告工具")
-        self.root.geometry("760x860")
         self.root.resizable(True, True)
         self.root.minsize(600, 700)
+        # 窗口居中显示
+        w, h = 760, 860
+        ws = self.root.winfo_screenwidth()
+        hs = self.root.winfo_screenheight()
+        x = (ws - w) // 2
+        y = (hs - h) // 2
+        self.root.geometry(f"{w}x{h}+{x}+{y}")
 
         icon_path = os.path.join(BASE_DIR, "icon.ico")
         if os.path.exists(icon_path):
@@ -95,28 +102,31 @@ class CompareToolApp:
         exclude_frame.grid(row=5, column=0, columnspan=3, sticky=tk.EW, pady=(0, 10))
         self.exclude_text = tk.Text(exclude_frame, height=4, wrap=tk.NONE)
         self.exclude_text.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        # 优先从 paichu.txt 读取排除规则，找不到再用历史配置
-        paichu_path = os.path.join(BASE_DIR, "paichu.txt")
-        if os.path.exists(paichu_path):
-            with open(paichu_path, "rb") as pf:
-                raw = pf.read()
-            for enc in ("utf-8", "gbk"):
-                try:
-                    default_excludes = raw.decode(enc).strip()
-                    break
-                except UnicodeDecodeError:
-                    continue
-            else:
-                default_excludes = raw.decode("utf-8", errors="replace").strip()
+        # 优先使用用户上次保存的规则，其次 paichu.txt，最后用内置默认
+        if self._config.get("exclude_rules"):
+            default_excludes = self._config["exclude_rules"]
         else:
-            default_excludes = self._config.get("exclude_rules", (
-                "*.class\n*.war\n*.ear\n"
-                "target/**\nbuild/**\nbin/**\ndist/**\n"
-                ".git/**\n.svn/**\n"
-                ".idea/**\n.settings/**\n.project\n.classpath\n"
-                "node_modules/**\n**/__pycache__/**\n*.pyc\n"
-                ".DS_Store\nThumbs.db"
-            ))
+            paichu_path = os.path.join(BASE_DIR, "paichu.txt")
+            if os.path.exists(paichu_path):
+                with open(paichu_path, "rb") as pf:
+                    raw = pf.read()
+                for enc in ("utf-8", "gbk"):
+                    try:
+                        default_excludes = raw.decode(enc).strip()
+                        break
+                    except UnicodeDecodeError:
+                        continue
+                else:
+                    default_excludes = raw.decode("utf-8", errors="replace").strip()
+            else:
+                default_excludes = (
+                    "*.class\n*.war\n*.ear\n"
+                    "target/**\nbuild/**\nbin/**\ndist/**\n"
+                    ".git/**\n.svn/**\n"
+                    ".idea/**\n.settings/**\n.project\n.classpath\n"
+                    "node_modules/**\n**/__pycache__/**\n*.pyc\n"
+                    ".DS_Store\nThumbs.db"
+                )
         self.exclude_text.insert("1.0", default_excludes)
         exclude_scroll = ttk.Scrollbar(exclude_frame, orient=tk.VERTICAL, command=self.exclude_text.yview)
         exclude_scroll.pack(side=tk.RIGHT, fill=tk.Y)
@@ -345,12 +355,14 @@ class CompareToolApp:
 
     def _do_fetch_versions(self, project_path, vcs_type):
         try:
+            info(f"获取版本列表: path={project_path}, vcs={vcs_type}")
             if vcs_type == "git":
                 vcs = GitVCS(project_path)
             else:
                 vcs = SVNVCS(project_path)
 
             versions = vcs.get_versions()
+            info(f"获取到 {len(versions)} 个版本")
 
             def update_ui():
                 self.version_listbox.delete(0, tk.END)
@@ -484,6 +496,9 @@ class CompareToolApp:
 
     def _do_generate(self, project_path, vcs_type, old_version, new_version):
         try:
+            info(f"=== 开始生成比对报告 ===")
+            info(f"project_path={project_path}, vcs_type={vcs_type}, old={old_version}, new={new_version}")
+
             if vcs_type == "folder":
                 vcs = FolderVCS(old_version, new_version)
             elif vcs_type == "git":
@@ -497,16 +512,21 @@ class CompareToolApp:
 
             if vcs_type != "folder":
                 if not vcs.check_version_exists(old_version):
+                    warn(f"旧版本不存在: {old_version}")
                     self._show_error(f"旧版本不存在: {old_version}")
                     return
                 if not vcs.check_version_exists(new_version):
+                    warn(f"新版本不存在: {new_version}")
                     self._show_error(f"新版本不存在: {new_version}")
                     return
 
+            info("获取变更文件列表...")
             engine = DiffEngine(vcs)
             diff_result = engine.generate_diff(old_version, new_version)
+            info(f"变更文件数: {len(diff_result.files)}")
 
             report_path = self.report_path_var.get().strip()
+            info(f"生成报告: {report_path}")
             template_dir = os.path.join(BASE_DIR, "templates")
             report_gen = ReportGenerator(template_dir)
             show_project_root = self.show_project_root_var.get() == "yes"
@@ -514,6 +534,7 @@ class CompareToolApp:
 
             old_export = self.old_export_var.get().strip()
             new_export = self.new_export_var.get().strip()
+            info(f"导出文件: old={old_export}, new={new_export}")
             exporter = FileExporter(diff_result, vcs)
             project_name = diff_result.project_name
             exporter.export(old_export, new_export, project_name=project_name)
@@ -522,9 +543,12 @@ class CompareToolApp:
             self._save_current_config()
 
             summary = diff_result.summary
+            info(f"=== 完成: {summary} ===")
             self.root.after(0, lambda: self._on_complete(report_path, summary))
 
         except Exception as e:
+            error(f"生成失败: {e}")
+            import traceback; error(traceback.format_exc())
             self.root.after(0, lambda: self._show_error(str(e)))
 
     def _on_complete(self, report_path, summary):
