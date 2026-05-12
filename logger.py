@@ -33,7 +33,7 @@ def _write(level: str, msg: str):
 
 
 def info(msg: str):
-    _write("INFO", msg)
+    pass  # 正常流程不写日志，仅在出错时记录
 
 
 def warn(msg: str):

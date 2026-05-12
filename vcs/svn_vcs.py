@@ -1,4 +1,5 @@
 import re
+import shutil
 import subprocess
 import os
 from typing import List
@@ -20,9 +21,53 @@ def _decode_bytes(data: bytes) -> str:
 class SVNVCS(BaseVCS):
     """SVN版本控制实现"""
 
-    def __init__(self, project_path: str, svn_path: str = "svn"):
+    def __init__(self, project_path: str, svn_path: str = ""):
         super().__init__(project_path)
-        self._svn = svn_path or "svn"
+        self._svn = svn_path or self._find_svn()
+
+    @staticmethod
+    def _find_svn() -> str:
+        """自动探测 svn 可执行文件路径"""
+        # 1. 先从当前进程 PATH 找
+        found = shutil.which("svn")
+        if found:
+            info(f"自动探测 svn (PATH): {found}")
+            return found
+        # 2. Windows: 合并注册表中的用户/系统 PATH 后再找
+        if os.name == "nt":
+            try:
+                import winreg
+                extra_paths = []
+                for root, key in [(winreg.HKEY_CURRENT_USER, "Environment"),
+                                  (winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment")]:
+                    try:
+                        with winreg.OpenKey(root, key) as regkey:
+                            extra_paths.append(winreg.QueryValueEx(regkey, "Path")[0])
+                    except OSError:
+                        pass
+                merged = os.environ.get("PATH", "") + ";" + ";".join(extra_paths)
+                for p in merged.split(";"):
+                    p = p.strip().strip('"')
+                    candidate = os.path.join(p, "svn.exe")
+                    if os.path.isfile(candidate):
+                        info(f"自动探测 svn (注册表PATH): {candidate}")
+                        return candidate
+            except Exception:
+                pass
+            # 3. Windows 常见安装位置
+            for p in [
+                r"C:\Program Files\TortoiseSVN\bin\svn.exe",
+                r"C:\Program Files (x86)\TortoiseSVN\bin\svn.exe",
+                r"C:\Program Files\VisualSVN\bin\svn.exe",
+                r"C:\Program Files\SlikSvn\bin\svn.exe",
+                r"C:\Program Files\CollabNet\Subversion Client\svn.exe",
+            ]:
+                if os.path.isfile(p):
+                    info(f"自动探测 svn (常见位置): {p}")
+                    return p
+        # 4. 回退到 'svn'
+        warn("未找到 svn，回退使用 'svn'")
+        return "svn"
 
     @property
     def _repo_url(self) -> str:
@@ -44,7 +89,7 @@ class SVNVCS(BaseVCS):
             encoding="utf-8", errors="replace"
         )
         if result.returncode != 0:
-            warn(f"SVN cmd FAIL: rc={result.returncode} stderr={result.stderr[:200]}")
+            warn(f"SVN cmd FAIL: {' '.join(full_cmd)} | rc={result.returncode} | {result.stderr[:200]}")
             raise RuntimeError(f"SVN命令失败: {' '.join(args)}\n{result.stderr}")
         info(f"SVN cmd OK: rc=0")
         return result.stdout
@@ -61,7 +106,7 @@ class SVNVCS(BaseVCS):
         )
         if result.returncode != 0:
             stderr = result.stderr.decode("utf-8", errors="replace") if result.stderr else ""
-            warn(f"SVN bytes FAIL: rc={result.returncode} stderr={stderr[:200]}")
+            warn(f"SVN bytes FAIL: {' '.join(full_cmd)} | rc={result.returncode} | {stderr[:200]}")
             raise RuntimeError(f"SVN命令失败: {' '.join(args)}\n{stderr}")
         info(f"SVN bytes OK: rc=0, len={len(result.stdout)}")
         return result.stdout
