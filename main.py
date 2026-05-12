@@ -48,7 +48,7 @@ class CompareToolApp:
         self.root.resizable(True, True)
         self.root.minsize(600, 700)
         # 窗口居中显示
-        w, h = 760, 860
+        w, h = 760, 920
         ws = self.root.winfo_screenwidth()
         hs = self.root.winfo_screenheight()
         x = (ws - w) // 2
@@ -217,9 +217,18 @@ class CompareToolApp:
         ttk.Radiobutton(show_root_frame, text="是", variable=self.show_project_root_var, value="yes").pack(side=tk.LEFT, padx=(6, 2))
         ttk.Radiobutton(show_root_frame, text="否", variable=self.show_project_root_var, value="no").pack(side=tk.LEFT)
 
+        # ── SVN 设置 (仅在 SVN 模式显示) ──
+        self.svn_path_label = ttk.Label(main, text="SVN 可执行文件路径 (可选，留空使用系统默认):", font=("", 10, "bold"))
+        self.svn_path_label.grid(row=23, column=0, sticky=tk.W, pady=(10, 4))
+        self.svn_path_frame = ttk.Frame(main)
+        self.svn_path_frame.grid(row=24, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
+        self.svn_path_var = tk.StringVar(value=self._config.get("svn_path", ""))
+        ttk.Entry(self.svn_path_frame, textvariable=self.svn_path_var).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Button(self.svn_path_frame, text="浏览...", command=lambda: self._browse_svn_path()).pack(side=tk.LEFT, padx=(6, 0))
+
         # ── 底部 ──
         bottom_frame = ttk.Frame(main)
-        bottom_frame.grid(row=23, column=0, columnspan=3, sticky=tk.EW, pady=(6, 0))
+        bottom_frame.grid(row=25, column=0, columnspan=3, sticky=tk.EW, pady=(6, 0))
 
         self.progress = ttk.Progressbar(bottom_frame, mode="indeterminate")
         self.progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 12))
@@ -286,6 +295,8 @@ class CompareToolApp:
             # 隐藏项目目录
             self.project_label.grid_remove()
             self.project_dir_frame.grid_remove()
+            self.svn_path_label.grid_remove()
+            self.svn_path_frame.grid_remove()
             self.old_label.config(text="旧版本文件夹:")
             self.new_label.config(text="新版本文件夹:")
             self.old_vcs_btn.pack_forget()
@@ -299,6 +310,13 @@ class CompareToolApp:
             # 显示项目目录
             self.project_label.grid()
             self.project_dir_frame.grid()
+            is_svn = self.vcs_var.get() == "svn"
+            if is_svn:
+                self.svn_path_label.grid()
+                self.svn_path_frame.grid()
+            else:
+                self.svn_path_label.grid_remove()
+                self.svn_path_frame.grid_remove()
             self.old_label.config(text="旧版本 (改动前):")
             self.new_label.config(text="新版本 (改动后):")
             self.old_folder_btn.pack_forget()
@@ -324,6 +342,14 @@ class CompareToolApp:
         path = filedialog.askdirectory(title="选择保存目录")
         if path:
             var.set(path)
+
+    def _browse_svn_path(self):
+        path = filedialog.askopenfilename(
+            title="选择 SVN 可执行文件 (svn.exe)",
+            filetypes=[("SVN 可执行文件", "svn.exe"), ("所有文件", "*.*")]
+        )
+        if path:
+            self.svn_path_var.set(path)
 
     def _browse_save_file(self, var, desc, ext):
         path = filedialog.asksaveasfilename(title=f"保存{desc}", filetypes=[(desc, ext)], defaultextension=ext)
@@ -359,7 +385,7 @@ class CompareToolApp:
             if vcs_type == "git":
                 vcs = GitVCS(project_path)
             else:
-                vcs = SVNVCS(project_path)
+                vcs = SVNVCS(project_path, svn_path=self.svn_path_var.get().strip())
 
             versions = vcs.get_versions()
             info(f"获取到 {len(versions)} 个版本")
@@ -504,7 +530,7 @@ class CompareToolApp:
             elif vcs_type == "git":
                 vcs = GitVCS(project_path)
             else:
-                vcs = SVNVCS(project_path)
+                vcs = SVNVCS(project_path, svn_path=self.svn_path_var.get().strip())
 
             exclude_text = self.exclude_text.get("1.0", tk.END).strip()
             if exclude_text:
@@ -576,6 +602,7 @@ class CompareToolApp:
         data = {
             "project_path": self.dir_entry.get().strip(),
             "vcs_type": self.vcs_var.get(),
+            "svn_path": self.svn_path_var.get().strip(),
             "exclude_rules": self.exclude_text.get("1.0", tk.END).strip(),
             "output_dir": self.output_dir_var.get().strip(),
         }

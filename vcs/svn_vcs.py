@@ -20,6 +20,10 @@ def _decode_bytes(data: bytes) -> str:
 class SVNVCS(BaseVCS):
     """SVN版本控制实现"""
 
+    def __init__(self, project_path: str, svn_path: str = "svn"):
+        super().__init__(project_path)
+        self._svn = svn_path or "svn"
+
     @property
     def _repo_url(self) -> str:
         """仓库 URL，懒加载并缓存"""
@@ -31,7 +35,7 @@ class SVNVCS(BaseVCS):
         return self._cached_repo_url
 
     def _run(self, args: list) -> str:
-        full_cmd = ["svn"] + args
+        full_cmd = [self._svn] + args
         info(f"SVN cmd (text): {' '.join(full_cmd)}")
         result = subprocess.run(
             full_cmd,
@@ -47,7 +51,7 @@ class SVNVCS(BaseVCS):
 
     def _run_bytes(self, args: list) -> bytes:
         """执行SVN命令并返回原始字节（用于获取文件内容）"""
-        full_cmd = ["svn"] + args
+        full_cmd = [self._svn] + args
         info(f"SVN cmd (bytes): {' '.join(full_cmd)}")
         result = subprocess.run(
             full_cmd,
