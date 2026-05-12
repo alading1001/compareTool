@@ -78,6 +78,7 @@ table.diff .diff_add { background: #d4fcd4; }
 table.diff .diff_sub { background: #fdd; }
 table.diff .diff_chg { background: #fff3b0; }
 table.diff td.diff_header { color: #888; font-size: 11px; text-align: right; width: 1%; white-space: nowrap; padding: 0 4px; }
+
 table.diff span { white-space: pre; }
 </style>
 </head>
@@ -302,9 +303,24 @@ function showDiff(file) {
 
     var tableWrapper = document.createElement('div');
     tableWrapper.innerHTML = file.html;
+    // 给差异行的行号单元格着色
+    var table = tableWrapper.querySelector('table.diff');
+    if (table) {
+        table.querySelectorAll('tr').forEach(function(tr) {
+            var headers = tr.querySelectorAll('td.diff_header');
+            if (tr.querySelector('.diff_add')) {
+                headers.forEach(function(td) { td.style.background = '#d4fcd4'; td.style.color = '#27ae60'; });
+            } else if (tr.querySelector('.diff_sub')) {
+                headers.forEach(function(td) { td.style.background = '#fdd'; td.style.color = '#e74c3c'; });
+            } else if (tr.querySelector('.diff_chg')) {
+                headers.forEach(function(td) { td.style.background = '#fff3b0'; td.style.color = '#b8860b'; });
+            }
+        });
+    }
     panel.appendChild(tableWrapper);
 
     container.appendChild(panel);
+    document.querySelector('.main').scrollTop = 0;
 }
 
 // ===== 变更清单弹窗 =====
