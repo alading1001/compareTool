@@ -85,14 +85,14 @@ class SVNVCS(BaseVCS):
         result = subprocess.run(
             full_cmd,
             cwd=self.project_path,
-            capture_output=True, text=True,
-            encoding="utf-8", errors="replace"
+            capture_output=True
         )
         if result.returncode != 0:
-            warn(f"SVN cmd FAIL: {' '.join(full_cmd)} | rc={result.returncode} | {result.stderr[:200]}")
-            raise RuntimeError(f"SVN命令失败: {' '.join(args)}\n{result.stderr}")
+            stderr = result.stderr.decode("utf-8", errors="replace") if result.stderr else ""
+            warn(f"SVN cmd FAIL: {' '.join(full_cmd)} | rc={result.returncode} | {stderr[:200]}")
+            raise RuntimeError(f"SVN命令失败: {' '.join(args)}\n{stderr}")
         info(f"SVN cmd OK: rc=0")
-        return result.stdout
+        return _decode_bytes(result.stdout)
 
     def _run_bytes(self, args: list) -> bytes:
         """执行SVN命令并返回原始字节（用于获取文件内容）"""
@@ -172,10 +172,40 @@ class SVNVCS(BaseVCS):
         try:
             output = self._run(["log", "-r", "HEAD:1", "-l", "50"])
             revisions = []
-            for line in output.split("\n"):
-                m = re.match(r'^r(\d+) \|', line.strip())
-                if m:
-                    revisions.append(f"r{m.group(1)}")
+            # SVN log 用分隔线分开每个 entry
+            entries = output.split("------------------------------------------------------------------------")
+            for entry in entries:
+                entry = entry.strip()
+                if not entry:
+                    continue
+                lines = entry.split("\n")
+                first = lines[0].strip()
+                m = re.match(r'^r(\d+) \|', first)
+                if not m:
+                    continue
+                rev = f"r{m.group(1)}"
+
+                # 提取 commit message：跳过 "Changed paths:" 及其后续缩进行
+                msg_parts = []
+                in_paths = False
+                for line in lines[1:]:
+                    s = line.strip()
+                    if not s:
+                        in_paths = False
+                        continue
+                    if s.startswith("Changed paths:"):
+                        in_paths = True
+                        continue
+                    if in_paths:
+                        continue
+                    msg_parts.append(s)
+
+                msg = " ".join(msg_parts)
+                if msg:
+                    suffix = "..." if len(msg) > 60 else ""
+                    revisions.append(f"{rev} {msg[:60]}{suffix}")
+                else:
+                    revisions.append(rev)
             return revisions
         except RuntimeError:
             return []

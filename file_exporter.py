@@ -1,6 +1,6 @@
 import os
 import shutil
-from diff_engine import DiffEngine, DiffResult
+from diff_engine import DiffResult
 from vcs.base import ChangeType
 
 
@@ -34,18 +34,16 @@ class FileExporter:
                 self._write_file(old_dir, file_diff.file_path, old_ver, file_diff.old_content)
                 self._write_file(new_dir, file_diff.file_path, new_ver, file_diff.new_content)
 
-    def _is_binary_ext(self, file_path: str) -> bool:
-        ext = os.path.splitext(file_path)[1].lower()
-        return ext in DiffEngine.BINARY_EXTS
-
     def _write_file(self, base_dir: str, rel_path: str, version: str, text_content: str):
         file_path = os.path.join(base_dir, rel_path)
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
 
-        if self._is_binary_ext(rel_path):
-            raw = self.vcs.get_file_content_bytes(version, rel_path)
+        # 优先读原始字节以保留原始编码，二进制和文本文件统一处理
+        raw = self.vcs.get_file_content_bytes(version, rel_path)
+        if raw:
             with open(file_path, "wb") as f:
                 f.write(raw)
-        else:
+        elif text_content:
+            # 回退：无法获取原始字节时（如文件不存在于该版本），写文本内容
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(text_content)
