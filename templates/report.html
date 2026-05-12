@@ -45,6 +45,13 @@ body { font-family: "Microsoft YaHei","Segoe UI",sans-serif; height: 100vh; over
 #tree .row.added .name { color: #27ae60; }
 #tree .row.modified .name { color: #2980b9; }
 #tree .row.deleted .name { color: #e74c3c; }
+.filter-bar { display: flex; gap: 4px; padding: 6px 14px; border-bottom: 1px solid #eee; background: #fafafa; flex-shrink: 0; align-items: center; }
+.filter-bar .flt { font-size: 11px; padding: 2px 8px; border-radius: 3px; cursor: pointer; user-select: none; border: 1px solid #ccc; background: #fff; color: #888; }
+.filter-bar .flt.on { color: #fff; border-color: transparent; }
+.filter-bar .flt.all { color: #555; }
+.filter-bar .flt.a.on { background: #27ae60; }
+.filter-bar .flt.m.on { background: #2980b9; }
+.filter-bar .flt.d.on { background: #e74c3c; }
 #tree .children { display: none; }
 #tree .children.open { display: block; }
 #tree .children { padding-left: 16px; }
@@ -108,6 +115,12 @@ table.diff span { white-space: pre; }
                 <span class="leg"><span class="dot modified"></span>修改</span>
                 <span class="leg"><span class="dot deleted"></span>删除</span>
             </div>
+        </div>
+        <div class="filter-bar">
+            <span class="flt all on" onclick="setFilter('all')">全部</span>
+            <span class="flt a on" onclick="toggleFilter('A', this)">新增</span>
+            <span class="flt m on" onclick="toggleFilter('M', this)">修改</span>
+            <span class="flt d on" onclick="toggleFilter('D', this)">删除</span>
         </div>
         <div id="tree"></div>
     </div>
@@ -351,6 +364,39 @@ function openSummary() {
     html += '</body></html>';
     w.document.write(html);
     w.document.close();
+}
+
+// ===== 变更类型过滤 =====
+var filterState = { A: true, M: true, D: true };
+
+function updateFilterUI() {
+    var allOn = filterState.A && filterState.M && filterState.D;
+    document.querySelectorAll('.filter-bar .flt.a').forEach(function(el) { el.classList.toggle('on', filterState.A); });
+    document.querySelectorAll('.filter-bar .flt.m').forEach(function(el) { el.classList.toggle('on', filterState.M); });
+    document.querySelectorAll('.filter-bar .flt.d').forEach(function(el) { el.classList.toggle('on', filterState.D); });
+    document.querySelectorAll('.filter-bar .flt.all').forEach(function(el) { el.classList.toggle('on', allOn); });
+}
+
+function toggleFilter(type, el) {
+    filterState[type] = !filterState[type];
+    applyFilter();
+}
+
+function setFilter(type) {
+    if (type === 'all') {
+        filterState.A = filterState.M = filterState.D = true;
+    }
+    applyFilter();
+}
+
+function applyFilter() {
+    updateFilterUI();
+    var filtered = fileData.filter(function(f) { return filterState[f.type]; });
+    var newRoot = buildTree(filtered);
+    var treeEl = document.getElementById('tree');
+    treeEl.innerHTML = '';
+    renderTree(newRoot, treeEl, true);
+    clearDiff();
 }
 
 // ===== 展开/折叠全部 =====
