@@ -40,7 +40,7 @@ class FileExporter:
 
         # 优先读原始字节以保留原始编码，二进制和文本文件统一处理
         raw = self.vcs.get_file_content_bytes(version, rel_path)
-        if raw:
+        if raw is not None:
             with open(file_path, "wb") as f:
                 f.write(raw)
         elif text_content:

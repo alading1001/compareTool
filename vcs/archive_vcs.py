@@ -93,6 +93,9 @@ class ArchiveVCS(BaseVCS):
     def get_file_content_working(self, file_path: str) -> str:
         return self._folder.get_file_content_working(file_path)
 
+    def get_file_content_bytes_working(self, file_path: str) -> bytes:
+        return self._folder.get_file_content_bytes_working(file_path)
+
     def get_versions(self) -> List[str]:
         return []
 

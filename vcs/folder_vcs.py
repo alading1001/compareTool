@@ -73,7 +73,7 @@ class FolderVCS(BaseVCS):
         folder = self._resolve_version_dir(version)
         full_path = os.path.join(folder, file_path)
         if not os.path.isfile(full_path):
-            return b""
+            return None
         with open(full_path, "rb") as f:
             return f.read()
 

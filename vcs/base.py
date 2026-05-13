@@ -1,3 +1,4 @@
+import os
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -87,9 +88,27 @@ class BaseVCS(ABC):
         ...
 
     def get_file_content_bytes(self, version: str, file_path: str) -> bytes:
-        """获取指定版本的文件原始字节（用于二进制文件导出）"""
+        """获取指定版本的文件原始字节。失败返回 None，文件为空返回 b"""""
         content = self.get_file_content(version, file_path)
-        return content.encode("utf-8") if content else b""
+        return content.encode("utf-8") if content else None
+
+    def get_file_content_bytes_working(self, file_path: str) -> bytes:
+        """从工作目录读取文件原始字节。失败返回 None，文件为空返回 b"""""
+        full_path = os.path.join(self.project_path, file_path)
+        if not os.path.exists(full_path) or os.path.isdir(full_path):
+            return None
+        with open(full_path, "rb") as f:
+            return f.read()
+
+    @staticmethod
+    def _is_text_bytes(data: bytes) -> bool:
+        """不含 null 字节的数据视为文本文件"""
+        return b'\x00' not in data
+
+    @staticmethod
+    def _apply_crlf(data: bytes) -> bytes:
+        """将单独的 LF 转为 CRLF，模拟 Windows checkout 换行符转换"""
+        return re.sub(rb'(?<!\r)\n', b'\r\n', data)
 
     @abstractmethod
     def get_versions(self) -> List[str]:

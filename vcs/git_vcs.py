@@ -99,10 +99,28 @@ class GitVCS(BaseVCS):
                 timeout=30
             )
             if result.returncode != 0:
-                return b""
-            return result.stdout
+                return None
+            data = result.stdout
+            if self._autocrlf_effective() and self._is_text_bytes(data):
+                data = self._apply_crlf(data)
+            return data
         except (subprocess.TimeoutExpired, RuntimeError):
-            return b""
+            return None
+
+    def _autocrlf_effective(self) -> bool:
+        """检查 core.autocrlf 是否为 true（缓存结果）"""
+        if hasattr(self, '_cached_autocrlf'):
+            return self._cached_autocrlf
+        try:
+            r = subprocess.run(
+                ["git", "config", "--get", "core.autocrlf"],
+                cwd=self.project_path,
+                capture_output=True, text=True, timeout=5
+            )
+            self._cached_autocrlf = r.stdout.strip().lower() == "true"
+        except Exception:
+            self._cached_autocrlf = False
+        return self._cached_autocrlf
 
     def get_file_content_working(self, file_path: str) -> str:
         full_path = os.path.join(self.project_path, file_path)

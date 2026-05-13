@@ -156,9 +156,32 @@ class SVNVCS(BaseVCS):
         try:
             rev = version.lstrip("r")
             url = f"{self._repo_url}/{file_path.replace(chr(92), '/')}@{rev}"
-            return self._run_bytes(["cat", url])
+            data = self._run_bytes(["cat", url])
+            # svn:eol-style=native 时，仓库存 LF，Windows 工作副本用 CRLF
+            if self._get_eol_style(file_path) == "native" and self._is_text_bytes(data):
+                data = self._apply_crlf(data)
+            return data
         except RuntimeError:
-            return b""
+            return None
+
+    def _get_eol_style(self, file_path: str) -> str:
+        """获取文件生效的 svn:eol-style 属性值（缓存结果）"""
+        cache = getattr(self, '_eol_cache', None)
+        if cache is None:
+            self._eol_cache = {}
+        if file_path in self._eol_cache:
+            return self._eol_cache[file_path]
+        try:
+            full_path = os.path.join(self.project_path, file_path)
+            result = subprocess.run(
+                [self._svn, "propget", "svn:eol-style", "--strict", full_path],
+                capture_output=True, timeout=10
+            )
+            style = result.stdout.decode("utf-8").strip() if result.returncode == 0 else ""
+        except Exception:
+            style = ""
+        self._eol_cache[file_path] = style
+        return style
 
     def get_file_content_working(self, file_path: str) -> str:
         full_path = os.path.join(self.project_path, file_path)
