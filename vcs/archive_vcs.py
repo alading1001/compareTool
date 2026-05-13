@@ -85,10 +85,23 @@ class ArchiveVCS(BaseVCS):
         return self._folder.get_changed_files("old", "new")
 
     def get_file_content(self, version: str, file_path: str) -> str:
-        return self._folder.get_file_content(version, file_path)
+        return self._folder.get_file_content(self._to_folder_ver(version), file_path)
 
     def get_file_content_bytes(self, version: str, file_path: str) -> bytes:
-        return self._folder.get_file_content_bytes(version, file_path)
+        return self._folder.get_file_content_bytes(self._to_folder_ver(version), file_path)
+
+    def _to_folder_ver(self, version: str) -> str:
+        """将外部版本标识（zip 路径）转为 FolderVCS 能识别的 'old'/'new'"""
+        if version in ("old", "new"):
+            return version
+        if version == self.old_archive:
+            return "old"
+        if version == self.new_archive:
+            return "new"
+        # 兜底：与临时目录比对
+        if version == self._tmp_old:
+            return "old"
+        return "new"
 
     def get_file_content_working(self, file_path: str) -> str:
         return self._folder.get_file_content_working(file_path)
