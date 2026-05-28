@@ -159,9 +159,9 @@ class GitVCS(BaseVCS):
                     result.append(b)
                     seen.add(b)
 
-        # 3. 最近50条提交（用于同分支不同commit比对）
+        # 3. 最近100条提交（用于同分支不同commit比对）
         try:
-            commits = self._run(["log", "--oneline", "-50", "--format=%h %s"]).strip().split("\n")
+            commits = self._run(["log", "--oneline", "-100", "--format=%h %s"]).strip().split("\n")
             if commits and commits[0]:
                 result.append("── 最近提交记录 ──")
                 for c in commits:

@@ -191,9 +191,9 @@ class SVNVCS(BaseVCS):
             return _decode_bytes(f.read())
 
     def get_versions(self) -> List[str]:
-        """获取SVN的最近50个revision（从HEAD:1查询，确保拿到最新）"""
+        """获取SVN的最近100个revision（从HEAD:1查询，确保拿到最新）"""
         try:
-            output = self._run(["log", "-r", "HEAD:1", "-l", "50"])
+            output = self._run(["log", "-r", "HEAD:1", "-l", "100"])
             revisions = []
             # SVN log 用分隔线分开每个 entry
             entries = output.split("------------------------------------------------------------------------")

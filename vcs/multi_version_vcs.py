@@ -109,7 +109,7 @@ class _MultiVersionFolderDelegate(BaseVCS):
 
 
 class GitMultiVersionVCS(_MultiVersionFolderDelegate):
-    """Git 多版本比对：基于 HEAD 干净副本，反向撤销选中提交。"""
+    """Git 多版本比对：从最早选中提交的父提交开始，只应用选中提交。"""
 
     def __init__(self, project_path: str, selected_versions: List[str]):
         super().__init__(project_path, selected_versions, "comparetool_git_multi_")
@@ -156,20 +156,23 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
 
     def _prepare(self):
         resolved = self._resolve_commits()
-        ordered = self._sort_newest_first(resolved)
+        ordered = self._sort_oldest_first(resolved)
+        base_commit = self._parent_commit(ordered[0])
+        if not base_commit:
+            raise RuntimeError("暂不支持选择 Git 根提交作为多版本比对起点")
 
         work_dir = os.path.join(self._tmp_root, "work")
         self._run(
             ["git", "clone", "--local", "--no-hardlinks", self.source_project_path, work_dir],
             cwd=self.source_project_path
         )
-        self._run(["git", "checkout", "--detach", "HEAD"], cwd=work_dir)
+        self._run(["git", "checkout", "--detach", base_commit], cwd=work_dir)
 
-        _copy_snapshot(work_dir, self._new_dir)
+        _copy_snapshot(work_dir, self._old_dir)
 
         for commit in ordered:
             result = subprocess.run(
-                ["git", "revert", "--no-commit", commit],
+                ["git", "cherry-pick", "--no-commit", commit],
                 cwd=work_dir,
                 capture_output=True,
                 text=True,
@@ -180,13 +183,21 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
             if result.returncode != 0:
                 conflicts = self._conflict_files(work_dir)
                 detail = "\n".join(conflicts) if conflicts else (result.stderr or result.stdout)
+                subprocess.run(
+                    ["git", "cherry-pick", "--abort"],
+                    cwd=work_dir,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace"
+                )
                 raise RuntimeError(
-                    "反向回滚选中提交时发生冲突或失败，已取消生成。\n"
+                    "应用选中提交时发生冲突或失败，已取消生成。\n"
                     f"提交: {commit}\n"
                     f"{detail}"
                 )
 
-        _copy_snapshot(work_dir, self._old_dir)
+        _copy_snapshot(work_dir, self._new_dir)
 
     def _resolve_commits(self) -> List[str]:
         commits = []
@@ -210,10 +221,14 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
             commits.append(commit)
         return commits
 
-    def _sort_newest_first(self, commits: List[str]) -> List[str]:
+    def _sort_oldest_first(self, commits: List[str]) -> List[str]:
         history = self._git("rev-list", "--topo-order", "HEAD").splitlines()
         order = {commit: idx for idx, commit in enumerate(history)}
-        return sorted(commits, key=lambda c: order.get(c, 10 ** 9))
+        return sorted(commits, key=lambda c: order.get(c, -1), reverse=True)
+
+    def _parent_commit(self, commit: str) -> str:
+        parts = self._git("rev-list", "--parents", "-n", "1", commit).split()
+        return parts[1] if len(parts) > 1 else ""
 
     @staticmethod
     def _conflict_files(work_dir: str) -> List[str]:
@@ -229,13 +244,24 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
 
 
 class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
-    """SVN 多版本比对：基于仓库 HEAD，反向 merge 选中 revision。"""
+    """SVN 多版本比对：从最早选中 revision 的前一版开始，只应用选中 revision。"""
 
     @staticmethod
     def get_recent_versions(project_path: str, svn_path: str = "", limit: int = 100) -> List[str]:
         svn = svn_path or SVNVCS._find_svn()
+        info = subprocess.run(
+            [svn, "info", "--non-interactive", "--show-item", "url"],
+            cwd=project_path,
+            capture_output=True,
+            timeout=60
+        )
+        if info.returncode != 0:
+            stderr = SVNMultiVersionVCS._decode(info.stderr) if info.stderr else ""
+            stdout = SVNMultiVersionVCS._decode(info.stdout) if info.stdout else ""
+            raise RuntimeError(f"SVN命令失败: info\n{stderr or stdout}")
+        url = SVNMultiVersionVCS._decode(info.stdout).strip()
         result = subprocess.run(
-            [svn, "log", "-r", "HEAD:1", "-l", str(limit), "--non-interactive", project_path],
+            [svn, "log", "-r", "HEAD:1", "-l", str(limit), "--non-interactive", f"{url}@HEAD"],
             capture_output=True,
             timeout=60
         )
@@ -311,19 +337,30 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
 
     def _prepare(self):
         revisions = self._parse_revisions()
-        revisions.sort(reverse=True)
+        revisions.sort()
 
         url = self._run(["info", "--non-interactive", "--show-item", "url"]).strip()
         if not url:
             raise RuntimeError("无法获取 SVN 仓库 URL")
 
+        base_rev = revisions[0] - 1
         work_dir = os.path.join(self._tmp_root, "work")
-        self._run(["export", "--non-interactive", "-r", "HEAD", url, self._new_dir])
-        self._run(["checkout", "--non-interactive", "-r", "HEAD", url, work_dir])
 
-        for rev in revisions:
+        if self._url_exists(url, base_rev):
+            self._run(["export", "--non-interactive", "-r", str(base_rev), url, self._old_dir])
+            self._run(["checkout", "--non-interactive", "-r", str(base_rev), url, work_dir])
+            apply_revisions = revisions
+        else:
+            os.makedirs(self._old_dir, exist_ok=True)
+            if not self._url_exists(url, revisions[0]):
+                raise RuntimeError(f"SVN 路径在基线版本 r{base_rev} 和首个选中版本 r{revisions[0]} 均不存在")
+            self._run(["checkout", "--non-interactive", "-r", str(revisions[0]), url, work_dir])
+            apply_revisions = revisions[1:]
+
+        for rev in apply_revisions:
             result = subprocess.run(
-                [self._svn, "merge", "--non-interactive", "--accept", "postpone", "-c", f"-{rev}", url, work_dir],
+                [self._svn, "merge", "--non-interactive", "--accept", "postpone",
+                 "-c", str(rev), f"{url}@HEAD", work_dir],
                 cwd=work_dir,
                 capture_output=True,
                 timeout=600
@@ -334,12 +371,21 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                 stdout = self._decode(result.stdout) if result.stdout else ""
                 detail = "\n".join(conflicts) if conflicts else (stderr or stdout)
                 raise RuntimeError(
-                    "反向回滚选中 SVN 修订时发生冲突或失败，已取消生成。\n"
+                    "应用选中 SVN 修订时发生冲突或失败，已取消生成。\n"
                     f"Revision: r{rev}\n"
                     f"{detail}"
                 )
 
-        _copy_snapshot(work_dir, self._old_dir)
+        _copy_snapshot(work_dir, self._new_dir)
+
+    def _url_exists(self, url: str, rev: int) -> bool:
+        result = subprocess.run(
+            [self._svn, "info", "--non-interactive", "--show-item", "kind", f"{url}@{rev}"],
+            cwd=self.source_project_path,
+            capture_output=True,
+            timeout=60
+        )
+        return result.returncode == 0
 
     def _parse_revisions(self) -> List[int]:
         revisions = []

@@ -80,8 +80,8 @@ class CompareToolApp:
         self.project_dir_frame.grid(row=1, column=0, columnspan=3, sticky=tk.EW, pady=(0, 10))
         self.dir_entry = ttk.Entry(self.project_dir_frame)
         self.dir_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.dir_entry.bind("<KeyRelease>", lambda e: self._update_output_paths())
-        self.dir_entry.bind("<FocusOut>", lambda e: self._update_output_paths())
+        self.dir_entry.bind("<KeyRelease>", lambda e: self._on_project_path_changed())
+        self.dir_entry.bind("<FocusOut>", lambda e: self._on_project_path_changed())
         ttk.Button(self.project_dir_frame, text="浏览...", command=self._browse_project).pack(side=tk.LEFT, padx=(6, 0))
         # 恢复上次项目路径
         last_project = self._config.get("project_path", "")
@@ -98,8 +98,8 @@ class CompareToolApp:
         ttk.Radiobutton(vcs_frame, text="SVN", variable=self.vcs_var, value="svn").pack(side=tk.LEFT, padx=(0, 16))
         ttk.Radiobutton(vcs_frame, text="文件夹", variable=self.vcs_var, value="folder").pack(side=tk.LEFT, padx=(0, 16))
         ttk.Radiobutton(vcs_frame, text="压缩包", variable=self.vcs_var, value="archive").pack(side=tk.LEFT, padx=(0, 16))
-        ttk.Radiobutton(vcs_frame, text="Git多版本", variable=self.vcs_var, value="git_multi").pack(side=tk.LEFT, padx=(0, 16))
-        ttk.Radiobutton(vcs_frame, text="SVN多版本", variable=self.vcs_var, value="svn_multi").pack(side=tk.LEFT)
+        ttk.Radiobutton(vcs_frame, text="Git需求包", variable=self.vcs_var, value="git_multi").pack(side=tk.LEFT, padx=(0, 16))
+        ttk.Radiobutton(vcs_frame, text="SVN需求包", variable=self.vcs_var, value="svn_multi").pack(side=tk.LEFT)
 
         # ── 排除规则 ──
         ttk.Label(main, text="排除规则 (每行一个，支持 * 和 ** 通配符):", font=("", 10)).grid(row=4, column=0, sticky=tk.W, pady=(0, 4))
@@ -260,8 +260,33 @@ class CompareToolApp:
 
         # 初始化输出路径和 VCS UI
         self._on_vcs_changed()
+        self._last_project_path = self._normalize_project_path(self.dir_entry.get().strip())
 
     # ========== 界面交互 ==========
+
+    @staticmethod
+    def _normalize_project_path(path: str) -> str:
+        if not path:
+            return ""
+        return os.path.normcase(os.path.abspath(os.path.normpath(path)))
+
+    def _is_project_vcs_mode(self) -> bool:
+        return self.vcs_var.get() in ("git", "svn", "git_multi", "svn_multi")
+
+    def _on_project_path_changed(self):
+        """项目路径变化时，清空 Git/SVN 相关版本选择，避免跨项目复用版本号。"""
+        current = self._normalize_project_path(self.dir_entry.get().strip())
+        previous = getattr(self, "_last_project_path", current)
+        if current != previous:
+            self._last_project_path = current
+            if self._is_project_vcs_mode():
+                self.old_version_var.set("")
+                self.new_version_var.set("")
+                self.version_listbox.delete(0, tk.END)
+                self.version_listbox.grid_remove()
+                self.fill_btn_frame.grid_remove()
+                self.status_var.set("项目路径已变更，请重新选择版本")
+        self._update_output_paths()
 
     def _update_output_paths(self, *_):
         """防抖：合并高频调用，延迟 50ms 执行"""
@@ -362,15 +387,15 @@ class CompareToolApp:
             else:
                 self.svn_path_label.grid_remove()
                 self.svn_path_frame.grid_remove()
-            self.old_label.config(text="选择要比对的版本 (可多选):")
-            self.new_label.config(text="新版本基准:")
+            self.old_label.config(text="选择需求版本 (可多选):")
+            self.new_label.config(text="生成结果:")
             self.old_folder_btn.pack_forget()
             self.old_archive_btn.pack_forget()
             self.old_vcs_btn.pack(side=tk.LEFT, padx=(6, 0))
             self.new_folder_btn.pack_forget()
             self.new_archive_btn.pack_forget()
             self.new_vcs_btn.pack_forget()
-            self.new_version_var.set("HEAD")
+            self.new_version_var.set("基线 + 选中版本")
             self.new_entry.config(state="readonly")
             self.version_listbox.config(selectmode=tk.EXTENDED)
             self.fill_selected_btn.config(text="← 填入选中版本")
@@ -408,7 +433,7 @@ class CompareToolApp:
         if path:
             self.dir_entry.delete(0, tk.END)
             self.dir_entry.insert(0, path)
-            self._update_output_paths()
+            self._on_project_path_changed()
 
     def _browse_dir(self, var):
         path = filedialog.askdirectory(title="选择保存目录")
@@ -463,7 +488,7 @@ class CompareToolApp:
         self.fill_btn_frame.grid()
         is_multi = vcs_type in ("git_multi", "svn_multi")
         self.fill_target_label.config(
-            text="将填入: " + ("多版本列表" if is_multi else ("旧版本" if target == "old" else "新版本"))
+            text="将填入: " + ("需求版本列表" if is_multi else ("旧版本" if target == "old" else "新版本"))
         )
         self.status_var.set("获取版本列表中...")
 
@@ -488,6 +513,10 @@ class CompareToolApp:
             info(f"获取到 {len(versions)} 个版本")
 
             def update_ui():
+                if (self.vcs_var.get() != vcs_type or
+                        self._normalize_project_path(self.dir_entry.get().strip()) !=
+                        self._normalize_project_path(project_path)):
+                    return
                 self.version_listbox.delete(0, tk.END)
                 if versions:
                     for v in versions:
@@ -624,7 +653,7 @@ class CompareToolApp:
                 messagebox.showwarning("提示", "请选择或输入至少一个版本")
                 return
             old_version = ", ".join(selected_versions)
-            new_version = "HEAD"
+            new_version = "基线 + 选中版本"
         else:
             if not project_path:
                 messagebox.showwarning("提示", "请选择项目目录")
