@@ -595,6 +595,7 @@ class CompareToolApp:
         vcs_type = self.vcs_var.get()
         is_folder = vcs_type == "folder"
         is_archive = vcs_type == "archive"
+        is_multi = vcs_type in ("git_multi", "svn_multi")
 
         if is_archive:
             if not old_version or not os.path.isfile(old_version):
