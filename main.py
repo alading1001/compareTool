@@ -499,7 +499,8 @@ class CompareToolApp:
                     self.status_var.set("未找到版本，请手动输入commit/revision号")
             self.root.after(0, update_ui)
         except Exception as e:
-            self.root.after(0, lambda: messagebox.showerror("错误", f"获取版本列表失败:\n{e}"))
+            msg = str(e)
+            self.root.after(0, lambda msg=msg: messagebox.showerror("错误", f"获取版本列表失败:\n{msg}"))
             self.root.after(0, lambda: self.status_var.set("出错"))
 
     def _on_version_click(self, event):
@@ -731,9 +732,10 @@ class CompareToolApp:
             self.root.after(0, lambda: self._on_complete(report_path, summary))
 
         except Exception as e:
-            error(f"生成失败: {e}")
+            msg = str(e)
+            error(f"生成失败: {msg}")
             import traceback; error(traceback.format_exc())
-            self.root.after(0, lambda: self._show_error(str(e)))
+            self.root.after(0, lambda msg=msg: self._show_error(msg))
         finally:
             if cleanup_vcs:
                 cleanup_vcs.cleanup()
