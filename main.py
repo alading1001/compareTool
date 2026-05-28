@@ -20,6 +20,7 @@ from vcs.git_vcs import GitVCS
 from vcs.svn_vcs import SVNVCS
 from vcs.folder_vcs import FolderVCS
 from vcs.archive_vcs import ArchiveVCS
+from vcs.multi_version_vcs import GitMultiVersionVCS, SVNMultiVersionVCS, parse_multi_versions
 from diff_engine import DiffEngine
 from report_generator import ReportGenerator
 from file_exporter import FileExporter
@@ -96,7 +97,9 @@ class CompareToolApp:
         ttk.Radiobutton(vcs_frame, text="Git", variable=self.vcs_var, value="git").pack(side=tk.LEFT, padx=(0, 16))
         ttk.Radiobutton(vcs_frame, text="SVN", variable=self.vcs_var, value="svn").pack(side=tk.LEFT, padx=(0, 16))
         ttk.Radiobutton(vcs_frame, text="文件夹", variable=self.vcs_var, value="folder").pack(side=tk.LEFT, padx=(0, 16))
-        ttk.Radiobutton(vcs_frame, text="压缩包", variable=self.vcs_var, value="archive").pack(side=tk.LEFT)
+        ttk.Radiobutton(vcs_frame, text="压缩包", variable=self.vcs_var, value="archive").pack(side=tk.LEFT, padx=(0, 16))
+        ttk.Radiobutton(vcs_frame, text="Git多版本", variable=self.vcs_var, value="git_multi").pack(side=tk.LEFT, padx=(0, 16))
+        ttk.Radiobutton(vcs_frame, text="SVN多版本", variable=self.vcs_var, value="svn_multi").pack(side=tk.LEFT)
 
         # ── 排除规则 ──
         ttk.Label(main, text="排除规则 (每行一个，支持 * 和 ** 通配符):", font=("", 10)).grid(row=4, column=0, sticky=tk.W, pady=(0, 4))
@@ -144,6 +147,7 @@ class CompareToolApp:
         self.old_label.grid(row=6, column=0, sticky=tk.W, pady=(0, 2))
 
         old_frame = ttk.Frame(main)
+        self.old_version_frame = old_frame
         old_frame.grid(row=7, column=0, columnspan=3, sticky=tk.EW, pady=(0, 8))
         self.old_entry = ttk.Entry(old_frame, textvariable=self.old_version_var)
         self.old_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -158,6 +162,7 @@ class CompareToolApp:
         self.new_label.grid(row=8, column=0, sticky=tk.W, pady=(0, 2))
 
         new_frame = ttk.Frame(main)
+        self.new_version_frame = new_frame
         new_frame.grid(row=9, column=0, columnspan=3, sticky=tk.EW, pady=(0, 8))
         self.new_entry = ttk.Entry(new_frame, textvariable=self.new_version_var)
         self.new_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -168,7 +173,7 @@ class CompareToolApp:
         # 文件夹/压缩包浏览按钮初始隐藏
 
         # 版本列表 + 填入按钮（仅 Git/SVN 模式使用）
-        self.version_listbox = tk.Listbox(main, height=7, exportselection=False)
+        self.version_listbox = tk.Listbox(main, height=7, exportselection=False, selectmode=tk.SINGLE)
         self.version_listbox.grid(row=10, column=0, columnspan=3, sticky=tk.EW, pady=(0, 4))
         self.version_listbox.grid_remove()
         self.version_listbox.bind("<ButtonRelease-1>", self._on_version_click)
@@ -179,7 +184,8 @@ class CompareToolApp:
         self.fill_btn_frame = fill_btn_frame
         self.fill_target_label = ttk.Label(fill_btn_frame, text="", font=("", 9))
         self.fill_target_label.pack(side=tk.LEFT)
-        ttk.Button(fill_btn_frame, text="← 填入选中版本", command=self._fill_selected_version).pack(side=tk.RIGHT)
+        self.fill_selected_btn = ttk.Button(fill_btn_frame, text="← 填入选中版本", command=self._fill_selected_version)
+        self.fill_selected_btn.pack(side=tk.RIGHT)
 
         self._version_target = "old"
 
@@ -298,6 +304,7 @@ class CompareToolApp:
         vcs_type = self.vcs_var.get()
         is_folder = vcs_type == "folder"
         is_archive = vcs_type == "archive"
+        is_multi = vcs_type in ("git_multi", "svn_multi")
         self.status_var.set("就绪")
 
         # 临时解绑 trace，避免 set("") 触发 _update_output_paths 中间态
@@ -306,8 +313,12 @@ class CompareToolApp:
         except (AttributeError, tk.TclError):
             pass
 
+        self.old_entry.config(state=tk.NORMAL)
+        self.new_entry.config(state=tk.NORMAL)
         self.old_version_var.set("")
         self.new_version_var.set("")
+        self.version_listbox.config(selectmode=tk.SINGLE)
+        self.fill_selected_btn.config(text="← 填入选中版本")
 
         if is_folder:
             self.project_label.grid_remove()
@@ -341,6 +352,31 @@ class CompareToolApp:
             self.version_listbox.grid_remove()
             self.fill_btn_frame.grid_remove()
             self.report_path_var.set("")
+        elif is_multi:
+            self.project_label.grid()
+            self.project_dir_frame.grid()
+            is_svn_multi = vcs_type == "svn_multi"
+            if is_svn_multi:
+                self.svn_path_label.grid()
+                self.svn_path_frame.grid()
+            else:
+                self.svn_path_label.grid_remove()
+                self.svn_path_frame.grid_remove()
+            self.old_label.config(text="选择要比对的版本 (可多选):")
+            self.new_label.config(text="新版本基准:")
+            self.old_folder_btn.pack_forget()
+            self.old_archive_btn.pack_forget()
+            self.old_vcs_btn.pack(side=tk.LEFT, padx=(6, 0))
+            self.new_folder_btn.pack_forget()
+            self.new_archive_btn.pack_forget()
+            self.new_vcs_btn.pack_forget()
+            self.new_version_var.set("HEAD")
+            self.new_entry.config(state="readonly")
+            self.version_listbox.config(selectmode=tk.EXTENDED)
+            self.fill_selected_btn.config(text="← 填入选中版本")
+            self.version_listbox.grid_remove()
+            self.fill_btn_frame.grid_remove()
+            self._update_output_paths()
         else:
             self.project_label.grid()
             self.project_dir_frame.grid()
@@ -412,6 +448,9 @@ class CompareToolApp:
         if vcs_type == "archive":
             messagebox.showinfo("提示", "压缩包模式无需获取版本列表，请直接选择压缩包文件。")
             return
+        if vcs_type == "folder":
+            messagebox.showinfo("提示", "文件夹模式无需获取版本列表，请直接选择文件夹。")
+            return
 
         project_path = self.dir_entry.get().strip()
         if not project_path:
@@ -422,8 +461,9 @@ class CompareToolApp:
         self.version_listbox.insert(tk.END, "正在获取版本列表，请稍候...")
         self.version_listbox.grid()
         self.fill_btn_frame.grid()
+        is_multi = vcs_type in ("git_multi", "svn_multi")
         self.fill_target_label.config(
-            text="将填入: " + ("旧版本" if target == "old" else "新版本")
+            text="将填入: " + ("多版本列表" if is_multi else ("旧版本" if target == "old" else "新版本"))
         )
         self.status_var.set("获取版本列表中...")
 
@@ -435,10 +475,16 @@ class CompareToolApp:
             info(f"获取版本列表: path={project_path}, vcs={vcs_type}")
             if vcs_type == "git":
                 vcs = GitVCS(project_path)
+                versions = vcs.get_versions()
+            elif vcs_type == "git_multi":
+                versions = GitMultiVersionVCS.get_recent_versions(project_path)
+            elif vcs_type == "svn_multi":
+                versions = SVNMultiVersionVCS.get_recent_versions(
+                    project_path, svn_path=self.svn_path_var.get().strip()
+                )
             else:
                 vcs = SVNVCS(project_path, svn_path=self.svn_path_var.get().strip())
-
-            versions = vcs.get_versions()
+                versions = vcs.get_versions()
             info(f"获取到 {len(versions)} 个版本")
 
             def update_ui():
@@ -465,6 +511,15 @@ class CompareToolApp:
         item = self.version_listbox.get(idx)
         if item.startswith("──") or item.startswith("(") or item.startswith("正在"):
             return
+        if self.vcs_var.get() in ("git_multi", "svn_multi"):
+            now = event.time
+            last = getattr(self, '_last_click_time', 0)
+            last_idx = getattr(self, '_last_click_idx', -1)
+            self._last_click_time = now
+            self._last_click_idx = idx
+            if now - last < 400 and idx == last_idx:
+                self._fill_selected_version()
+            return
         # 选中该项
         self.version_listbox.selection_clear(0, tk.END)
         self.version_listbox.selection_set(idx)
@@ -484,6 +539,16 @@ class CompareToolApp:
         """将列表框中当前选中的版本填入对应的输入框"""
         sel = self.version_listbox.curselection()
         if not sel:
+            return
+        if self.vcs_var.get() in ("git_multi", "svn_multi"):
+            versions = []
+            for idx in sel:
+                item = self.version_listbox.get(idx)
+                if item.startswith("──") or item.startswith("(") or item.startswith("正在"):
+                    continue
+                versions.append(item.split(" ")[0] if " " in item else item)
+            if versions:
+                self.old_version_var.set("\n".join(versions))
             return
         item = self.version_listbox.get(sel[0])
         if item.startswith("──") or item.startswith("(") or item.startswith("正在"):
@@ -545,6 +610,19 @@ class CompareToolApp:
             if not new_version or not os.path.isdir(new_version):
                 messagebox.showwarning("提示", "新版本文件夹不存在，请选择有效的文件夹")
                 return
+        elif is_multi:
+            if not project_path:
+                messagebox.showwarning("提示", "请选择项目目录")
+                return
+            if not os.path.isdir(project_path):
+                messagebox.showwarning("提示", "项目目录不存在")
+                return
+            selected_versions = parse_multi_versions(old_version)
+            if not selected_versions:
+                messagebox.showwarning("提示", "请选择或输入至少一个版本")
+                return
+            old_version = ", ".join(selected_versions)
+            new_version = "HEAD"
         else:
             if not project_path:
                 messagebox.showwarning("提示", "请选择项目目录")
@@ -582,16 +660,23 @@ class CompareToolApp:
         thread.start()
 
     def _do_generate(self, project_path, vcs_type, old_version, new_version):
-        archive_vcs = None  # 持有引用以便 finally 清理
+        cleanup_vcs = None  # 持有引用以便 finally 清理临时目录
         try:
             info(f"=== 开始生成比对报告 ===")
             info(f"project_path={project_path}, vcs_type={vcs_type}, old={old_version}, new={new_version}")
 
             if vcs_type == "archive":
                 vcs = ArchiveVCS(old_version, new_version)
-                archive_vcs = vcs
+                cleanup_vcs = vcs
             elif vcs_type == "folder":
                 vcs = FolderVCS(old_version, new_version)
+            elif vcs_type == "git_multi":
+                vcs = GitMultiVersionVCS(project_path, parse_multi_versions(old_version))
+                cleanup_vcs = vcs
+            elif vcs_type == "svn_multi":
+                vcs = SVNMultiVersionVCS(project_path, parse_multi_versions(old_version),
+                                         svn_path=self.svn_path_var.get().strip())
+                cleanup_vcs = vcs
             elif vcs_type == "git":
                 vcs = GitVCS(project_path)
             else:
@@ -601,7 +686,7 @@ class CompareToolApp:
             if exclude_text:
                 vcs.set_exclude_patterns(exclude_text.split("\n"))
 
-            if vcs_type not in ("folder", "archive"):
+            if vcs_type not in ("folder", "archive", "git_multi", "svn_multi"):
                 if not vcs.check_version_exists(old_version):
                     warn(f"旧版本不存在: {old_version}")
                     self._show_error(f"旧版本不存在: {old_version}")
@@ -618,6 +703,9 @@ class CompareToolApp:
             if vcs_type == "archive":
                 diff_result.project_name = os.path.splitext(os.path.basename(new_version))[0]
                 diff_result.project_path = os.path.basename(new_version)
+            elif vcs_type in ("git_multi", "svn_multi"):
+                diff_result.project_name = os.path.basename(os.path.normpath(project_path))
+                diff_result.project_path = project_path
             info(f"变更文件数: {len(diff_result.files)}")
 
             report_path = self.report_path_var.get().strip()
@@ -646,8 +734,8 @@ class CompareToolApp:
             import traceback; error(traceback.format_exc())
             self.root.after(0, lambda: self._show_error(str(e)))
         finally:
-            if archive_vcs:
-                archive_vcs.cleanup()
+            if cleanup_vcs:
+                cleanup_vcs.cleanup()
 
     def _on_complete(self, report_path, summary):
         self.progress.stop()
