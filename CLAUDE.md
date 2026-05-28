@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-代码比对报告工具 — Windows 桌面应用，输入 Git/SVN 项目路径和两个版本号，生成 HTML 差异报告并导出变更文件。通过 PyInstaller 打包成单文件 exe，无需 Python 环境。
+代码比对报告工具 — Windows 桌面应用，输入 Git/SVN/文件夹/压缩包路径和版本信息，生成 HTML 差异报告并导出变更文件。通过 PyInstaller 打包成单文件 exe，无需 Python 环境。
 
 ## 运行与打包
 
@@ -28,7 +28,8 @@ main.py                  # tkinter GUI 入口，线程管理，配置持久化�
 │   ├── git_vcs.py       # GitVCS：git diff --name-status / git show / git log
 │   ├── svn_vcs.py       # SVNVCS：svn diff --summarize / svn cat (URL+@peg) / svn log
 │   ├── folder_vcs.py    # FolderVCS：两个文件夹直接比对，filecmp.cmp 判断差异
-│   └── archive_vcs.py   # ArchiveVCS：解压 zip/tar 到临时目录，委托 FolderVCS 比对
+│   ├── archive_vcs.py   # ArchiveVCS：解压 zip/tar 到临时目录，委托 FolderVCS 比对
+│   └── multi_version_vcs.py # Git/SVN 需求包比对：临时基线 + cherry-pick / svn merge 后委托 FolderVCS
 ├── diff_engine.py       # DiffEngine：遍历变更文件，difflib.HtmlDiff.make_table()
 ├── report_generator.py  # Jinja2 渲染 templates/report.html → 单文件 HTML
 ├── file_exporter.py     # 变更文件按目录结构导出到 old/ 和 new/ 目录
@@ -38,8 +39,8 @@ main.py                  # tkinter GUI 入口，线程管理，配置持久化�
 
 ### 数据流
 
-1. `main.py` 收集输入：项目路径、VCS 类型（Git/SVN/文件夹/压缩包）、旧/新版本号、排除规则、输出目录
-2. 根据 VCS 类型创建 `GitVCS` / `SVNVCS` / `FolderVCS` / `ArchiveVCS` → `get_changed_files()` 获取变更文件列表
+1. `main.py` 收集输入：项目路径、VCS 类型（Git/SVN/文件夹/压缩包/Git需求包/SVN需求包）、旧/新版本号或需求版本列表、排除规则、输出目录
+2. 根据 VCS 类型创建 `GitVCS` / `SVNVCS` / `FolderVCS` / `ArchiveVCS` / `GitMultiVersionVCS` / `SVNMultiVersionVCS` → `get_changed_files()` 获取变更文件列表
 3. `DiffEngine.generate_diff()` 遍历文件，对文本文件用 `difflib.HtmlDiff.make_table()` 生成 side-by-side HTML；二进制文件跳过内容只设占位标记
 4. `ReportGenerator` 用 Jinja2 渲染模板 → 单文件 HTML
 5. `FileExporter` 导出变更文件：统一通过 `vcs.get_file_content_bytes()` 读取原始字节（失败返回 `None`，空文件返回 `b""`），以 `wb` 模式写入保留原始编码。`None` 时回退到文本内容（UTF-8）。
@@ -52,6 +53,26 @@ main.py                  # tkinter GUI 入口，线程管理，配置持久化�
 | SVN | `rNNNNN` 或 `NNNNN` | 同左 | `get_file_content` 使用仓库 URL + peg revision |
 | 文件夹 | 旧文件夹路径 | 新文件夹路径 | 版本标识即为文件夹路径，`_resolve_version_dir()` 同时兼容 `"old"`/`"new"` 和实际路径 |
 | 压缩包 | 旧压缩包路径 | 新压缩包路径 | 解压到临时目录后委托 `FolderVCS` 比对；支持 `.zip` / `.tar` / `.tar.gz` / `.tar.bz2` |
+| Git需求包 | 多个 commit hash | `基线 + 选中版本` | `old = 最早选中提交的父提交`，`new = old + 按时间顺序 cherry-pick 选中提交` |
+| SVN需求包 | 多个 `rNNNNN` 或 `NNNNN` | `基线 + 选中版本` | `old = 最早选中 revision - 1`，`new = old + 按 revision 顺序 svn merge 选中修订` |
+
+### 需求包比对
+
+Git需求包/SVN需求包用于按需求拆分上线包，而不是从当前 HEAD 中扣除未选版本。语义固定为：
+
+```
+old = 最早选中版本的前一个版本
+new = old + 按时间顺序应用所有选中版本
+报告 = old 与 new 的差异
+```
+
+例：提交顺序为 `C提交 → A需求1 → B需求1 → A需求2 → B需求2`，只选择 `A需求1` 和 `A需求2` 时，报告体现 A 需求相对于 `C提交` 的改动。若选中版本依赖未选版本（例如 A 修改了 B 新增的文件），临时应用提交/修订会冲突，工具应失败并提示冲突文件，不生成假报告。
+
+实现要点：
+- `GitMultiVersionVCS`：解析选中 commit，按历史顺序排序；取最早选中 commit 的父提交作为 base；临时 clone 后 checkout base；依次 `git cherry-pick --no-commit` 选中提交；成功后复制为 `new`，base 快照为 `old`。合并提交暂不支持，版本列表用 `git log --first-parent --no-merges -100` 排除 merge commit。
+- `SVNMultiVersionVCS`：解析 revision，升序排序；取最小 revision - 1 作为 base；若当前 URL 在 base 存在，则 export/checkout base；若当前 URL 在 base 不存在但在首个选中 revision 存在，则 old 为空、checkout 首个选中 revision，并从第二个 revision 开始 merge。之后依次 `svn merge -c REV URL@HEAD workdir`。版本列表用当前项目 `URL@HEAD` 查询最近 100 条相关 revision，不查询全仓库。
+- 两种需求包模式都只在 `tempfile.mkdtemp` 下创建临时目录，成功、失败、冲突都必须在 `finally` 中清理；Windows 只读元数据通过 `_remove_tree()` 恢复写权限后删除。
+- 用户切换 Git/SVN/Git需求包/SVN需求包的项目目录时，若路径实际变化，必须清空旧/新版本输入和版本列表，避免跨项目复用版本号；异步获取版本列表返回时也要校验项目路径和 VCS 类型仍一致。
 
 ### SVN 文件内容获取（重要）
 
