@@ -444,7 +444,7 @@ class CompareToolApp:
         path = filedialog.askopenfilename(
             title="选择压缩包",
             filetypes=[
-                ("压缩文件", "*.zip *.tar *.tar.gz *.tgz *.tar.bz2 *.tbz2"),
+                ("压缩文件", "*.zip *.jar *.war *.ear *.aar *.tar *.tar.gz *.tgz *.tar.bz2 *.tbz2"),
                 ("所有文件", "*.*"),
             ]
         )

@@ -52,7 +52,7 @@ main.py                  # tkinter GUI 入口，线程管理，配置持久化�
 | Git | commit hash / tag / branch | 同左 | `get_file_content_working` 直接读工作副本文件 |
 | SVN | `rNNNNN` 或 `NNNNN` | 同左 | `get_file_content` 使用仓库 URL + peg revision |
 | 文件夹 | 旧文件夹路径 | 新文件夹路径 | 版本标识即为文件夹路径，`_resolve_version_dir()` 同时兼容 `"old"`/`"new"` 和实际路径 |
-| 压缩包 | 旧压缩包路径 | 新压缩包路径 | 解压到临时目录后委托 `FolderVCS` 比对；支持 `.zip` / `.tar` / `.tar.gz` / `.tar.bz2` |
+| 压缩包 | 旧压缩包路径 | 新压缩包路径 | 解压到临时目录后委托 `FolderVCS` 比对；支持 `.zip` / `.jar` / `.war` / `.ear` / `.aar` / `.tar` / `.tar.gz` / `.tgz` / `.tar.bz2` / `.tbz2` |
 | Git需求包 | 多个 commit hash | `基线 + 选中版本` | `old = 最早选中提交的父提交`，`new = old + 按时间顺序 cherry-pick 选中提交` |
 | SVN需求包 | 多个 `rNNNNN` 或 `NNNNN` | `基线 + 选中版本` | `old = 最早选中 revision - 1`，`new = old + 按 revision 顺序 svn merge 选中修订` |
 
@@ -92,8 +92,8 @@ SVN 可执行文件路径通过 `_find_svn()` 自动探测：先查 `shutil.whic
 
 `ArchiveVCS` 解压两个压缩包到 `tempfile.mkdtemp` 临时目录，然后委托 `FolderVCS` 做文件遍历和内容比对。支持的格式：
 
-- `.zip` — `zipfile` 标准库，含 ZIP 文件名 GBK 编码修正
-- `.tar` / `.tar.gz` / `.tar.bz2` — `tarfile` 标准库
+- `.zip` / `.jar` / `.war` / `.ear` / `.aar` — `zipfile` 标准库，含 ZIP 文件名 GBK 编码修正
+- `.tar` / `.tar.gz` / `.tgz` / `.tar.bz2` / `.tbz2` — `tarfile` 标准库
 
 **ZIP 文件名编码修正**：Windows 中文环境创建的 zip 文件名通常用 GBK 编码而不设 UTF-8 标志位（`flag_bits & 0x800 == 0`）。`_fix_zip_filename()` 将 `ZipInfo.filename` 反向编码为 CP437 原始字节，再按 GBK 解码为正确的中文文件名。
 

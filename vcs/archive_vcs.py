@@ -38,7 +38,10 @@ class ArchiveVCS(BaseVCS):
         elif self._is_tar(archive_path):
             self._extract_tar(archive_path, dest)
         else:
-            raise ValueError(f"不支持的压缩格式: {archive_path}（支持 .zip / .tar / .tar.gz / .tar.bz2）")
+            raise ValueError(
+                f"不支持的压缩格式: {archive_path}"
+                "（支持 .zip / .jar / .war / .ear / .aar / .tar / .tar.gz / .tgz / .tar.bz2 / .tbz2）"
+            )
 
     def _extract_zip(self, path: str, dest: str):
         with zipfile.ZipFile(path, 'r') as zf:
