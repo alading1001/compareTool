@@ -129,7 +129,7 @@ table.diff span { white-space: pre; }
     <div class="main">
         <div class="empty-state" id="emptyState">
             <span>点击左侧文件查看差异详情</span>
-            <span class="tip">项目名作为文件树第一层</span>
+            <span class="tip">点击文件夹展开/折叠</span>
         </div>
         <div id="diffContainer"></div>
     </div>
@@ -151,8 +151,9 @@ var fileData = [];
 {% for file in project.diff_result.files %}
 fileData.push({
     project: {{ project.project_name | tojson }},
+    showProjectRoot: {{ project.show_project_root | tojson }},
     path: {{ file.file_path | replace('\\','/') | tojson }},
-    displayPath: {{ (project.project_name ~ '/' ~ (file.file_path | replace('\\','/'))) | tojson }},
+    displayPath: {{ ((project.project_name ~ '/' ~ (file.file_path | replace('\\','/'))) if project.show_project_root else (file.file_path | replace('\\','/'))) | tojson }},
     type: {{ file.change_type.value | tojson }},
     html: document.getElementById("sbs-{{ project_loop.index }}-{{ loop.index }}").innerHTML
 });
@@ -167,7 +168,7 @@ function esc(s) {
 }
 
 function buildTree(files) {
-    var root = {name: "多项目代码比对总报告", children: {}, files: []};
+    var root = {name: "", children: {}, files: []};
     files.forEach(function(f) {
         var parts = f.displayPath.split('/');
         var current = root;
@@ -199,25 +200,6 @@ function getDirType(node) {
 }
 
 function renderTree(node, container, isRoot) {
-    if (isRoot) {
-        var rootRow = document.createElement('div');
-        rootRow.className = 'row';
-        rootRow.style.fontWeight = 'bold';
-        rootRow.innerHTML = '<span class="icon">▼</span><span class="name">' + esc(node.name) + '</span>';
-        container.appendChild(rootRow);
-        var rootChildren = document.createElement('div');
-        rootChildren.className = 'children open';
-        rootRow.addEventListener('click', function(e) {
-            e.stopPropagation();
-            var isOpen = rootChildren.classList.contains('open');
-            rootChildren.classList.toggle('open');
-            rootRow.querySelector('.icon').textContent = isOpen ? '▶' : '▼';
-            clearDiff();
-        });
-        container.appendChild(rootChildren);
-        container = rootChildren;
-    }
-
     Object.values(node.children).sort(function(a,b) {
         return a.name.localeCompare(b.name);
     }).forEach(function(child) {
@@ -273,7 +255,7 @@ function showDiff(file) {
     var header = document.createElement('div');
     header.className = 'diff-file-header';
     header.innerHTML = '<span class="change-tag ' + file.type + '">' + typeLabel(file.type) + '</span>' +
-        '<span class="project-name">' + esc(file.project) + '</span>' + esc(file.path);
+        (file.showProjectRoot ? '<span class="project-name">' + esc(file.project) + '</span>' : '') + esc(file.path);
     panel.appendChild(header);
     var tableWrapper = document.createElement('div');
     tableWrapper.innerHTML = file.html;
@@ -297,34 +279,31 @@ function showDiff(file) {
 
 function openSummary() {
     var w = window.open('', '_blank', 'width=920,height=760');
-    var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>多项目变更清单</title>';
-    html += '<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:"Microsoft YaHei","Segoe UI",sans-serif;background:#f5f5f5;padding:24px}h1{font-size:20px;margin-bottom:4px}h2{font-size:14px;font-weight:normal;color:#888;margin-bottom:20px}.project{margin-bottom:24px}.project-title{font-size:16px;margin-bottom:10px;color:#333}.section{margin-bottom:14px}.section h3{font-size:14px;padding:7px 12px;border-radius:5px 5px 0 0;color:white}.section h3.added{background:#27ae60}.section h3.modified{background:#2980b9}.section h3.deleted{background:#e74c3c}.section ul{background:white;border-radius:0 0 5px 5px;list-style:none;padding:7px 0}.section li{padding:5px 18px;font-family:Consolas,"Courier New",monospace;font-size:13px;border-bottom:1px solid #f0f0f0}.section li:last-child{border-bottom:none}.count{font-size:12px;font-weight:normal;opacity:.8;margin-left:8px}.empty{color:#bbb;text-align:center;padding:14px}</style></head><body>';
-    html += '<h1>变更清单</h1>';
-    html += '<h2>共 {{ summary.project_count }} 个项目，{{ summary.total_files }} 个变更文件</h2>';
-    var byProject = {};
+    if (!w) return;
+    var groups = {A:[], M:[], D:[]};
     fileData.forEach(function(f) {
-        if (!byProject[f.project]) byProject[f.project] = {A:[], M:[], D:[]};
-        if (byProject[f.project][f.type]) byProject[f.project][f.type].push(f.path);
+        if (groups[f.type]) groups[f.type].push(f.displayPath);
     });
     var labels = {A:'新增文件', M:'修改文件', D:'删除文件'};
-    var clss = {A:'added', M:'modified', D:'deleted'};
-    Object.keys(byProject).sort().forEach(function(project) {
-        html += '<div class="project"><div class="project-title">' + esc(project) + '</div>';
-        ['A','M','D'].forEach(function(t) {
-            var list = byProject[project][t];
-            html += '<div class="section"><h3 class="' + clss[t] + '">' + labels[t] + '<span class="count">(' + list.length + ' 个)</span></h3><ul>';
-            if (list.length === 0) {
-                html += '<li class="empty">无</li>';
-            } else {
-                list.sort().forEach(function(p) { html += '<li>' + esc(project + '/' + p) + '</li>'; });
-            }
-            html += '</ul></div>';
-        });
-        html += '</div>';
+    var lines = [
+        '变更清单',
+        '',
+        '共 {{ summary.project_count }} 个项目，{{ summary.total_files }} 个变更文件'
+    ];
+    ['A','M','D'].forEach(function(t) {
+        var list = groups[t].sort();
+        lines.push('');
+        lines.push(labels[t] + '（' + list.length + ' 个）');
+        if (list.length === 0) {
+            lines.push('无');
+        } else {
+            list.forEach(function(p) { lines.push(p); });
+        }
     });
-    html += '</body></html>';
-    w.document.write(html);
+    w.document.open();
+    w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>多项目变更清单</title></head><body><pre id="summaryText"></pre></body></html>');
     w.document.close();
+    w.document.getElementById('summaryText').textContent = lines.join('\n');
 }
 
 var filterState = { A: true, M: true, D: true };

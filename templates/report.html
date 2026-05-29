@@ -326,32 +326,16 @@ function showDiff(file) {
 // ===== 变更清单弹窗 =====
 function openSummary() {
     var w = window.open('', '_blank', 'width=860,height=700');
+    if (!w) return;
+    var projectName = {{ project_name | tojson }};
+    var oldVersion = {{ old_version | tojson }};
+    var newVersion = {{ new_version | tojson }};
+    var title = {% if show_project_root %}'变更清单 - ' + projectName{% else %}'变更清单'{% endif %};
+    var lines = ['变更清单', ''];
 {% if show_project_root %}
-    var html = '<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><title>变更清单 - {{ project_name | e }}</title>';
+    lines.push(projectName + ' | ' + oldVersion + ' -> ' + newVersion);
 {% else %}
-    var html = '<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><title>变更清单</title>';
-{% endif %}
-    html += '<style>';
-    html += '*{margin:0;padding:0;box-sizing:border-box}';
-    html += 'body{font-family:\"Microsoft YaHei\",\"Segoe UI\",sans-serif;background:#f5f5f5;padding:24px}';
-    html += 'h1{font-size:20px;margin-bottom:4px}';
-    html += 'h2{font-size:14px;font-weight:normal;color:#888;margin-bottom:20px}';
-    html += '.section{margin-bottom:20px}';
-    html += '.section h3{font-size:15px;padding:8px 14px;border-radius:6px 6px 0 0;color:white}';
-    html += '.section h3.added{background:#27ae60}';
-    html += '.section h3.modified{background:#2980b9}';
-    html += '.section h3.deleted{background:#e74c3c}';
-    html += '.section ul{background:white;border-radius:0 0 6px 6px;list-style:none;padding:8px 0}';
-    html += '.section li{padding:5px 20px;font-family:Consolas,\"Courier New\",monospace;font-size:13px;border-bottom:1px solid #f0f0f0}';
-    html += '.section li:last-child{border-bottom:none}';
-    html += '.count{font-size:12px;font-weight:normal;opacity:.8;margin-left:8px}';
-    html += '.empty{color:#bbb;text-align:center;padding:20px}';
-    html += '</style></head><body>';
-    html += '<h1>📋 变更清单</h1>';
-{% if show_project_root %}
-    html += '<h2>{{ project_name | e }} &nbsp;|&nbsp; {{ old_version | e }} → {{ new_version | e }}</h2>';
-{% else %}
-    html += '<h2>{{ old_version | e }} → {{ new_version | e }}</h2>';
+    lines.push(oldVersion + ' -> ' + newVersion);
 {% endif %}
 
     var groups = {A:[], M:[], D:[]};
@@ -359,28 +343,27 @@ function openSummary() {
         if (groups[f.type]) groups[f.type].push(f.path);
     });
     var labels = {A:'新增文件', M:'修改文件', D:'删除文件'};
-    var clss = {A:'added', M:'modified', D:'deleted'};
     ['A','M','D'].forEach(function(t) {
         var list = groups[t];
-        html += '<div class=\"section\">';
-        html += '<h3 class=\"' + clss[t] + '\">' + labels[t] + '<span class=\"count\">(' + list.length + ' 个)</span></h3>';
-        html += '<ul>';
+        lines.push('');
+        lines.push(labels[t] + '（' + list.length + ' 个）');
         if (list.length === 0) {
-            html += '<li class=\"empty\">无</li>';
+            lines.push('无');
         } else {
             list.sort().forEach(function(p) {
 {% if show_project_root %}
-                html += '<li>' + esc('{{ project_name | e }}/' + p) + '</li>';
+                lines.push(projectName + '/' + p);
 {% else %}
-                html += '<li>' + esc(p) + '</li>';
+                lines.push(p);
 {% endif %}
             });
         }
-        html += '</ul></div>';
     });
-    html += '</body></html>';
-    w.document.write(html);
+    w.document.open();
+    w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title></title></head><body><pre id="summaryText"></pre></body></html>');
     w.document.close();
+    w.document.title = title;
+    w.document.getElementById('summaryText').textContent = lines.join('\n');
 }
 
 // ===== 变更类型过滤 =====
