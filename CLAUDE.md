@@ -17,7 +17,7 @@ python main.py
 build.bat
 ```
 
-打包时需确保 `templates/` 目录和 `paichu.txt` 与 main.py 在同一目录下。PyInstaller 的 `--add-data` 已处理 `templates`，`paichu.txt` 通过 `BASE_DIR` 自动定位。使用 `--console` 而非 `--windowed`，确保 git/svn 子进程有终端可用，避免凭据认证弹 GUI 窗口。
+打包时需确保 `templates/` 目录与 main.py 在同一目录下。PyInstaller 的 `--add-data` 已处理 `templates`。使用 `--console` 而非 `--windowed`，确保 git/svn 子进程有终端可用，避免凭据认证弹 GUI 窗口。
 
 ## 架构
 
@@ -131,11 +131,13 @@ SVN 可执行文件路径通过 `_find_svn()` 自动探测：先查 `shutil.whic
 
 ### 排除规则
 
-`paichu.txt` 中的 glob 模式在 `base._match_glob()` 中转正则：
+内置默认排除规则定义在 `main.py` 的 `DEFAULT_EXCLUDE_RULES`。界面中的 glob 模式在 `base._match_glob()` 中转正则：
 - 不含 `/` 的模式（如 `*.class`）自动匹配任意深度 → 添加 `**/` 前缀
 - `**/` → 可选目录前缀 `(.*/)?`
 - `**`（末尾）→ `.*`
 - 单 `*` → `[^/]*`
+
+默认模板偏通用，只排除 VCS 元数据、Java/Python/Node 常见构建产物、日志/临时目录、IDE 元数据和系统文件。项目配置、脚本、文档类文件（如 `README.md`、`gradlew`、`settings.gradle`、`gradle.properties`）不应默认排除，应由用户按项目自行添加。
 
 ### 换行符处理
 
@@ -151,7 +153,6 @@ Windows 上 `core.autocrlf=true`（Git）或 `svn:eol-style=native`（SVN）会�
 - **SVN 子进程输出**：`_run()` 读取原始字节，通过 `_decode_bytes()` 自动探测编码（UTF-8 → GBK → 回退）。影响 svn log、svn diff、svn info 等所有命令输出
 - **SVN cat / 本地文件**：同样走 `_decode_bytes()`（UTF-8 → GBK）
 - **Git 路径**：`_unescape_git_path()` 解码 `core.quotepath` 八进制转义（`\347\274\226` → 编）
-- **paichu.txt**：UTF-8 → GBK 回退
 
 ### Shell 依赖
 
@@ -159,4 +160,4 @@ Windows 上 `core.autocrlf=true`（Git）或 `svn:eol-style=native`（SVN）会�
 
 ### 配置持久化
 
-`compareTool_config.json` 保存项目路径、VCS 类型、SVN 路径、输出路径、多项目任务列表和 `project_exclude_rules`。排除规则按规范化绝对路径保存：Git/SVN/Git需求包/SVN需求包用项目目录，文件夹用新版本文件夹，压缩包用新版本压缩包完整文件路径。新路径没有专属规则时，默认模板优先级：旧配置 `exclude_rules` > `paichu.txt` > 内置默认值。多项目任务保存添加/更新时的排除规则快照，后续项目默认规则变化不会偷偷影响已添加任务。
+`compareTool_config.json` 保存项目路径、VCS 类型、SVN 路径、输出路径、多项目任务列表和 `project_exclude_rules`。排除规则按规范化绝对路径保存：Git/SVN/Git需求包/SVN需求包用项目目录，文件夹用新版本文件夹，压缩包用新版本压缩包完整文件路径。新路径没有专属规则时，使用 `main.py` 内置默认模板；旧版全局 `exclude_rules` 不再作为默认模板来源。多项目任务保存添加/更新时的排除规则快照，后续项目默认规则变化不会偷偷影响已添加任务。

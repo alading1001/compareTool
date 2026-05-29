@@ -17,6 +17,51 @@ else:
 
 CONFIG_FILE = os.path.join(CONFIG_DIR, "compareTool_config.json")
 
+DEFAULT_EXCLUDE_RULES = "\n".join([
+    "**/.git/**",
+    "**/.svn/**",
+    "",
+    "*.class",
+    "*.war",
+    "*.ear",
+    "**/target/**",
+    "**/build/**",
+    "**/bin/**",
+    "**/dist/**",
+    "**/out/**",
+    "**/.gradle/**",
+    "",
+    "**/node_modules/**",
+    "**/__pycache__/**",
+    "*.pyc",
+    "*.pyo",
+    "*.pyd",
+    "**/.pytest_cache/**",
+    "**/.mypy_cache/**",
+    "**/.ruff_cache/**",
+    "**/.tox/**",
+    "**/.venv/**",
+    "**/venv/**",
+    "",
+    "**/logs/**",
+    "*.log",
+    "**/tmp/**",
+    "**/temp/**",
+    "**/coverage/**",
+    "**/htmlcov/**",
+    "",
+    "**/.idea/**",
+    "**/.settings/**",
+    "**/.vscode/**",
+    ".project",
+    ".classpath",
+    "*.iml",
+    "",
+    ".DS_Store",
+    "Thumbs.db",
+    "desktop.ini",
+]).strip()
+
 from vcs.git_vcs import GitVCS
 from vcs.svn_vcs import SVNVCS
 from vcs.folder_vcs import FolderVCS
@@ -77,29 +122,8 @@ class CompareToolApp:
     # ========== UI 构建 ==========
 
     def _load_default_exclude_rules(self) -> str:
-        """读取默认排除规则模板：老配置 > paichu.txt > 内置默认。"""
-        if self._config.get("exclude_rules"):
-            return self._config["exclude_rules"]
-
-        paichu_path = os.path.join(BASE_DIR, "paichu.txt")
-        if os.path.exists(paichu_path):
-            with open(paichu_path, "rb") as pf:
-                raw = pf.read()
-            for enc in ("utf-8", "gbk"):
-                try:
-                    return raw.decode(enc).strip()
-                except UnicodeDecodeError:
-                    continue
-            return raw.decode("utf-8", errors="replace").strip()
-
-        return (
-            "*.class\n*.war\n*.ear\n"
-            "target/**\nbuild/**\nbin/**\ndist/**\n"
-            ".git/**\n.svn/**\n"
-            ".idea/**\n.settings/**\n.project\n.classpath\n"
-            "node_modules/**\n**/__pycache__/**\n*.pyc\n"
-            ".DS_Store\nThumbs.db"
-        )
+        """读取内置默认排除规则模板。项目专属规则由 project_exclude_rules 负责。"""
+        return DEFAULT_EXCLUDE_RULES
 
     def _build_ui(self):
         container = ttk.Frame(self.root)
@@ -1305,7 +1329,6 @@ class CompareToolApp:
             "project_path": self.dir_entry.get().strip(),
             "vcs_type": self.vcs_var.get(),
             "svn_path": self.svn_path_var.get().strip(),
-            "exclude_rules": self._default_exclude_rules,
             "project_exclude_rules": self._project_exclude_rules,
             "multi_tasks": self._multi_tasks,
             "output_dir": self.output_dir_var.get().strip(),

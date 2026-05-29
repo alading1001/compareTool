@@ -77,14 +77,15 @@ new = old + 按时间顺序应用所有选中版本
 
 ## 排除规则
 
-项目目录下的 `paichu.txt` 定义默认排除规则，每行一个 glob 模式：
+工具内置一套通用默认排除规则，每行一个 glob 模式。新项目没有专属配置时使用这套默认模板；在界面里修改后，会按项目目录（压缩包按新版本压缩包完整路径）单独记忆。
 
 ```
 *.class
-target/**
-.git/**
-.idea/**
-node_modules/**
+**/target/**
+**/.git/**
+**/.idea/**
+**/node_modules/**
+**/__pycache__/**
 ...
 ```
 
@@ -95,4 +96,4 @@ node_modules/**
 
 ## 配置文件
 
-`compareTool_config.json` 自动保存上次的项目路径、VCS 类型、SVN 路径、输出路径、多项目任务列表和按项目路径记忆的排除规则。新项目没有专属规则时，默认规则来源优先级：旧配置 `exclude_rules` > `paichu.txt` > 内置默认值。
+`compareTool_config.json` 自动保存上次的项目路径、VCS 类型、SVN 路径、输出路径、多项目任务列表和按项目路径记忆的排除规则。新项目没有专属规则时，直接使用代码内置默认模板；旧版全局 `exclude_rules` 不再作为默认模板来源。
