@@ -69,7 +69,7 @@ new = old + 按时间顺序应用所有选中版本
 例：提交顺序为 `C提交 → A需求1 → B需求1 → A需求2 → B需求2`，只选择 `A需求1` 和 `A需求2` 时，报告体现 A 需求相对于 `C提交` 的改动。若选中版本依赖未选版本（例如 A 修改了 B 新增的文件），临时应用提交/修订会冲突，工具应失败并提示冲突文件，不生成假报告。
 
 实现要点：
-- `GitMultiVersionVCS`：解析选中 commit，按历史顺序排序；取最早选中 commit 的父提交作为 base；临时 clone 后 checkout base；依次 `git cherry-pick --no-commit` 选中提交；成功后复制为 `new`，base 快照为 `old`。合并提交暂不支持，版本列表用 `git log --first-parent --no-merges -100` 排除 merge commit。
+- `GitMultiVersionVCS`：解析选中 commit，按历史顺序排序；取最早选中 commit 的第一父提交作为 base；临时 clone 后 checkout base；普通提交依次 `git cherry-pick --no-commit`，合并提交依次 `git cherry-pick --no-commit -m 1`，成功后复制为 `new`，base 快照为 `old`。版本列表用 `git log --first-parent -100` 展示当前分支主线提交，并用 `[merge]` 标记 merge commit。
 - `SVNMultiVersionVCS`：解析 revision，升序排序；取最小 revision - 1 作为 base；若当前 URL 在 base 存在，则 export/checkout base；若当前 URL 在 base 不存在但在首个选中 revision 存在，则 old 为空、checkout 首个选中 revision，并从第二个 revision 开始 merge。之后依次 `svn merge -c REV URL@HEAD workdir`。版本列表用当前项目 `URL@HEAD` 查询最近 100 条相关 revision，不查询全仓库。
 - 两种需求包模式都只在 `tempfile.mkdtemp` 下创建临时目录，成功、失败、冲突都必须在 `finally` 中清理；Windows 只读元数据通过 `_remove_tree()` 恢复写权限后删除。
 - 用户切换 Git/SVN/Git需求包/SVN需求包的项目目录时，若路径实际变化，必须清空旧/新版本输入和版本列表，避免跨项目复用版本号；异步获取版本列表返回时也要校验项目路径和 VCS 类型仍一致。

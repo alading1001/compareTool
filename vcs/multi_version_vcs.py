@@ -109,7 +109,7 @@ class _MultiVersionFolderDelegate(BaseVCS):
 
 
 class GitMultiVersionVCS(_MultiVersionFolderDelegate):
-    """Git 多版本比对：从最早选中提交的父提交开始，只应用选中提交。"""
+    """Git 需求包比对：从最早选中提交的第一父提交开始，只应用选中提交。"""
 
     def __init__(self, project_path: str, selected_versions: List[str]):
         super().__init__(project_path, selected_versions, "comparetool_git_multi_")
@@ -138,7 +138,7 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
     @staticmethod
     def get_recent_versions(project_path: str, limit: int = 100) -> List[str]:
         result = subprocess.run(
-            ["git", "log", "--first-parent", "--no-merges", f"-{limit}", "--format=%h %s"],
+            ["git", "log", "--first-parent", f"-{limit}", "--format=%h%x09%p%x09%s"],
             cwd=project_path,
             capture_output=True,
             text=True,
@@ -148,7 +148,17 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
         )
         if result.returncode != 0:
             raise RuntimeError(f"Git命令失败: git log\n{result.stderr}")
-        return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        versions = []
+        for line in result.stdout.splitlines():
+            if not line.strip():
+                continue
+            parts = line.split("\t", 2)
+            short_hash = parts[0].strip()
+            parents = parts[1].split() if len(parts) > 1 else []
+            subject = parts[2].strip() if len(parts) > 2 else ""
+            marker = " [merge]" if len(parents) > 1 else ""
+            versions.append(f"{short_hash}{marker} {subject}".strip())
+        return versions
 
     def _git(self, *args: str, cwd: str = None) -> str:
         out = self._run(["git"] + list(args), cwd or self.source_project_path)
@@ -172,7 +182,7 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
 
         for commit in ordered:
             result = subprocess.run(
-                ["git", "cherry-pick", "--no-commit", commit],
+                self._cherry_pick_args(commit),
                 cwd=work_dir,
                 capture_output=True,
                 text=True,
@@ -214,10 +224,6 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
             if is_ancestor.returncode != 0:
                 raise RuntimeError(f"提交不在当前分支 HEAD 历史中: {raw}")
 
-            parents_line = self._git("rev-list", "--parents", "-n", "1", commit)
-            if len(parents_line.split()) > 2:
-                raise RuntimeError(f"暂不支持 Git 合并提交: {raw}")
-
             commits.append(commit)
         return commits
 
@@ -227,8 +233,22 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
         return sorted(commits, key=lambda c: order.get(c, -1), reverse=True)
 
     def _parent_commit(self, commit: str) -> str:
+        parents = self._parents(commit)
+        return parents[0] if parents else ""
+
+    def _parents(self, commit: str) -> List[str]:
         parts = self._git("rev-list", "--parents", "-n", "1", commit).split()
-        return parts[1] if len(parts) > 1 else ""
+        return parts[1:]
+
+    def _is_merge_commit(self, commit: str) -> bool:
+        return len(self._parents(commit)) > 1
+
+    def _cherry_pick_args(self, commit: str) -> List[str]:
+        args = ["git", "cherry-pick", "--no-commit"]
+        if self._is_merge_commit(commit):
+            args.extend(["-m", "1"])
+        args.append(commit)
+        return args
 
     @staticmethod
     def _conflict_files(work_dir: str) -> List[str]:
