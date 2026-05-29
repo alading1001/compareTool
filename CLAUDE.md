@@ -34,7 +34,8 @@ main.py                  # tkinter GUI 入口，线程管理，配置持久化�
 ├── report_generator.py  # Jinja2 渲染 templates/report.html → 单文件 HTML
 ├── file_exporter.py     # 变更文件按目录结构导出到 old/ 和 new/ 目录
 ├── logger.py            # 简易日志，仅 warn/error 写文件（info 为空操作），512KB 轮转
-└── templates/report.html # HTML 报告模板（文件树 + 左右对比 + 变更清单弹窗）
+├── templates/report.html # 单项目 HTML 报告模板（文件树 + 左右对比 + 变更清单弹窗）
+└── templates/multi_report.html # 多项目总报告模板（项目分组文件树 + 左右对比 + 变更清单弹窗）
 ```
 
 ### 数据流
@@ -44,6 +45,17 @@ main.py                  # tkinter GUI 入口，线程管理，配置持久化�
 3. `DiffEngine.generate_diff()` 遍历文件，对文本文件用 `difflib.HtmlDiff.make_table()` 生成 side-by-side HTML；二进制文件跳过内容只设占位标记
 4. `ReportGenerator` 用 Jinja2 渲染模板 → 单文件 HTML
 5. `FileExporter` 导出变更文件：统一通过 `vcs.get_file_content_bytes()` 读取原始字节（失败返回 `None`，空文件返回 `b""`），以 `wb` 模式写入保留原始编码。`None` 时回退到文本内容（UTF-8）。
+
+### 多项目总报告
+
+`main.py` 维护 `multi_tasks` 任务列表，每个任务保存项目名、VCS 类型、路径/版本、SVN 路径和排除规则快照。生成多项目总报告时，逐个任务创建对应 VCS、运行 `DiffEngine`，全部成功后统一调用 `ReportGenerator.generate_multi()` 渲染 `templates/multi_report.html`，并用 `FileExporter` 导出到：
+
+```
+oldVersion/项目名/...
+newVersion/项目名/...
+```
+
+多项目任务允许混用 Git/SVN/文件夹/压缩包/Git需求包/SVN需求包。任一任务失败时本次生成失败，不跳过项目。总报告文件名格式为 `multi_compare_report_yyyyMMdd_HHmmss_SSS.html`。任务列表保存到 `compareTool_config.json`。
 
 ### VCS 类型与版本标识
 
@@ -147,4 +159,4 @@ Windows 上 `core.autocrlf=true`（Git）或 `svn:eol-style=native`（SVN）会�
 
 ### 配置持久化
 
-`compareTool_config.json` 保存项目路径、VCS 类型、SVN 路径、排除规则、输出路径。排除规则优先级：用户保存的配置 > `paichu.txt` > 内置默认值。
+`compareTool_config.json` 保存项目路径、VCS 类型、SVN 路径、输出路径、多项目任务列表和 `project_exclude_rules`。排除规则按规范化绝对路径保存：Git/SVN/Git需求包/SVN需求包用项目目录，文件夹用新版本文件夹，压缩包用新版本压缩包完整文件路径。新路径没有专属规则时，默认模板优先级：旧配置 `exclude_rules` > `paichu.txt` > 内置默认值。多项目任务保存添加/更新时的排除规则快照，后续项目默认规则变化不会偷偷影响已添加任务。

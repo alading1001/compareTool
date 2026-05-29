@@ -4,6 +4,7 @@ import sys
 import threading
 import webbrowser
 import tkinter as tk
+from datetime import datetime
 from tkinter import ttk, filedialog, messagebox
 
 # PyInstaller 打包后的资源路径处理
@@ -64,14 +65,62 @@ class CompareToolApp:
         self._default_output = os.path.join(os.path.expanduser("~"), "Desktop")
         self._update_after_id = None
         self._config = _load_config()
+        self._default_exclude_rules = self._load_default_exclude_rules()
+        self._project_exclude_rules = dict(self._config.get("project_exclude_rules", {}))
+        self._multi_tasks = list(self._config.get("multi_tasks", []))
+        self._editing_task_index = None
+        self._last_exclude_key = ""
+        self._project_name_manual = False
         self._build_ui()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     # ========== UI 构建 ==========
 
+    def _load_default_exclude_rules(self) -> str:
+        """读取默认排除规则模板：老配置 > paichu.txt > 内置默认。"""
+        if self._config.get("exclude_rules"):
+            return self._config["exclude_rules"]
+
+        paichu_path = os.path.join(BASE_DIR, "paichu.txt")
+        if os.path.exists(paichu_path):
+            with open(paichu_path, "rb") as pf:
+                raw = pf.read()
+            for enc in ("utf-8", "gbk"):
+                try:
+                    return raw.decode(enc).strip()
+                except UnicodeDecodeError:
+                    continue
+            return raw.decode("utf-8", errors="replace").strip()
+
+        return (
+            "*.class\n*.war\n*.ear\n"
+            "target/**\nbuild/**\nbin/**\ndist/**\n"
+            ".git/**\n.svn/**\n"
+            ".idea/**\n.settings/**\n.project\n.classpath\n"
+            "node_modules/**\n**/__pycache__/**\n*.pyc\n"
+            ".DS_Store\nThumbs.db"
+        )
+
     def _build_ui(self):
-        main = ttk.Frame(self.root, padding="16")
-        main.pack(fill=tk.BOTH, expand=True)
+        container = ttk.Frame(self.root)
+        container.pack(fill=tk.BOTH, expand=True)
+        canvas = tk.Canvas(container, highlightthickness=0)
+        scroll = ttk.Scrollbar(container, orient=tk.VERTICAL, command=canvas.yview)
+        canvas.configure(yscrollcommand=scroll.set)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        main = ttk.Frame(canvas, padding="16")
+        window_id = canvas.create_window((0, 0), window=main, anchor="nw")
+
+        def _sync_scroll_region(_event=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def _sync_frame_width(event):
+            canvas.itemconfigure(window_id, width=event.width)
+
+        main.bind("<Configure>", _sync_scroll_region)
+        canvas.bind("<Configure>", _sync_frame_width)
+        canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-1 * (e.delta / 120)), "units"))
 
         # ── 项目目录 ──
         self.project_label = ttk.Label(main, text="项目目录:", font=("", 10))
@@ -101,38 +150,22 @@ class CompareToolApp:
         ttk.Radiobutton(vcs_frame, text="Git需求包", variable=self.vcs_var, value="git_multi").pack(side=tk.LEFT, padx=(0, 16))
         ttk.Radiobutton(vcs_frame, text="SVN需求包", variable=self.vcs_var, value="svn_multi").pack(side=tk.LEFT)
 
+        # ── 报告项目名 ──
+        ttk.Label(main, text="项目名 (报告树/变更清单/导出目录使用):", font=("", 10)).grid(row=4, column=0, sticky=tk.W, pady=(0, 4))
+        project_name_frame = ttk.Frame(main)
+        project_name_frame.grid(row=5, column=0, columnspan=3, sticky=tk.EW, pady=(0, 10))
+        self.project_name_var = tk.StringVar()
+        self.project_name_entry = ttk.Entry(project_name_frame, textvariable=self.project_name_var)
+        self.project_name_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.project_name_entry.bind("<KeyRelease>", lambda e: setattr(self, "_project_name_manual", True))
+
         # ── 排除规则 ──
-        ttk.Label(main, text="排除规则 (每行一个，支持 * 和 ** 通配符):", font=("", 10)).grid(row=4, column=0, sticky=tk.W, pady=(0, 4))
+        ttk.Label(main, text="排除规则 (每行一个，支持 * 和 ** 通配符):", font=("", 10)).grid(row=6, column=0, sticky=tk.W, pady=(0, 4))
         exclude_frame = ttk.Frame(main)
-        exclude_frame.grid(row=5, column=0, columnspan=3, sticky=tk.EW, pady=(0, 10))
+        exclude_frame.grid(row=7, column=0, columnspan=3, sticky=tk.EW, pady=(0, 10))
         self.exclude_text = tk.Text(exclude_frame, height=4, wrap=tk.NONE)
         self.exclude_text.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        # 优先使用用户上次保存的规则，其次 paichu.txt，最后用内置默认
-        if self._config.get("exclude_rules"):
-            default_excludes = self._config["exclude_rules"]
-        else:
-            paichu_path = os.path.join(BASE_DIR, "paichu.txt")
-            if os.path.exists(paichu_path):
-                with open(paichu_path, "rb") as pf:
-                    raw = pf.read()
-                for enc in ("utf-8", "gbk"):
-                    try:
-                        default_excludes = raw.decode(enc).strip()
-                        break
-                    except UnicodeDecodeError:
-                        continue
-                else:
-                    default_excludes = raw.decode("utf-8", errors="replace").strip()
-            else:
-                default_excludes = (
-                    "*.class\n*.war\n*.ear\n"
-                    "target/**\nbuild/**\nbin/**\ndist/**\n"
-                    ".git/**\n.svn/**\n"
-                    ".idea/**\n.settings/**\n.project\n.classpath\n"
-                    "node_modules/**\n**/__pycache__/**\n*.pyc\n"
-                    ".DS_Store\nThumbs.db"
-                )
-        self.exclude_text.insert("1.0", default_excludes)
+        self.exclude_text.insert("1.0", self._default_exclude_rules)
         exclude_scroll = ttk.Scrollbar(exclude_frame, orient=tk.VERTICAL, command=self.exclude_text.yview)
         exclude_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self.exclude_text.config(yscrollcommand=exclude_scroll.set)
@@ -144,11 +177,11 @@ class CompareToolApp:
 
         # 旧版本标签（动态切换）
         self.old_label = ttk.Label(main, text="旧版本 (改动前):", font=("", 10))
-        self.old_label.grid(row=6, column=0, sticky=tk.W, pady=(0, 2))
+        self.old_label.grid(row=8, column=0, sticky=tk.W, pady=(0, 2))
 
         old_frame = ttk.Frame(main)
         self.old_version_frame = old_frame
-        old_frame.grid(row=7, column=0, columnspan=3, sticky=tk.EW, pady=(0, 8))
+        old_frame.grid(row=9, column=0, columnspan=3, sticky=tk.EW, pady=(0, 8))
         self.old_entry = ttk.Entry(old_frame, textvariable=self.old_version_var)
         self.old_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.old_vcs_btn = ttk.Button(old_frame, text="获取版本列表", command=lambda: self._fetch_versions("old"))
@@ -159,11 +192,11 @@ class CompareToolApp:
 
         # 新版本标签（动态切换）
         self.new_label = ttk.Label(main, text="新版本 (改动后):", font=("", 10))
-        self.new_label.grid(row=8, column=0, sticky=tk.W, pady=(0, 2))
+        self.new_label.grid(row=10, column=0, sticky=tk.W, pady=(0, 2))
 
         new_frame = ttk.Frame(main)
         self.new_version_frame = new_frame
-        new_frame.grid(row=9, column=0, columnspan=3, sticky=tk.EW, pady=(0, 8))
+        new_frame.grid(row=11, column=0, columnspan=3, sticky=tk.EW, pady=(0, 8))
         self.new_entry = ttk.Entry(new_frame, textvariable=self.new_version_var)
         self.new_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.new_vcs_btn = ttk.Button(new_frame, text="获取版本列表", command=lambda: self._fetch_versions("new"))
@@ -174,12 +207,12 @@ class CompareToolApp:
 
         # 版本列表 + 填入按钮（仅 Git/SVN 模式使用）
         self.version_listbox = tk.Listbox(main, height=7, exportselection=False, selectmode=tk.SINGLE)
-        self.version_listbox.grid(row=10, column=0, columnspan=3, sticky=tk.EW, pady=(0, 4))
+        self.version_listbox.grid(row=12, column=0, columnspan=3, sticky=tk.EW, pady=(0, 4))
         self.version_listbox.grid_remove()
         self.version_listbox.bind("<ButtonRelease-1>", self._on_version_click)
 
         fill_btn_frame = ttk.Frame(main)
-        fill_btn_frame.grid(row=11, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
+        fill_btn_frame.grid(row=13, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
         fill_btn_frame.grid_remove()
         self.fill_btn_frame = fill_btn_frame
         self.fill_target_label = ttk.Label(fill_btn_frame, text="", font=("", 9))
@@ -190,45 +223,45 @@ class CompareToolApp:
         self._version_target = "old"
 
         # ── 输出路径 ──
-        ttk.Label(main, text="输出路径设置:", font=("", 10, "bold")).grid(row=12, column=0, sticky=tk.W, pady=(10, 4))
+        ttk.Label(main, text="输出路径设置:", font=("", 10, "bold")).grid(row=14, column=0, sticky=tk.W, pady=(10, 4))
 
-        ttk.Label(main, text="输出目录:").grid(row=13, column=0, sticky=tk.W)
+        ttk.Label(main, text="输出目录:").grid(row=15, column=0, sticky=tk.W)
         output_dir_frame = ttk.Frame(main)
-        output_dir_frame.grid(row=14, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
+        output_dir_frame.grid(row=16, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
         self.output_dir_var = tk.StringVar(value=self._config.get("output_dir", ""))
         self.output_dir_var.trace_add("write", lambda *_: self._update_output_paths())
         ttk.Entry(output_dir_frame, textvariable=self.output_dir_var).pack(side=tk.LEFT, fill=tk.X, expand=True)
         ttk.Button(output_dir_frame, text="浏览...", command=lambda: self._browse_dir(self.output_dir_var)).pack(side=tk.LEFT, padx=(6, 0))
 
-        ttk.Label(main, text="比对报告保存到 (自动生成):").grid(row=15, column=0, sticky=tk.W)
+        ttk.Label(main, text="比对报告保存到 (自动生成):").grid(row=17, column=0, sticky=tk.W)
         report_frame = ttk.Frame(main)
-        report_frame.grid(row=16, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
+        report_frame.grid(row=18, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
         self.report_path_var = tk.StringVar()
         ttk.Entry(report_frame, textvariable=self.report_path_var, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        ttk.Label(main, text="旧版本变更文件导出到 (自动生成):").grid(row=17, column=0, sticky=tk.W)
+        ttk.Label(main, text="旧版本变更文件导出到 (自动生成):").grid(row=19, column=0, sticky=tk.W)
         old_export_frame = ttk.Frame(main)
-        old_export_frame.grid(row=18, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
+        old_export_frame.grid(row=20, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
         self.old_export_var = tk.StringVar()
         ttk.Entry(old_export_frame, textvariable=self.old_export_var, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        ttk.Label(main, text="新版本变更文件导出到 (自动生成):").grid(row=19, column=0, sticky=tk.W)
+        ttk.Label(main, text="新版本变更文件导出到 (自动生成):").grid(row=21, column=0, sticky=tk.W)
         new_export_frame = ttk.Frame(main)
-        new_export_frame.grid(row=20, column=0, columnspan=3, sticky=tk.EW, pady=(0, 10))
+        new_export_frame.grid(row=22, column=0, columnspan=3, sticky=tk.EW, pady=(0, 10))
         self.new_export_var = tk.StringVar()
         ttk.Entry(new_export_frame, textvariable=self.new_export_var, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         # ── 显示选项 ──
-        ttk.Label(main, text="显示选项:", font=("", 10, "bold")).grid(row=21, column=0, sticky=tk.W, pady=(10, 4))
+        ttk.Label(main, text="显示选项:", font=("", 10, "bold")).grid(row=23, column=0, sticky=tk.W, pady=(10, 4))
         show_root_frame = ttk.Frame(main)
-        show_root_frame.grid(row=22, column=0, columnspan=3, sticky=tk.EW, pady=(0, 4))
+        show_root_frame.grid(row=24, column=0, columnspan=3, sticky=tk.EW, pady=(0, 4))
         ttk.Label(show_root_frame, text="报告树及变更清单使用项目名:").pack(side=tk.LEFT)
         self.show_project_root_var = tk.StringVar(value="yes")
         ttk.Radiobutton(show_root_frame, text="是", variable=self.show_project_root_var, value="yes").pack(side=tk.LEFT, padx=(6, 2))
         ttk.Radiobutton(show_root_frame, text="否", variable=self.show_project_root_var, value="no").pack(side=tk.LEFT)
 
         show_ctx_frame = ttk.Frame(main)
-        show_ctx_frame.grid(row=23, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
+        show_ctx_frame.grid(row=25, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
         ttk.Label(show_ctx_frame, text="差异展示方式:").pack(side=tk.LEFT)
         self.show_full_context_var = tk.StringVar(value="yes")
         ttk.Radiobutton(show_ctx_frame, text="全部内容", variable=self.show_full_context_var, value="yes").pack(side=tk.LEFT, padx=(6, 2))
@@ -236,16 +269,51 @@ class CompareToolApp:
 
         # ── SVN 设置 (仅在 SVN 模式显示) ──
         self.svn_path_label = ttk.Label(main, text="SVN 可执行文件路径 (可选，留空使用系统默认):", font=("", 10, "bold"))
-        self.svn_path_label.grid(row=24, column=0, sticky=tk.W, pady=(10, 4))
+        self.svn_path_label.grid(row=26, column=0, sticky=tk.W, pady=(10, 4))
         self.svn_path_frame = ttk.Frame(main)
-        self.svn_path_frame.grid(row=25, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
+        self.svn_path_frame.grid(row=27, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
         self.svn_path_var = tk.StringVar(value=self._config.get("svn_path", ""))
         ttk.Entry(self.svn_path_frame, textvariable=self.svn_path_var).pack(side=tk.LEFT, fill=tk.X, expand=True)
         ttk.Button(self.svn_path_frame, text="浏览...", command=lambda: self._browse_svn_path()).pack(side=tk.LEFT, padx=(6, 0))
 
+        # ── 多项目批量任务 ──
+        ttk.Label(main, text="多项目批量任务:", font=("", 10, "bold")).grid(row=28, column=0, sticky=tk.W, pady=(10, 4))
+        multi_btn_frame = ttk.Frame(main)
+        multi_btn_frame.grid(row=29, column=0, columnspan=3, sticky=tk.EW, pady=(0, 4))
+        self.add_task_btn = ttk.Button(multi_btn_frame, text="添加到多项目任务", command=self._add_or_update_multi_task)
+        self.add_task_btn.pack(side=tk.LEFT)
+        self.cancel_edit_btn = ttk.Button(multi_btn_frame, text="取消编辑", command=self._cancel_edit_task, state=tk.DISABLED)
+        self.cancel_edit_btn.pack(side=tk.LEFT, padx=(6, 0))
+        ttk.Button(multi_btn_frame, text="编辑任务", command=self._edit_multi_task).pack(side=tk.LEFT, padx=(12, 0))
+        ttk.Button(multi_btn_frame, text="删除任务", command=self._delete_multi_task).pack(side=tk.LEFT, padx=(6, 0))
+        ttk.Button(multi_btn_frame, text="清空任务", command=self._clear_multi_tasks).pack(side=tk.LEFT, padx=(6, 0))
+        self.generate_multi_btn = ttk.Button(multi_btn_frame, text="生成多项目总报告", command=self._generate_multi)
+        self.generate_multi_btn.pack(side=tk.RIGHT)
+
+        multi_list_frame = ttk.Frame(main)
+        multi_list_frame.grid(row=30, column=0, columnspan=3, sticky=tk.EW, pady=(0, 8))
+        self.multi_task_tree = ttk.Treeview(
+            multi_list_frame,
+            columns=("name", "type", "source", "versions"),
+            show="headings",
+            height=4
+        )
+        self.multi_task_tree.heading("name", text="项目名")
+        self.multi_task_tree.heading("type", text="类型")
+        self.multi_task_tree.heading("source", text="项目路径/来源")
+        self.multi_task_tree.heading("versions", text="版本")
+        self.multi_task_tree.column("name", width=120, stretch=False)
+        self.multi_task_tree.column("type", width=90, stretch=False)
+        self.multi_task_tree.column("source", width=260, stretch=True)
+        self.multi_task_tree.column("versions", width=220, stretch=True)
+        self.multi_task_tree.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        multi_scroll = ttk.Scrollbar(multi_list_frame, orient=tk.VERTICAL, command=self.multi_task_tree.yview)
+        multi_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.multi_task_tree.config(yscrollcommand=multi_scroll.set)
+
         # ── 底部 ──
         bottom_frame = ttk.Frame(main)
-        bottom_frame.grid(row=26, column=0, columnspan=3, sticky=tk.EW, pady=(6, 0))
+        bottom_frame.grid(row=31, column=0, columnspan=3, sticky=tk.EW, pady=(6, 0))
 
         self.progress = ttk.Progressbar(bottom_frame, mode="indeterminate")
         self.progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 12))
@@ -259,8 +327,11 @@ class CompareToolApp:
         main.columnconfigure(0, weight=1)
 
         # 初始化输出路径和 VCS UI
+        self._render_multi_tasks()
         self._on_vcs_changed()
         self._last_project_path = self._normalize_project_path(self.dir_entry.get().strip())
+        self._refresh_project_name_default(force=True)
+        self._switch_exclude_rules_for_current_source(save_previous=False)
 
     # ========== 界面交互 ==========
 
@@ -273,12 +344,96 @@ class CompareToolApp:
     def _is_project_vcs_mode(self) -> bool:
         return self.vcs_var.get() in ("git", "svn", "git_multi", "svn_multi")
 
+    @staticmethod
+    def _vcs_label(vcs_type: str) -> str:
+        return {
+            "git": "Git",
+            "svn": "SVN",
+            "folder": "文件夹",
+            "archive": "压缩包",
+            "git_multi": "Git需求包",
+            "svn_multi": "SVN需求包",
+        }.get(vcs_type, vcs_type)
+
+    @staticmethod
+    def _sanitize_project_name(name: str) -> str:
+        cleaned = "".join("_" if ch in '<>:"/\\|?*' else ch for ch in (name or "").strip())
+        return cleaned.strip(" .") or "project"
+
+    def _replace_exclude_text(self, text: str):
+        self.exclude_text.delete("1.0", tk.END)
+        self.exclude_text.insert("1.0", text or "")
+
+    def _current_exclude_rules(self) -> str:
+        return self.exclude_text.get("1.0", tk.END).strip()
+
+    def _project_key_for_values(self, vcs_type: str, project_path: str, old_version: str, new_version: str) -> str:
+        if vcs_type == "archive":
+            source = new_version
+            if source and not os.path.isfile(source):
+                return ""
+        elif vcs_type == "folder":
+            source = new_version
+            if source and not os.path.isdir(source):
+                return ""
+        else:
+            source = project_path
+            if source and not os.path.isdir(source):
+                return ""
+        return self._normalize_project_path(source) if source else ""
+
+    def _current_project_key(self) -> str:
+        return self._project_key_for_values(
+            self.vcs_var.get(),
+            self.dir_entry.get().strip(),
+            self.old_version_var.get().strip(),
+            self.new_version_var.get().strip(),
+        )
+
+    def _save_current_exclude_rules_for_current_key(self):
+        key = self._current_project_key()
+        if key:
+            self._project_exclude_rules[key] = self._current_exclude_rules()
+
+    def _switch_exclude_rules_for_current_source(self, save_previous: bool = True):
+        key = self._current_project_key()
+        old_key = getattr(self, "_last_exclude_key", "")
+        if key == old_key:
+            return
+        if save_previous and old_key:
+            self._project_exclude_rules[old_key] = self._current_exclude_rules()
+        rules = self._project_exclude_rules.get(key, self._default_exclude_rules) if key else self._default_exclude_rules
+        self._replace_exclude_text(rules)
+        self._last_exclude_key = key
+
+    def _default_project_name(self) -> str:
+        vcs_type = self.vcs_var.get()
+        project_path = self.dir_entry.get().strip()
+        old_version = self.old_version_var.get().strip()
+        new_version = self.new_version_var.get().strip()
+        if vcs_type == "archive":
+            source = new_version
+            name = os.path.basename(source)
+            for suffix in (".tar.gz", ".tar.bz2"):
+                if name.lower().endswith(suffix):
+                    return name[:-len(suffix)] or "project"
+            return os.path.splitext(name)[0] if name else "project"
+        if vcs_type == "folder":
+            source = new_version or old_version
+            return os.path.basename(os.path.normpath(source)) if source else "project"
+        return os.path.basename(os.path.normpath(project_path)) if project_path else "project"
+
+    def _refresh_project_name_default(self, force: bool = False):
+        if force or not self._project_name_manual or not self.project_name_var.get().strip():
+            self.project_name_var.set(self._sanitize_project_name(self._default_project_name()))
+
     def _on_project_path_changed(self):
         """项目路径变化时，清空 Git/SVN 相关版本选择，避免跨项目复用版本号。"""
         current = self._normalize_project_path(self.dir_entry.get().strip())
         previous = getattr(self, "_last_project_path", current)
         if current != previous:
             self._last_project_path = current
+            self._project_name_manual = False
             if self._is_project_vcs_mode():
                 self.old_version_var.set("")
                 self.new_version_var.set("")
@@ -286,6 +441,8 @@ class CompareToolApp:
                 self.version_listbox.grid_remove()
                 self.fill_btn_frame.grid_remove()
                 self.status_var.set("项目路径已变更，请重新选择版本")
+            self._refresh_project_name_default(force=True)
+            self._switch_exclude_rules_for_current_source()
         self._update_output_paths()
 
     def _update_output_paths(self, *_):
@@ -299,6 +456,8 @@ class CompareToolApp:
     def _do_update_output_paths(self):
         """根据输出目录和项目名自动计算三条路径"""
         self._update_after_id = None
+        self._refresh_project_name_default()
+        self._switch_exclude_rules_for_current_source()
         output_dir = self.output_dir_var.get().strip()
         if not output_dir:
             self.report_path_var.set("")
@@ -306,19 +465,9 @@ class CompareToolApp:
             self.new_export_var.set("")
             return
 
-        # 计算项目名
-        project_path = self.dir_entry.get().strip()
-        vcs_type = self.vcs_var.get()
-        is_folder = vcs_type == "folder"
-        is_archive = vcs_type == "archive"
-        if is_archive:
-            archive_path = self.new_version_var.get().strip()
-            project_name = os.path.splitext(os.path.basename(archive_path))[0] if archive_path else "project"
-        elif is_folder:
-            new_folder = self.new_version_var.get().strip()
-            project_name = os.path.basename(os.path.normpath(new_folder)) if new_folder else "project"
-        else:
-            project_name = os.path.basename(os.path.normpath(project_path)) if project_path else "project"
+        project_name = self._sanitize_project_name(
+            self.project_name_var.get().strip() or self._default_project_name()
+        )
 
         self.report_path_var.set(os.path.join(output_dir, f"{project_name}_diff.html"))
         self.old_export_var.set(os.path.join(output_dir, "oldVersion"))
@@ -331,6 +480,7 @@ class CompareToolApp:
         is_archive = vcs_type == "archive"
         is_multi = vcs_type in ("git_multi", "svn_multi")
         self.status_var.set("就绪")
+        self._project_name_manual = False
 
         # 临时解绑 trace，避免 set("") 触发 _update_output_paths 中间态
         try:
@@ -427,6 +577,8 @@ class CompareToolApp:
 
         # 重新绑定 trace
         self._new_version_cb_id = self.new_version_var.trace_add("write", lambda *_: self._update_output_paths())
+        self._refresh_project_name_default(force=True)
+        self._switch_exclude_rules_for_current_source()
 
     def _browse_project(self):
         path = filedialog.askdirectory(title="选择项目目录")
@@ -589,6 +741,188 @@ class CompareToolApp:
         else:
             self.old_version_var.set(version)
 
+    # ========== 多项目任务 ==========
+
+    def _task_source_text(self, task: dict) -> str:
+        if task["vcs_type"] == "archive":
+            return task.get("new_version", "")
+        if task["vcs_type"] == "folder":
+            return task.get("new_version", "")
+        return task.get("project_path", "")
+
+    def _task_versions_text(self, task: dict) -> str:
+        old_version = (task.get("old_version") or "").replace("\n", ", ")
+        new_version = (task.get("new_version") or "").replace("\n", ", ")
+        if task["vcs_type"] in ("git_multi", "svn_multi"):
+            return old_version
+        return f"{old_version} → {new_version}"
+
+    def _render_multi_tasks(self):
+        if not hasattr(self, "multi_task_tree"):
+            return
+        self.multi_task_tree.delete(*self.multi_task_tree.get_children())
+        for idx, task in enumerate(self._multi_tasks):
+            self.multi_task_tree.insert(
+                "", tk.END, iid=str(idx),
+                values=(
+                    task.get("project_name", ""),
+                    self._vcs_label(task.get("vcs_type", "")),
+                    self._task_source_text(task),
+                    self._task_versions_text(task),
+                )
+            )
+
+    def _selected_multi_task_index(self):
+        sel = self.multi_task_tree.selection()
+        if not sel:
+            return None
+        try:
+            return int(sel[0])
+        except (TypeError, ValueError):
+            return None
+
+    def _task_from_current_form(self) -> dict:
+        vcs_type = self.vcs_var.get()
+        project_path = self.dir_entry.get().strip()
+        old_version = self.old_version_var.get().strip()
+        new_version = self.new_version_var.get().strip()
+        is_folder = vcs_type == "folder"
+        is_archive = vcs_type == "archive"
+        is_multi = vcs_type in ("git_multi", "svn_multi")
+
+        if is_archive:
+            if not old_version or not os.path.isfile(old_version):
+                raise ValueError("旧版本压缩包不存在，请选择有效的压缩包文件")
+            if not new_version or not os.path.isfile(new_version):
+                raise ValueError("新版本压缩包不存在，请选择有效的压缩包文件")
+        elif is_folder:
+            if not old_version or not os.path.isdir(old_version):
+                raise ValueError("旧版本文件夹不存在，请选择有效的文件夹")
+            if not new_version or not os.path.isdir(new_version):
+                raise ValueError("新版本文件夹不存在，请选择有效的文件夹")
+        else:
+            if not project_path:
+                raise ValueError("请选择项目目录")
+            if not os.path.isdir(project_path):
+                raise ValueError("项目目录不存在")
+            if is_multi:
+                selected_versions = parse_multi_versions(old_version)
+                if not selected_versions:
+                    raise ValueError("请选择或输入至少一个版本")
+                old_version = ", ".join(selected_versions)
+                new_version = "基线 + 选中版本"
+            elif not old_version or not new_version:
+                raise ValueError("请输入旧版本和新版本")
+
+        project_name = self._sanitize_project_name(
+            self.project_name_var.get().strip() or self._default_project_name()
+        )
+        if self.project_name_var.get().strip() != project_name:
+            self.project_name_var.set(project_name)
+
+        exclude_key = self._project_key_for_values(vcs_type, project_path, old_version, new_version)
+        exclude_rules = self._current_exclude_rules()
+        if exclude_key:
+            self._project_exclude_rules[exclude_key] = exclude_rules
+
+        return {
+            "project_name": project_name,
+            "vcs_type": vcs_type,
+            "project_path": project_path,
+            "old_version": old_version,
+            "new_version": new_version,
+            "svn_path": self.svn_path_var.get().strip(),
+            "exclude_key": exclude_key,
+            "exclude_rules": exclude_rules,
+        }
+
+    def _ensure_unique_task_name(self, project_name: str, editing_index=None) -> bool:
+        for idx, task in enumerate(self._multi_tasks):
+            if editing_index is not None and idx == editing_index:
+                continue
+            if task.get("project_name") == project_name:
+                messagebox.showwarning("提示", f"多项目任务中已存在项目名: {project_name}\n请换一个项目名，避免报告和导出目录混淆。")
+                return False
+        return True
+
+    def _add_or_update_multi_task(self):
+        try:
+            task = self._task_from_current_form()
+        except ValueError as e:
+            messagebox.showwarning("提示", str(e))
+            return
+
+        if not self._ensure_unique_task_name(task["project_name"], self._editing_task_index):
+            return
+
+        if self._editing_task_index is None:
+            self._multi_tasks.append(task)
+            self.status_var.set(f"已添加多项目任务: {task['project_name']}")
+        else:
+            self._multi_tasks[self._editing_task_index] = task
+            self.status_var.set(f"已更新多项目任务: {task['project_name']}")
+            self._editing_task_index = None
+            self.add_task_btn.config(text="添加到多项目任务")
+            self.cancel_edit_btn.config(state=tk.DISABLED)
+
+        self._render_multi_tasks()
+        self._save_current_config()
+
+    def _edit_multi_task(self):
+        idx = self._selected_multi_task_index()
+        if idx is None or idx < 0 or idx >= len(self._multi_tasks):
+            messagebox.showinfo("提示", "请先选择要编辑的多项目任务")
+            return
+
+        self._save_current_exclude_rules_for_current_key()
+        task = self._multi_tasks[idx]
+        self._editing_task_index = idx
+        self.add_task_btn.config(text="更新多项目任务")
+        self.cancel_edit_btn.config(state=tk.NORMAL)
+
+        self.vcs_var.set(task.get("vcs_type", "git"))
+        self.dir_entry.delete(0, tk.END)
+        self.dir_entry.insert(0, task.get("project_path", ""))
+        self.old_version_var.set(task.get("old_version", ""))
+        self.new_version_var.set(task.get("new_version", ""))
+        self.svn_path_var.set(task.get("svn_path", ""))
+        self.project_name_var.set(task.get("project_name", ""))
+        self._project_name_manual = True
+        self._replace_exclude_text(task.get("exclude_rules", self._default_exclude_rules))
+        self._last_exclude_key = task.get("exclude_key", "")
+        self._last_project_path = self._normalize_project_path(self.dir_entry.get().strip())
+        self._update_output_paths()
+        self.status_var.set(f"正在编辑多项目任务: {task.get('project_name', '')}")
+
+    def _cancel_edit_task(self):
+        self._editing_task_index = None
+        self.add_task_btn.config(text="添加到多项目任务")
+        self.cancel_edit_btn.config(state=tk.DISABLED)
+        self.status_var.set("已取消编辑多项目任务")
+
+    def _delete_multi_task(self):
+        idx = self._selected_multi_task_index()
+        if idx is None or idx < 0 or idx >= len(self._multi_tasks):
+            messagebox.showinfo("提示", "请先选择要删除的多项目任务")
+            return
+        name = self._multi_tasks[idx].get("project_name", "")
+        del self._multi_tasks[idx]
+        self._cancel_edit_task()
+        self._render_multi_tasks()
+        self._save_current_config()
+        self.status_var.set(f"已删除多项目任务: {name}")
+
+    def _clear_multi_tasks(self):
+        if not self._multi_tasks:
+            return
+        if not messagebox.askyesno("确认清空", "确定要清空所有多项目任务吗？"):
+            return
+        self._multi_tasks.clear()
+        self._cancel_edit_task()
+        self._render_multi_tasks()
+        self._save_current_config()
+        self.status_var.set("已清空多项目任务")
+
     # ========== 生成报告 ==========
 
     def _check_overwrite(self, project_name=""):
@@ -617,6 +951,94 @@ class CompareToolApp:
                 "以下目标已有本项目内容，将被清空后重新导出：\n\n" + "\n\n".join(msgs)
             )
         return True
+
+    def _check_multi_overwrite(self):
+        old_export = self.old_export_var.get().strip()
+        new_export = self.new_export_var.get().strip()
+        msgs = []
+        for task in self._multi_tasks:
+            project_name = task.get("project_name", "")
+            for base_dir, label in ((old_export, "旧版本"), (new_export, "新版本")):
+                target = os.path.join(base_dir, project_name)
+                if os.path.isdir(target) and os.listdir(target):
+                    msgs.append(f"• {label}导出目录已有项目内容:\n  {target}")
+        if msgs:
+            return messagebox.askyesno(
+                "确认清空并重新导出",
+                "以下目标已有内容，将在对应项目导出时清空：\n\n" + "\n\n".join(msgs)
+            )
+        return True
+
+    def _set_generating(self, generating: bool):
+        state = tk.DISABLED if generating else tk.NORMAL
+        self.generate_btn.config(state=state)
+        if hasattr(self, "generate_multi_btn"):
+            self.generate_multi_btn.config(state=state)
+        if hasattr(self, "add_task_btn"):
+            self.add_task_btn.config(state=state)
+
+    def _multi_report_path(self) -> str:
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+        return os.path.join(
+            self.output_dir_var.get().strip(),
+            f"multi_compare_report_{stamp}.html"
+        )
+
+    def _create_vcs_for_task(self, task: dict):
+        vcs_type = task["vcs_type"]
+        if vcs_type == "archive":
+            return ArchiveVCS(task["old_version"], task["new_version"]), True
+        if vcs_type == "folder":
+            return FolderVCS(task["old_version"], task["new_version"]), False
+        if vcs_type == "git_multi":
+            return GitMultiVersionVCS(task["project_path"], parse_multi_versions(task["old_version"])), True
+        if vcs_type == "svn_multi":
+            return SVNMultiVersionVCS(
+                task["project_path"],
+                parse_multi_versions(task["old_version"]),
+                svn_path=task.get("svn_path", "")
+            ), True
+        if vcs_type == "git":
+            return GitVCS(task["project_path"]), False
+        return SVNVCS(task["project_path"], svn_path=task.get("svn_path", "")), False
+
+    def _prepare_task_result(self, task: dict, show_full: bool):
+        vcs = None
+        cleanup_needed = False
+        try:
+            vcs, cleanup_needed = self._create_vcs_for_task(task)
+            exclude_text = task.get("exclude_rules", "").strip()
+            if exclude_text:
+                vcs.set_exclude_patterns(exclude_text.split("\n"))
+
+            if task["vcs_type"] not in ("folder", "archive", "git_multi", "svn_multi"):
+                if not vcs.check_version_exists(task["old_version"]):
+                    raise RuntimeError(f"{task['project_name']} 旧版本不存在: {task['old_version']}")
+                if not vcs.check_version_exists(task["new_version"]):
+                    raise RuntimeError(f"{task['project_name']} 新版本不存在: {task['new_version']}")
+
+            engine = DiffEngine(vcs, show_full_context=show_full)
+            diff_result = engine.generate_diff(task["old_version"], task["new_version"])
+            diff_result.project_name = task["project_name"]
+            diff_result.vcs_type = self._vcs_label(task["vcs_type"])
+            if task["vcs_type"] == "archive":
+                diff_result.project_path = os.path.basename(task["new_version"])
+            elif task["vcs_type"] == "folder":
+                diff_result.project_path = task["new_version"]
+            else:
+                diff_result.project_path = task["project_path"]
+            return {
+                "task": task,
+                "vcs": vcs,
+                "cleanup_needed": cleanup_needed,
+                "project_name": task["project_name"],
+                "vcs_type": self._vcs_label(task["vcs_type"]),
+                "diff_result": diff_result,
+            }
+        except Exception:
+            if vcs and cleanup_needed:
+                vcs.cleanup()
+            raise
 
     def _generate(self):
         project_path = self.dir_entry.get().strip()
@@ -673,24 +1095,58 @@ class CompareToolApp:
             messagebox.showwarning("提示", "请先选择输出目录")
             return
 
-        if is_archive:
-            project_name = os.path.splitext(os.path.basename(new_version))[0]
-        else:
-            project_name = os.path.basename(os.path.normpath(
-                new_version if is_folder else project_path))
+        project_name = self._sanitize_project_name(
+            self.project_name_var.get().strip() or self._default_project_name()
+        )
+        if self.project_name_var.get().strip() != project_name:
+            self.project_name_var.set(project_name)
         if not self._check_overwrite(project_name):
             return
 
-        self.generate_btn.config(state=tk.DISABLED)
+        self._set_generating(True)
         self.progress.start()
         self.status_var.set("正在生成比对报告...")
 
         thread = threading.Thread(target=self._do_generate, args=(
-            project_path, vcs_type, old_version, new_version
+            project_path, vcs_type, old_version, new_version, project_name
         ), daemon=True)
         thread.start()
 
-    def _do_generate(self, project_path, vcs_type, old_version, new_version):
+    def _generate_multi(self):
+        if not self._multi_tasks:
+            messagebox.showwarning("提示", "请先添加至少一个多项目任务")
+            return
+        output_dir = self.output_dir_var.get().strip()
+        if not output_dir:
+            messagebox.showwarning("提示", "请先选择输出目录")
+            return
+
+        names = set()
+        for task in self._multi_tasks:
+            name = task.get("project_name", "")
+            if name in names:
+                messagebox.showwarning("提示", f"多项目任务存在重复项目名: {name}")
+                return
+            names.add(name)
+
+        self._save_current_exclude_rules_for_current_key()
+        self._save_current_config()
+
+        self.old_export_var.set(os.path.join(output_dir, "oldVersion"))
+        self.new_export_var.set(os.path.join(output_dir, "newVersion"))
+        if not self._check_multi_overwrite():
+            return
+
+        report_path = self._multi_report_path()
+        self._set_generating(True)
+        self.progress.start()
+        self.status_var.set("正在生成多项目总报告...")
+
+        tasks = [dict(task) for task in self._multi_tasks]
+        thread = threading.Thread(target=self._do_generate_multi, args=(tasks, report_path), daemon=True)
+        thread.start()
+
+    def _do_generate(self, project_path, vcs_type, old_version, new_version, project_name):
         cleanup_vcs = None  # 持有引用以便 finally 清理临时目录
         try:
             info(f"=== 开始生成比对报告 ===")
@@ -731,11 +1187,10 @@ class CompareToolApp:
             show_full = self.show_full_context_var.get() == "yes"
             engine = DiffEngine(vcs, show_full_context=show_full)
             diff_result = engine.generate_diff(old_version, new_version)
+            diff_result.project_name = project_name
             if vcs_type == "archive":
-                diff_result.project_name = os.path.splitext(os.path.basename(new_version))[0]
                 diff_result.project_path = os.path.basename(new_version)
             elif vcs_type in ("git_multi", "svn_multi"):
-                diff_result.project_name = os.path.basename(os.path.normpath(project_path))
                 diff_result.project_path = project_path
             info(f"变更文件数: {len(diff_result.files)}")
 
@@ -769,9 +1224,47 @@ class CompareToolApp:
             if cleanup_vcs:
                 cleanup_vcs.cleanup()
 
+    def _do_generate_multi(self, tasks, report_path):
+        project_results = []
+        try:
+            info("=== 开始生成多项目总报告 ===")
+            show_full = self.show_full_context_var.get() == "yes"
+            for idx, task in enumerate(tasks, start=1):
+                info(f"多项目任务 {idx}/{len(tasks)}: {task.get('project_name')} {task.get('vcs_type')}")
+                self.root.after(0, lambda idx=idx, total=len(tasks), name=task.get("project_name", ""):
+                                self.status_var.set(f"正在处理项目 {idx}/{total}: {name}"))
+                project_results.append(self._prepare_task_result(task, show_full))
+
+            old_export = self.old_export_var.get().strip()
+            new_export = self.new_export_var.get().strip()
+            for item in project_results:
+                task = item["task"]
+                exporter = FileExporter(item["diff_result"], item["vcs"])
+                exporter.export(old_export, new_export, project_name=task["project_name"])
+
+            template_dir = os.path.join(BASE_DIR, "templates")
+            report_gen = ReportGenerator(template_dir)
+            report_gen.generate_multi(project_results, report_path)
+
+            summary = ReportGenerator._multi_summary(project_results)
+            info(f"=== 多项目完成: {summary} ===")
+            self.root.after(0, lambda: self._on_multi_complete(report_path, summary))
+        except Exception as e:
+            msg = str(e)
+            error(f"多项目生成失败: {msg}")
+            import traceback; error(traceback.format_exc())
+            self.root.after(0, lambda msg=msg: self._show_error(msg))
+        finally:
+            for item in project_results:
+                if item.get("cleanup_needed"):
+                    try:
+                        item["vcs"].cleanup()
+                    except Exception:
+                        pass
+
     def _on_complete(self, report_path, summary):
         self.progress.stop()
-        self.generate_btn.config(state=tk.NORMAL)
+        self._set_generating(False)
         self.status_var.set(
             f"完成! 共 {summary['total_files']} 个文件变更 "
             f"(+{summary['total_added_lines']}/-{summary['total_deleted_lines']})"
@@ -783,19 +1276,38 @@ class CompareToolApp:
                                        f"是否打开报告?"):
             webbrowser.open(f"file:///{report_path}")
 
+    def _on_multi_complete(self, report_path, summary):
+        self.progress.stop()
+        self._set_generating(False)
+        self.status_var.set(
+            f"多项目完成! {summary['project_count']} 个项目，"
+            f"{summary['total_files']} 个文件变更 "
+            f"(+{summary['total_added_lines']}/-{summary['total_deleted_lines']})"
+        )
+        if messagebox.askyesno("完成", f"多项目总报告已生成!\n\n"
+                                       f"项目: {summary['project_count']} 个\n"
+                                       f"变更文件: {summary['total_files']} 个\n"
+                                       f"新增行数: +{summary['total_added_lines']}\n"
+                                       f"删除行数: -{summary['total_deleted_lines']}\n\n"
+                                       f"是否打开报告?"):
+            webbrowser.open(f"file:///{report_path}")
+
     def _show_error(self, msg):
         self.progress.stop()
-        self.generate_btn.config(state=tk.NORMAL)
+        self._set_generating(False)
         self.status_var.set("出错")
         messagebox.showerror("错误", msg)
 
     def _save_current_config(self):
         """保存当前界面配置到文件"""
+        self._save_current_exclude_rules_for_current_key()
         data = {
             "project_path": self.dir_entry.get().strip(),
             "vcs_type": self.vcs_var.get(),
             "svn_path": self.svn_path_var.get().strip(),
-            "exclude_rules": self.exclude_text.get("1.0", tk.END).strip(),
+            "exclude_rules": self._default_exclude_rules,
+            "project_exclude_rules": self._project_exclude_rules,
+            "multi_tasks": self._multi_tasks,
             "output_dir": self.output_dir_var.get().strip(),
         }
         _save_config(data)
