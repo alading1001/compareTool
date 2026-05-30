@@ -137,7 +137,7 @@ class CompareToolApp:
         canvas.configure(yscrollcommand=scroll.set)
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        main = ttk.Frame(canvas, padding="16")
+        main = ttk.Frame(canvas, padding=(16, 6, 16, 16))
         window_id = canvas.create_window((0, 0), window=main, anchor="nw")
 
         def _sync_scroll_region(_event=None):
@@ -152,16 +152,50 @@ class CompareToolApp:
         def _on_main_mousewheel(event):
             if self._should_skip_main_mousewheel(event.widget):
                 return None
-            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            units = int(-1 * (event.delta / 120))
+            if units == 0:
+                units = -1 if event.delta > 0 else 1
+            first, last = canvas.yview()
+            if (units < 0 and first <= 0) or (units > 0 and last >= 1):
+                return "break"
+            canvas.yview_scroll(units, "units")
             return "break"
 
         canvas.bind_all("<MouseWheel>", _on_main_mousewheel)
 
+        # ── VCS 类型 ──
+        ttk.Label(main, text="版本控制类型:", font=("", 10)).grid(row=0, column=0, sticky=tk.W, pady=(0, 4))
+        vcs_frame = ttk.Frame(main)
+        vcs_frame.grid(row=1, column=0, columnspan=3, sticky=tk.EW, pady=(0, 10))
+        vcs_buttons_frame = ttk.Frame(vcs_frame)
+        vcs_buttons_frame.pack(anchor=tk.W)
+        self.vcs_var = tk.StringVar(value=self._config.get("vcs_type", "git"))
+        self.vcs_var.trace_add("write", lambda *_: self._on_vcs_changed())
+        ttk.Radiobutton(vcs_buttons_frame, text="Git", variable=self.vcs_var, value="git").pack(side=tk.LEFT, padx=(0, 16))
+        ttk.Radiobutton(vcs_buttons_frame, text="SVN", variable=self.vcs_var, value="svn").pack(side=tk.LEFT, padx=(0, 16))
+        ttk.Radiobutton(vcs_buttons_frame, text="文件夹", variable=self.vcs_var, value="folder").pack(side=tk.LEFT, padx=(0, 16))
+        ttk.Radiobutton(vcs_buttons_frame, text="压缩包", variable=self.vcs_var, value="archive").pack(side=tk.LEFT, padx=(0, 16))
+        ttk.Radiobutton(vcs_buttons_frame, text="Git需求包", variable=self.vcs_var, value="git_multi").pack(side=tk.LEFT, padx=(0, 16))
+        ttk.Radiobutton(vcs_buttons_frame, text="SVN需求包", variable=self.vcs_var, value="svn_multi").pack(side=tk.LEFT)
+        self.vcs_help_var = tk.StringVar()
+        self.vcs_help_label = ttk.Label(
+            vcs_frame,
+            textvariable=self.vcs_help_var,
+            foreground="#555555",
+            justify=tk.LEFT,
+            wraplength=720
+        )
+        self.vcs_help_label.pack(anchor=tk.W, fill=tk.X, pady=(6, 0))
+        vcs_frame.bind(
+            "<Configure>",
+            lambda e: self.vcs_help_label.configure(wraplength=max(360, e.width - 4))
+        )
+
         # ── 项目目录 ──
         self.project_label = ttk.Label(main, text="项目目录:", font=("", 10))
-        self.project_label.grid(row=0, column=0, sticky=tk.W, pady=(0, 2))
+        self.project_label.grid(row=2, column=0, sticky=tk.W, pady=(0, 2))
         self.project_dir_frame = ttk.Frame(main)
-        self.project_dir_frame.grid(row=1, column=0, columnspan=3, sticky=tk.EW, pady=(0, 10))
+        self.project_dir_frame.grid(row=3, column=0, columnspan=3, sticky=tk.EW, pady=(0, 10))
         self.dir_entry = ttk.Entry(self.project_dir_frame)
         self.dir_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.dir_entry.bind("<KeyRelease>", lambda e: self._on_project_path_changed())
@@ -171,19 +205,6 @@ class CompareToolApp:
         last_project = self._config.get("project_path", "")
         if last_project:
             self.dir_entry.insert(0, last_project)
-
-        # ── VCS 类型 ──
-        ttk.Label(main, text="版本控制类型:", font=("", 10)).grid(row=2, column=0, sticky=tk.W, pady=(0, 4))
-        vcs_frame = ttk.Frame(main)
-        vcs_frame.grid(row=3, column=0, columnspan=3, sticky=tk.W, pady=(0, 10))
-        self.vcs_var = tk.StringVar(value=self._config.get("vcs_type", "git"))
-        self.vcs_var.trace_add("write", lambda *_: self._on_vcs_changed())
-        ttk.Radiobutton(vcs_frame, text="Git", variable=self.vcs_var, value="git").pack(side=tk.LEFT, padx=(0, 16))
-        ttk.Radiobutton(vcs_frame, text="SVN", variable=self.vcs_var, value="svn").pack(side=tk.LEFT, padx=(0, 16))
-        ttk.Radiobutton(vcs_frame, text="文件夹", variable=self.vcs_var, value="folder").pack(side=tk.LEFT, padx=(0, 16))
-        ttk.Radiobutton(vcs_frame, text="压缩包", variable=self.vcs_var, value="archive").pack(side=tk.LEFT, padx=(0, 16))
-        ttk.Radiobutton(vcs_frame, text="Git需求包", variable=self.vcs_var, value="git_multi").pack(side=tk.LEFT, padx=(0, 16))
-        ttk.Radiobutton(vcs_frame, text="SVN需求包", variable=self.vcs_var, value="svn_multi").pack(side=tk.LEFT)
 
         # ── 报告项目名 ──
         ttk.Label(main, text="项目名 (报告树/变更清单/导出目录使用):", font=("", 10)).grid(row=4, column=0, sticky=tk.W, pady=(0, 4))
@@ -275,35 +296,35 @@ class CompareToolApp:
         self.output_batch_var.trace_add("write", lambda *_: self._update_output_paths())
         ttk.Entry(batch_frame, textvariable=self.output_batch_var).pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        ttk.Label(main, text="比对报告保存到 (自动生成):").grid(row=19, column=0, sticky=tk.W)
-        report_frame = ttk.Frame(main)
-        report_frame.grid(row=20, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
         self.report_path_var = tk.StringVar()
-        ttk.Entry(report_frame, textvariable=self.report_path_var, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True)
-
-        ttk.Label(main, text="旧版本变更文件导出到 (自动生成):").grid(row=21, column=0, sticky=tk.W)
-        old_export_frame = ttk.Frame(main)
-        old_export_frame.grid(row=22, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
         self.old_export_var = tk.StringVar()
-        ttk.Entry(old_export_frame, textvariable=self.old_export_var, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True)
-
-        ttk.Label(main, text="新版本变更文件导出到 (自动生成):").grid(row=23, column=0, sticky=tk.W)
-        new_export_frame = ttk.Frame(main)
-        new_export_frame.grid(row=24, column=0, columnspan=3, sticky=tk.EW, pady=(0, 10))
         self.new_export_var = tk.StringVar()
-        ttk.Entry(new_export_frame, textvariable=self.new_export_var, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         # ── 显示选项 ──
-        ttk.Label(main, text="显示选项:", font=("", 10, "bold")).grid(row=25, column=0, sticky=tk.W, pady=(10, 4))
+        ttk.Label(main, text="显示选项:", font=("", 10, "bold")).grid(row=19, column=0, sticky=tk.W, pady=(10, 4))
         show_root_frame = ttk.Frame(main)
-        show_root_frame.grid(row=26, column=0, columnspan=3, sticky=tk.EW, pady=(0, 4))
-        ttk.Label(show_root_frame, text="报告树及变更清单使用项目名:").pack(side=tk.LEFT)
+        show_root_frame.grid(row=20, column=0, columnspan=3, sticky=tk.EW, pady=(0, 4))
+        show_root_choice_frame = ttk.Frame(show_root_frame)
+        show_root_choice_frame.pack(anchor=tk.W)
+        ttk.Label(show_root_choice_frame, text="报告树及变更清单使用项目名:").pack(side=tk.LEFT)
         self.show_project_root_var = tk.StringVar(value="yes")
-        ttk.Radiobutton(show_root_frame, text="是", variable=self.show_project_root_var, value="yes").pack(side=tk.LEFT, padx=(6, 2))
-        ttk.Radiobutton(show_root_frame, text="否", variable=self.show_project_root_var, value="no").pack(side=tk.LEFT)
+        ttk.Radiobutton(show_root_choice_frame, text="是", variable=self.show_project_root_var, value="yes").pack(side=tk.LEFT, padx=(6, 2))
+        ttk.Radiobutton(show_root_choice_frame, text="否", variable=self.show_project_root_var, value="no").pack(side=tk.LEFT)
+        self.show_project_root_help_label = ttk.Label(
+            show_root_frame,
+            text="控制最终报告树和变更清单里的文件路径是否以项目名开头。选择“是”显示为 项目名/文件路径；选择“否”只显示项目内部文件路径。",
+            foreground="#555555",
+            justify=tk.LEFT,
+            wraplength=720
+        )
+        self.show_project_root_help_label.pack(anchor=tk.W, fill=tk.X, pady=(4, 0))
+        show_root_frame.bind(
+            "<Configure>",
+            lambda e: self.show_project_root_help_label.configure(wraplength=max(360, e.width - 4))
+        )
 
         show_ctx_frame = ttk.Frame(main)
-        show_ctx_frame.grid(row=27, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
+        show_ctx_frame.grid(row=21, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
         ttk.Label(show_ctx_frame, text="差异展示方式:").pack(side=tk.LEFT)
         self.show_full_context_var = tk.StringVar(value="yes")
         ttk.Radiobutton(show_ctx_frame, text="全部内容", variable=self.show_full_context_var, value="yes").pack(side=tk.LEFT, padx=(6, 2))
@@ -311,17 +332,17 @@ class CompareToolApp:
 
         # ── SVN 设置 (仅在 SVN 模式显示) ──
         self.svn_path_label = ttk.Label(main, text="SVN 可执行文件路径 (可选，留空使用系统默认):", font=("", 10, "bold"))
-        self.svn_path_label.grid(row=28, column=0, sticky=tk.W, pady=(10, 4))
+        self.svn_path_label.grid(row=22, column=0, sticky=tk.W, pady=(10, 4))
         self.svn_path_frame = ttk.Frame(main)
-        self.svn_path_frame.grid(row=29, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
+        self.svn_path_frame.grid(row=23, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
         self.svn_path_var = tk.StringVar(value=self._config.get("svn_path", ""))
         ttk.Entry(self.svn_path_frame, textvariable=self.svn_path_var).pack(side=tk.LEFT, fill=tk.X, expand=True)
         ttk.Button(self.svn_path_frame, text="浏览...", command=lambda: self._browse_svn_path()).pack(side=tk.LEFT, padx=(6, 0))
 
         # ── 多项目批量任务 ──
-        ttk.Label(main, text="多项目批量任务:", font=("", 10, "bold")).grid(row=30, column=0, sticky=tk.W, pady=(10, 4))
+        ttk.Label(main, text="多项目批量任务:", font=("", 10, "bold")).grid(row=24, column=0, sticky=tk.W, pady=(10, 4))
         multi_btn_frame = ttk.Frame(main)
-        multi_btn_frame.grid(row=31, column=0, columnspan=3, sticky=tk.EW, pady=(0, 4))
+        multi_btn_frame.grid(row=25, column=0, columnspan=3, sticky=tk.EW, pady=(0, 4))
         self.add_task_btn = ttk.Button(multi_btn_frame, text="添加到多项目任务", command=self._add_or_update_multi_task)
         self.add_task_btn.pack(side=tk.LEFT)
         self.cancel_edit_btn = ttk.Button(multi_btn_frame, text="取消编辑", command=self._cancel_edit_task, state=tk.DISABLED)
@@ -336,7 +357,7 @@ class CompareToolApp:
         self.generate_multi_btn.pack(side=tk.RIGHT)
 
         multi_list_frame = ttk.Frame(main)
-        multi_list_frame.grid(row=32, column=0, columnspan=3, sticky=tk.EW, pady=(0, 8))
+        multi_list_frame.grid(row=26, column=0, columnspan=3, sticky=tk.EW, pady=(0, 8))
         self.multi_task_tree = ttk.Treeview(
             multi_list_frame,
             columns=("name", "type", "source", "versions"),
@@ -359,7 +380,7 @@ class CompareToolApp:
 
         # ── 底部 ──
         bottom_frame = ttk.Frame(main)
-        bottom_frame.grid(row=33, column=0, columnspan=3, sticky=tk.EW, pady=(6, 0))
+        bottom_frame.grid(row=27, column=0, columnspan=3, sticky=tk.EW, pady=(6, 0))
 
         self.progress = ttk.Progressbar(bottom_frame, mode="indeterminate")
         self.progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 12))
@@ -400,6 +421,29 @@ class CompareToolApp:
             "git_multi": "Git需求包",
             "svn_multi": "SVN需求包",
         }.get(vcs_type, vcs_type)
+
+    @staticmethod
+    def _vcs_help_text(vcs_type: str) -> str:
+        return {
+            "git": (
+                "选择同一个 Git 仓库里的旧版本和新版本，比较从旧版本之后到新版本为止的代码变化。\n"
+                "不包含旧版本这次提交，包含新版本这次提交。"
+            ),
+            "svn": (
+                "选择同一个 SVN 项目路径里的旧 revision 和新 revision，比较从旧 revision 之后到新 revision 为止的代码变化。\n"
+                "不包含旧 revision，包含新 revision。"
+            ),
+            "folder": "选择旧文件夹和新文件夹，直接比较两个文件夹里的内容差异。",
+            "archive": "选择旧压缩包和新压缩包，解压后比较压缩包里的内容差异。",
+            "git_multi": (
+                "选择一个或多个 Git 提交，报告只体现这些选中提交带来的代码变化。\n"
+                "适合从多个提交里挑出某个需求或某几个需求，生成对应的比对报告。"
+            ),
+            "svn_multi": (
+                "选择一个或多个 SVN revision，报告只体现这些选中 revision 带来的代码变化。\n"
+                "适合从多个提交里挑出某个需求或某几个需求，生成对应的比对报告。"
+            ),
+        }.get(vcs_type, "")
 
     @staticmethod
     def _sanitize_project_name(name: str) -> str:
@@ -641,6 +685,7 @@ class CompareToolApp:
         is_folder = vcs_type == "folder"
         is_archive = vcs_type == "archive"
         is_multi = vcs_type in ("git_multi", "svn_multi")
+        self.vcs_help_var.set(self._vcs_help_text(vcs_type))
         self.status_var.set("就绪")
         self._project_name_manual = False
 
@@ -1115,50 +1160,6 @@ class CompareToolApp:
 
     # ========== 生成报告 ==========
 
-    def _check_overwrite(self, project_name=""):
-        """检查本项目导出子目录是否已有内容"""
-        msgs = []
-
-        report_path = self.report_path_var.get().strip()
-        if report_path and os.path.exists(report_path):
-            msgs.append(f"• 报告文件已存在:\n  {report_path}")
-
-        old_export = self.old_export_var.get().strip()
-        if old_export and project_name:
-            old_target = os.path.join(old_export, project_name)
-            if os.path.isdir(old_target) and os.listdir(old_target):
-                msgs.append(f"• 旧版本导出目录已有本项目内容:\n  {old_target}")
-
-        new_export = self.new_export_var.get().strip()
-        if new_export and project_name:
-            new_target = os.path.join(new_export, project_name)
-            if os.path.isdir(new_target) and os.listdir(new_target):
-                msgs.append(f"• 新版本导出目录已有本项目内容:\n  {new_target}")
-
-        if msgs:
-            return messagebox.askyesno(
-                "确认清空并重新导出",
-                "以下目标已有本项目内容，将被清空后重新导出：\n\n" + "\n\n".join(msgs)
-            )
-        return True
-
-    def _check_multi_overwrite(self):
-        old_export = self.old_export_var.get().strip()
-        new_export = self.new_export_var.get().strip()
-        msgs = []
-        for task in self._multi_tasks:
-            project_name = task.get("project_name", "")
-            for base_dir, label in ((old_export, "旧版本"), (new_export, "新版本")):
-                target = os.path.join(base_dir, project_name)
-                if os.path.isdir(target) and os.listdir(target):
-                    msgs.append(f"• {label}导出目录已有项目内容:\n  {target}")
-        if msgs:
-            return messagebox.askyesno(
-                "确认清空并重新导出",
-                "以下目标已有内容，将在对应项目导出时清空：\n\n" + "\n\n".join(msgs)
-            )
-        return True
-
     def _confirm_output_batch(self) -> bool:
         self._refresh_output_paths_now()
         output_dir = self.output_dir_var.get().strip()
@@ -1168,12 +1169,14 @@ class CompareToolApp:
             msg = (
                 f"本次输出批次名称：{batch_name}\n\n"
                 f"实际输出目录：\n{effective_output_dir}\n\n"
+                "若实际输出目录下已有同名报告或同项目导出内容，将自动覆盖/清空并重新生成。\n\n"
                 "请确认批次是否正确，是否继续生成？"
             )
         else:
             msg = (
                 "本次未设置输出批次名称，将直接输出到：\n"
                 f"{effective_output_dir}\n\n"
+                "若实际输出目录下已有同名报告或同项目导出内容，将自动覆盖/清空并重新生成。\n\n"
                 "是否继续生成？"
             )
         return messagebox.askyesno("确认输出批次", msg)
@@ -1353,9 +1356,6 @@ class CompareToolApp:
         if not self._confirm_output_batch():
             return
 
-        if not self._check_overwrite(project_name):
-            return
-
         self._set_generating(True)
         self.progress.start()
         self.status_var.set("正在生成比对报告...")
@@ -1391,8 +1391,6 @@ class CompareToolApp:
 
         self.old_export_var.set(self._join_display_path(effective_output_dir, "oldVersion"))
         self.new_export_var.set(self._join_display_path(effective_output_dir, "newVersion"))
-        if not self._check_multi_overwrite():
-            return
 
         report_path = self._multi_report_path()
         self._set_generating(True)
@@ -1523,6 +1521,7 @@ class CompareToolApp:
     def _on_complete(self, report_path, summary):
         self.progress.stop()
         self._set_generating(False)
+        output_dir = self._display_path(os.path.dirname(report_path))
         self.status_var.set(
             f"完成! 共 {summary['total_files']} 个文件变更 "
             f"(+{summary['total_added_lines']}/-{summary['total_deleted_lines']})"
@@ -1531,12 +1530,14 @@ class CompareToolApp:
                                        f"变更文件: {summary['total_files']} 个\n"
                                        f"新增行数: +{summary['total_added_lines']}\n"
                                        f"删除行数: -{summary['total_deleted_lines']}\n\n"
+                                       f"输出目录:\n{output_dir}\n\n"
                                        f"是否打开报告?"):
             webbrowser.open(f"file:///{report_path}")
 
     def _on_multi_complete(self, report_path, summary):
         self.progress.stop()
         self._set_generating(False)
+        output_dir = self._display_path(os.path.dirname(report_path))
         self.status_var.set(
             f"多项目完成! {summary['project_count']} 个项目，"
             f"{summary['total_files']} 个文件变更 "
@@ -1547,6 +1548,7 @@ class CompareToolApp:
                                        f"变更文件: {summary['total_files']} 个\n"
                                        f"新增行数: +{summary['total_added_lines']}\n"
                                        f"删除行数: -{summary['total_deleted_lines']}\n\n"
+                                       f"输出目录:\n{output_dir}\n\n"
                                        f"是否打开报告?"):
             webbrowser.open(f"file:///{report_path}")
 
