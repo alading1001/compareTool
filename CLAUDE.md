@@ -17,7 +17,7 @@ python main.py
 build.bat
 ```
 
-打包时需确保 `templates/` 目录与 main.py 在同一目录下。PyInstaller 的 `--add-data` 已处理 `templates`。使用 `--console` 而非 `--windowed`，确保 git/svn 子进程有终端可用，避免凭据认证弹 GUI 窗口。
+打包时需确保 `templates/` 和 `assets/` 目录与 main.py 在同一目录下。PyInstaller 的 `--add-data` 已处理 `templates` 和 `assets`。应用图标使用 `assets/icons/app.ico`，`--icon` 写入 exe 图标，运行时窗口图标也从同一路径加载。使用 `--console` 而非 `--windowed`，确保 git/svn 子进程有终端可用，避免凭据认证弹 GUI 窗口。
 
 ## 架构
 
@@ -42,9 +42,9 @@ main.py                  # tkinter GUI 入口，线程管理，配置持久化�
 
 1. `main.py` 收集输入：项目路径、VCS 类型（Git/SVN/文件夹/压缩包/Git需求包/SVN需求包）、旧/新版本号或需求版本列表、排除规则、输出目录
 2. 根据 VCS 类型创建 `GitVCS` / `SVNVCS` / `FolderVCS` / `ArchiveVCS` / `GitMultiVersionVCS` / `SVNMultiVersionVCS` → `get_changed_files()` 获取变更文件列表
-3. `DiffEngine.generate_diff()` 遍历文件，对文本文件用 `difflib.HtmlDiff.make_table()` 生成 side-by-side HTML；二进制文件跳过内容只设占位标记
+3. `DiffEngine.generate_diff()` 遍历文件，对文本文件用 `difflib.HtmlDiff.make_table()` 生成 side-by-side HTML；二进制文件跳过内容只设占位标记；内容完全一致且唯一匹配的删除+新增会合并为重命名
 4. `ReportGenerator` 用 Jinja2 渲染模板 → 单文件 HTML
-5. `FileExporter` 导出变更文件：统一通过 `vcs.get_file_content_bytes()` 读取原始字节（失败返回 `None`，空文件返回 `b""`），以 `wb` 模式写入保留原始编码。`None` 时回退到文本内容（UTF-8）。
+5. `FileExporter` 导出变更文件：统一通过 `vcs.get_file_content_bytes()` 读取原始字节（失败返回 `None`，空文件返回 `b""`），以 `wb` 模式写入保留原始编码。`None` 时回退到文本内容（UTF-8）。重命名文件导出时 oldVersion 使用 `old_path`，newVersion 使用 `file_path`。
 
 项目名只在能从有效项目目录、新版本文件夹或新版本压缩包推断出真实名称时自动填充。推断不到且用户未手工填写时，生成报告或添加多项目任务应直接提示失败，不使用 `project` 之类的假兜底名称。
 
@@ -59,7 +59,7 @@ newVersion/项目名/...
 
 若填写了输出批次名称，实际导出根目录会变成 `输出目录/输出批次名称/`，报告、`oldVersion` 和 `newVersion` 都生成在这一层下。生成单项目或多项目报告前会提示当前批次名称和实际输出目录，用户确认后才继续。
 
-多项目任务允许混用 Git/SVN/文件夹/压缩包/Git需求包/SVN需求包。任一任务失败时本次生成失败，不跳过项目。总报告文件名格式为 `multi_compare_report_yyyyMMdd_HHmmss_SSS.html`。任务列表保存到 `compareTool_config.json`。多项目变更清单是纯文本页面，按新增/修改/删除汇总；每条路径是否带项目名由该任务自己的 `show_project_root` 决定。生成总报告前会检测最终展示路径冲突，若同一展示路径来自多个项目，则失败并提示开启相关任务的项目名展示。
+多项目任务允许混用 Git/SVN/文件夹/压缩包/Git需求包/SVN需求包。任一任务失败时本次生成失败，不跳过项目。总报告文件名格式为 `multi_compare_report_yyyyMMdd_HHmmss_SSS.html`。任务列表保存到 `compareTool_config.json`。多项目变更清单是纯文本页面，按新增/修改/删除/重命名汇总；每条路径是否带项目名由该任务自己的 `show_project_root` 决定。生成总报告前会检测最终展示路径冲突，若同一展示路径来自多个项目，则失败并提示开启相关任务的项目名展示。
 
 ### VCS 类型与版本标识
 
@@ -71,6 +71,10 @@ newVersion/项目名/...
 | 压缩包 | 旧压缩包路径 | 新压缩包路径 | 解压到临时目录后委托 `FolderVCS` 比对；支持 `.zip` / `.jar` / `.war` / `.ear` / `.aar` / `.tar` / `.tar.gz` / `.tgz` / `.tar.bz2` / `.tbz2` |
 | Git需求包 | 多个 commit hash | `基线 + 选中版本` | `old = 最早选中提交的父提交`，`new = old + 按时间顺序 cherry-pick 选中提交` |
 | SVN需求包 | 多个 `rNNNNN` 或 `NNNNN` | `基线 + 选中版本` | `old = 最早选中 revision - 1`，`new = old + 按 revision 顺序 svn merge 选中修订` |
+
+### 重命名处理
+
+`ChangeType.RENAMED` 中 `file_path` 表示新路径，`old_path` 表示旧路径。`GitVCS` 使用 `git diff --name-status --find-renames` 获取 Git 明确识别的重命名。`DiffEngine._merge_exact_renames()` 会把内容字节完全一致且唯一匹配的 `DELETED + ADDED` 合并成 `RENAMED`，用于文件夹、压缩包、Git需求包、SVN需求包，以及 SVN 普通比对输出为删除+新增的纯重命名场景。工具不做相似度猜测：如果重命名同时修改内容且 VCS 没有明确返回重命名，就保持删除+新增。报告模板必须把 `R` 纳入汇总卡片、文件树标签、过滤器和纯文本变更清单。
 
 ### 需求包比对
 

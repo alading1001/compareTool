@@ -21,6 +21,7 @@ body { font-family: "Microsoft YaHei","Segoe UI",sans-serif; height: 100vh; over
 .card.added .num { color: #27ae60; }
 .card.modified .num { color: #2980b9; }
 .card.deleted .num { color: #e74c3c; }
+.card.renamed .num { color: #8e44ad; }
 
 .body { display: flex; flex: 1; overflow: hidden; }
 
@@ -32,6 +33,7 @@ body { font-family: "Microsoft YaHei","Segoe UI",sans-serif; height: 100vh; over
 .dot.added { background: #27ae60; }
 .dot.modified { background: #2980b9; }
 .dot.deleted { background: #e74c3c; }
+.dot.renamed { background: #8e44ad; }
 #tree { flex: 1; overflow-y: auto; padding: 4px 0; }
 #tree .row { display: flex; align-items: center; padding: 3px 14px; cursor: pointer; font-size: 13px; white-space: nowrap; }
 #tree .row:hover { background: #eef1f7; }
@@ -42,9 +44,11 @@ body { font-family: "Microsoft YaHei","Segoe UI",sans-serif; height: 100vh; over
 #tree .row .tag.A { background: #27ae60; }
 #tree .row .tag.M { background: #2980b9; }
 #tree .row .tag.D { background: #e74c3c; }
+#tree .row .tag.R { background: #8e44ad; }
 #tree .row.added .name { color: #27ae60; }
 #tree .row.modified .name { color: #2980b9; }
 #tree .row.deleted .name { color: #e74c3c; }
+#tree .row.renamed .name { color: #8e44ad; }
 .filter-bar { display: flex; gap: 4px; padding: 6px 14px; border-bottom: 1px solid #eee; background: #fafafa; flex-shrink: 0; align-items: center; }
 .filter-bar .flt { font-size: 11px; padding: 2px 8px; border-radius: 3px; cursor: pointer; user-select: none; border: 1px solid #ccc; background: #fff; color: #888; }
 .filter-bar .flt.on { color: #fff; border-color: transparent; }
@@ -52,6 +56,7 @@ body { font-family: "Microsoft YaHei","Segoe UI",sans-serif; height: 100vh; over
 .filter-bar .flt.a.on { background: #27ae60; }
 .filter-bar .flt.m.on { background: #2980b9; }
 .filter-bar .flt.d.on { background: #e74c3c; }
+.filter-bar .flt.r.on { background: #8e44ad; }
 #tree .children { display: none; }
 #tree .children.open { display: block; }
 #tree .children { padding-left: 16px; }
@@ -67,6 +72,7 @@ body { font-family: "Microsoft YaHei","Segoe UI",sans-serif; height: 100vh; over
 .diff-file-header .change-tag.A { background: #27ae60; }
 .diff-file-header .change-tag.M { background: #2980b9; }
 .diff-file-header .change-tag.D { background: #e74c3c; }
+.diff-file-header .change-tag.R { background: #8e44ad; }
 
 /* difflib 表格样式 */
 table.diff { font-family: Consolas,"Courier New",monospace; font-size: 12px; width: 100%; border-collapse: collapse; }
@@ -100,6 +106,7 @@ table.diff span { white-space: pre; }
     <div class="card added"><div class="num">{{ summary.added_files }}</div><div class="lbl">新增</div></div>
     <div class="card modified"><div class="num">{{ summary.modified_files }}</div><div class="lbl">修改</div></div>
     <div class="card deleted"><div class="num">{{ summary.deleted_files }}</div><div class="lbl">删除</div></div>
+    <div class="card renamed"><div class="num">{{ summary.renamed_files }}</div><div class="lbl">重命名</div></div>
 </div>
 
 <div class="body">
@@ -115,6 +122,7 @@ table.diff span { white-space: pre; }
                 <span class="leg"><span class="dot added"></span>新增</span>
                 <span class="leg"><span class="dot modified"></span>修改</span>
                 <span class="leg"><span class="dot deleted"></span>删除</span>
+                <span class="leg"><span class="dot renamed"></span>重命名</span>
             </div>
         </div>
         <div class="filter-bar">
@@ -122,6 +130,7 @@ table.diff span { white-space: pre; }
             <span class="flt a on" onclick="toggleFilter('A', this)">新增</span>
             <span class="flt m on" onclick="toggleFilter('M', this)">修改</span>
             <span class="flt d on" onclick="toggleFilter('D', this)">删除</span>
+            <span class="flt r on" onclick="toggleFilter('R', this)">重命名</span>
             <span style="font-size:10px;color:#bbb;margin-left:4px;">点击标签过滤，支持任意组合</span>
         </div>
         <div id="tree"></div>
@@ -148,13 +157,18 @@ table.diff span { white-space: pre; }
 var fileData = [];
 {% for file in files %}
 fileData.push({
-    path: "{{ file.file_path | replace('\\','/') | e }}",
-    type: "{{ file.change_type.value }}",
+    path: {{ file.file_path | replace('\\','/') | tojson }},
+    oldPath: {{ file.old_path | replace('\\','/') | tojson }},
+    type: {{ file.change_type.value | tojson }},
     html: document.getElementById("sbs-{{ loop.index }}").innerHTML
 });
 {% endfor %}
 
-function typeLabel(t) { return t === 'A' ? '新增' : t === 'M' ? '修改' : t === 'D' ? '删除' : ''; }
+function typeLabel(t) { return t === 'A' ? '新增' : t === 'M' ? '修改' : t === 'D' ? '删除' : t === 'R' ? '重命名' : ''; }
+function typeClass(t) { return t === 'A' ? 'added' : t === 'M' ? 'modified' : t === 'D' ? 'deleted' : t === 'R' ? 'renamed' : ''; }
+function displayPath(file) {
+    return file.type === 'R' && file.oldPath ? file.oldPath + ' -> ' + file.path : file.path;
+}
 function esc(s) {
     var d = document.createElement('div');
     d.appendChild(document.createTextNode(s));
@@ -195,10 +209,12 @@ function getDirType(node) {
     var hasD = types.indexOf('D') >= 0;
     var hasM = types.indexOf('M') >= 0;
     var hasA = types.indexOf('A') >= 0;
+    var hasR = types.indexOf('R') >= 0;
     // 只有全部为同一类型时才显示标签，混合类型不显示
-    if (hasD && !hasM && !hasA) return 'D';
-    if (hasM && !hasD && !hasA) return 'M';
-    if (hasA && !hasD && !hasM) return 'A';
+    if (hasD && !hasM && !hasA && !hasR) return 'D';
+    if (hasM && !hasD && !hasA && !hasR) return 'M';
+    if (hasA && !hasD && !hasM && !hasR) return 'A';
+    if (hasR && !hasD && !hasM && !hasA) return 'R';
     return '';
 }
 
@@ -241,7 +257,7 @@ function renderTree(node, container, isRoot) {
         wrapper.className = 'node';
 
         var row = document.createElement('div');
-        row.className = 'row ' + (dirType === 'A' ? 'added' : dirType === 'M' ? 'modified' : dirType === 'D' ? 'deleted' : '');
+        row.className = 'row ' + typeClass(dirType);
         row.innerHTML = '<span class="icon">▶</span><span class="name">📁 ' + esc(child.name) + '</span>' +
             (dirType ? '<span class="tag ' + dirType + '">' + typeLabel(dirType) + '</span>' : '');
         wrapper.appendChild(row);
@@ -267,7 +283,7 @@ function renderTree(node, container, isRoot) {
         return a.name.localeCompare(b.name);
     }).forEach(function(f) {
         var row = document.createElement('div');
-        row.className = 'row ' + (f.data.type === 'A' ? 'added' : f.data.type === 'M' ? 'modified' : 'deleted');
+        row.className = 'row ' + typeClass(f.data.type);
         row.innerHTML = '<span class="icon">📄</span><span class="name">' + esc(f.name) + '</span>' +
             '<span class="tag ' + f.data.type + '">' + typeLabel(f.data.type) + '</span>';
 
@@ -298,7 +314,7 @@ function showDiff(file) {
 
     var header = document.createElement('div');
     header.className = 'diff-file-header';
-    header.innerHTML = '<span class="change-tag ' + file.type + '">' + typeLabel(file.type) + '</span>' + esc(file.path);
+    header.innerHTML = '<span class="change-tag ' + file.type + '">' + typeLabel(file.type) + '</span>' + esc(displayPath(file));
     panel.appendChild(header);
 
     var tableWrapper = document.createElement('div');
@@ -338,12 +354,20 @@ function openSummary() {
     lines.push(oldVersion + ' -> ' + newVersion);
 {% endif %}
 
-    var groups = {A:[], M:[], D:[]};
+    function summaryPath(f) {
+{% if show_project_root %}
+        if (f.type === 'R' && f.oldPath) return projectName + '/' + f.oldPath + ' -> ' + projectName + '/' + f.path;
+        return projectName + '/' + f.path;
+{% else %}
+        return displayPath(f);
+{% endif %}
+    }
+    var groups = {A:[], M:[], D:[], R:[]};
     fileData.forEach(function(f) {
-        if (groups[f.type]) groups[f.type].push(f.path);
+        if (groups[f.type]) groups[f.type].push(summaryPath(f));
     });
-    var labels = {A:'新增文件', M:'修改文件', D:'删除文件'};
-    ['A','M','D'].forEach(function(t) {
+    var labels = {A:'新增文件', M:'修改文件', D:'删除文件', R:'重命名文件'};
+    ['A','M','D','R'].forEach(function(t) {
         var list = groups[t];
         lines.push('');
         lines.push(labels[t] + '（' + list.length + ' 个）');
@@ -351,11 +375,7 @@ function openSummary() {
             lines.push('无');
         } else {
             list.sort().forEach(function(p) {
-{% if show_project_root %}
-                lines.push(projectName + '/' + p);
-{% else %}
                 lines.push(p);
-{% endif %}
             });
         }
     });
@@ -367,13 +387,14 @@ function openSummary() {
 }
 
 // ===== 变更类型过滤 =====
-var filterState = { A: true, M: true, D: true };
+var filterState = { A: true, M: true, D: true, R: true };
 
 function updateFilterUI() {
-    var allOn = filterState.A && filterState.M && filterState.D;
+    var allOn = filterState.A && filterState.M && filterState.D && filterState.R;
     document.querySelectorAll('.filter-bar .flt.a').forEach(function(el) { el.classList.toggle('on', filterState.A); });
     document.querySelectorAll('.filter-bar .flt.m').forEach(function(el) { el.classList.toggle('on', filterState.M); });
     document.querySelectorAll('.filter-bar .flt.d').forEach(function(el) { el.classList.toggle('on', filterState.D); });
+    document.querySelectorAll('.filter-bar .flt.r').forEach(function(el) { el.classList.toggle('on', filterState.R); });
     document.querySelectorAll('.filter-bar .flt.all').forEach(function(el) { el.classList.toggle('on', allOn); });
 }
 
@@ -384,7 +405,7 @@ function toggleFilter(type, el) {
 
 function setFilter(type) {
     if (type === 'all') {
-        filterState.A = filterState.M = filterState.D = true;
+        filterState.A = filterState.M = filterState.D = filterState.R = true;
     }
     applyFilter();
 }

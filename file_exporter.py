@@ -30,6 +30,10 @@ class FileExporter:
                 self._write_file(old_dir, file_diff.file_path, old_ver, file_diff.old_content)
             elif file_diff.change_type == ChangeType.ADDED:
                 self._write_file(new_dir, file_diff.file_path, new_ver, file_diff.new_content)
+            elif file_diff.change_type == ChangeType.RENAMED:
+                old_path = file_diff.old_path or file_diff.file_path
+                self._write_file(old_dir, old_path, old_ver, file_diff.old_content)
+                self._write_file(new_dir, file_diff.file_path, new_ver, file_diff.new_content)
             else:
                 self._write_file(old_dir, file_diff.file_path, old_ver, file_diff.old_content)
                 self._write_file(new_dir, file_diff.file_path, new_ver, file_diff.new_content)

@@ -46,7 +46,7 @@ class GitVCS(BaseVCS):
         return result.stdout
 
     def get_changed_files(self, old_version: str, new_version: str) -> List[ChangedFile]:
-        output = self._run(["diff", "--name-status", old_version, new_version])
+        output = self._run(["diff", "--name-status", "--find-renames", old_version, new_version])
         files = []
         for line in output.strip().split("\n"):
             if not line:

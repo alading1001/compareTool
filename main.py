@@ -103,7 +103,9 @@ class CompareToolApp:
         y = 0
         self.root.geometry(f"{w}x{h}+{x}+{y}")
 
-        icon_path = os.path.join(BASE_DIR, "icon.ico")
+        icon_path = os.path.join(BASE_DIR, "assets", "icons", "app.ico")
+        if not os.path.exists(icon_path):
+            icon_path = os.path.join(BASE_DIR, "icon.ico")
         if os.path.exists(icon_path):
             self.root.iconbitmap(icon_path)
 

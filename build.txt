@@ -1,1 +1,0 @@
-python -m PyInstaller --onefile --console --name "CompareTool" --add-data "templates;templates" --clean main.py
