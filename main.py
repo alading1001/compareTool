@@ -131,7 +131,7 @@ class CompareToolApp:
         return DEFAULT_EXCLUDE_RULES
 
     def _build_ui(self):
-        bottom_frame = ttk.Frame(self.root, padding=(16, 8, 16, 10))
+        bottom_frame = ttk.Frame(self.root, padding=(14, 6, 14, 8))
         bottom_frame.pack(side=tk.BOTTOM, fill=tk.X)
 
         self.progress = ttk.Progressbar(bottom_frame, mode="indeterminate")
@@ -141,7 +141,7 @@ class CompareToolApp:
         self.generate_btn.pack(side=tk.RIGHT)
 
         self.status_var = tk.StringVar(value="就绪")
-        ttk.Label(bottom_frame, textvariable=self.status_var, font=("", 9)).pack(side=tk.RIGHT, padx=(0, 16))
+        ttk.Label(bottom_frame, textvariable=self.status_var, font=("", 9)).pack(side=tk.RIGHT, padx=(0, 12))
 
         container = ttk.Frame(self.root)
         container.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
@@ -150,7 +150,7 @@ class CompareToolApp:
         canvas.configure(yscrollcommand=scroll.set)
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        main = ttk.Frame(canvas, padding=(16, 6, 16, 16))
+        main = ttk.Frame(canvas, padding=(14, 4, 14, 10))
         window_id = canvas.create_window((0, 0), window=main, anchor="nw")
 
         def _sync_scroll_region(_event=None):
@@ -177,9 +177,9 @@ class CompareToolApp:
         canvas.bind_all("<MouseWheel>", _on_main_mousewheel)
 
         # ── VCS 类型 ──
-        ttk.Label(main, text="版本控制类型:", font=("", 10)).grid(row=0, column=0, sticky=tk.W, pady=(0, 4))
+        ttk.Label(main, text="版本控制类型:", font=("", 10)).grid(row=0, column=0, sticky=tk.W, pady=(0, 3))
         vcs_frame = ttk.Frame(main)
-        vcs_frame.grid(row=1, column=0, columnspan=3, sticky=tk.EW, pady=(0, 10))
+        vcs_frame.grid(row=1, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
         vcs_buttons_frame = ttk.Frame(vcs_frame)
         vcs_buttons_frame.pack(anchor=tk.W)
         self.vcs_var = tk.StringVar(value=self._config.get("vcs_type", "git"))
@@ -198,7 +198,7 @@ class CompareToolApp:
             justify=tk.LEFT,
             wraplength=720
         )
-        self.vcs_help_label.pack(anchor=tk.W, fill=tk.X, pady=(6, 0))
+        self.vcs_help_label.pack(anchor=tk.W, fill=tk.X, pady=(3, 0))
         vcs_frame.bind(
             "<Configure>",
             lambda e: self.vcs_help_label.configure(wraplength=max(360, e.width - 4))
@@ -208,7 +208,7 @@ class CompareToolApp:
         self.project_label = ttk.Label(main, text="项目目录:", font=("", 10))
         self.project_label.grid(row=2, column=0, sticky=tk.W, pady=(0, 2))
         self.project_dir_frame = ttk.Frame(main)
-        self.project_dir_frame.grid(row=3, column=0, columnspan=3, sticky=tk.EW, pady=(0, 10))
+        self.project_dir_frame.grid(row=3, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
         self.dir_entry = ttk.Entry(self.project_dir_frame)
         self.dir_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.dir_entry.bind("<KeyRelease>", lambda e: self._on_project_path_changed())
@@ -220,18 +220,18 @@ class CompareToolApp:
             self.dir_entry.insert(0, last_project)
 
         # ── 报告项目名 ──
-        ttk.Label(main, text="项目名 (报告树/变更清单/导出目录使用):", font=("", 10)).grid(row=4, column=0, sticky=tk.W, pady=(0, 4))
+        ttk.Label(main, text="项目名 (报告树/变更清单/导出目录使用):", font=("", 10)).grid(row=4, column=0, sticky=tk.W, pady=(0, 3))
         project_name_frame = ttk.Frame(main)
-        project_name_frame.grid(row=5, column=0, columnspan=3, sticky=tk.EW, pady=(0, 10))
+        project_name_frame.grid(row=5, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
         self.project_name_var = tk.StringVar()
         self.project_name_entry = ttk.Entry(project_name_frame, textvariable=self.project_name_var)
         self.project_name_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.project_name_entry.bind("<KeyRelease>", lambda e: setattr(self, "_project_name_manual", True))
 
         # ── 排除规则 ──
-        ttk.Label(main, text="排除规则 (每行一个，支持 * 和 ** 通配符):", font=("", 10)).grid(row=6, column=0, sticky=tk.W, pady=(0, 4))
+        ttk.Label(main, text="排除规则 (每行一个，支持 * 和 ** 通配符):", font=("", 10)).grid(row=6, column=0, sticky=tk.W, pady=(0, 3))
         exclude_frame = ttk.Frame(main)
-        exclude_frame.grid(row=7, column=0, columnspan=3, sticky=tk.EW, pady=(0, 10))
+        exclude_frame.grid(row=7, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
         self.exclude_text = tk.Text(exclude_frame, height=4, wrap=tk.NONE)
         self.exclude_text.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.exclude_text.insert("1.0", self._default_exclude_rules)
@@ -250,7 +250,7 @@ class CompareToolApp:
 
         old_frame = ttk.Frame(main)
         self.old_version_frame = old_frame
-        old_frame.grid(row=9, column=0, columnspan=3, sticky=tk.EW, pady=(0, 8))
+        old_frame.grid(row=9, column=0, columnspan=3, sticky=tk.EW, pady=(0, 5))
         self.old_entry = ttk.Entry(old_frame, textvariable=self.old_version_var)
         self.old_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.old_vcs_btn = ttk.Button(old_frame, text="获取版本列表", command=lambda: self._fetch_versions("old"))
@@ -265,7 +265,7 @@ class CompareToolApp:
 
         new_frame = ttk.Frame(main)
         self.new_version_frame = new_frame
-        new_frame.grid(row=11, column=0, columnspan=3, sticky=tk.EW, pady=(0, 8))
+        new_frame.grid(row=11, column=0, columnspan=3, sticky=tk.EW, pady=(0, 5))
         self.new_entry = ttk.Entry(new_frame, textvariable=self.new_version_var)
         self.new_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.new_vcs_btn = ttk.Button(new_frame, text="获取版本列表", command=lambda: self._fetch_versions("new"))
@@ -281,7 +281,7 @@ class CompareToolApp:
         self.version_listbox.bind("<ButtonRelease-1>", self._on_version_click)
 
         fill_btn_frame = ttk.Frame(main)
-        fill_btn_frame.grid(row=13, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
+        fill_btn_frame.grid(row=13, column=0, columnspan=3, sticky=tk.EW, pady=(0, 4))
         fill_btn_frame.grid_remove()
         self.fill_btn_frame = fill_btn_frame
         self.fill_target_label = ttk.Label(fill_btn_frame, text="", font=("", 9))
@@ -292,11 +292,11 @@ class CompareToolApp:
         self._version_target = "old"
 
         # ── 输出路径 ──
-        ttk.Label(main, text="输出路径设置:", font=("", 10, "bold")).grid(row=14, column=0, sticky=tk.W, pady=(10, 4))
+        ttk.Label(main, text="输出路径设置:", font=("", 10, "bold")).grid(row=14, column=0, sticky=tk.W, pady=(6, 3))
 
         ttk.Label(main, text="输出目录:").grid(row=15, column=0, sticky=tk.W)
         output_dir_frame = ttk.Frame(main)
-        output_dir_frame.grid(row=16, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
+        output_dir_frame.grid(row=16, column=0, columnspan=3, sticky=tk.EW, pady=(0, 4))
         self.output_dir_var = tk.StringVar(value=self._config.get("output_dir", ""))
         self.output_dir_var.trace_add("write", lambda *_: self._update_output_paths())
         ttk.Entry(output_dir_frame, textvariable=self.output_dir_var).pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -304,7 +304,7 @@ class CompareToolApp:
 
         ttk.Label(main, text="输出批次名称 (可选):").grid(row=17, column=0, sticky=tk.W)
         batch_frame = ttk.Frame(main)
-        batch_frame.grid(row=18, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
+        batch_frame.grid(row=18, column=0, columnspan=3, sticky=tk.EW, pady=(0, 4))
         self.output_batch_var = tk.StringVar(value=datetime.now().strftime("%Y%m%d"))
         self.output_batch_var.trace_add("write", lambda *_: self._update_output_paths())
         ttk.Entry(batch_frame, textvariable=self.output_batch_var).pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -314,7 +314,7 @@ class CompareToolApp:
         self.new_export_var = tk.StringVar()
 
         # ── 显示选项 ──
-        ttk.Label(main, text="显示选项:", font=("", 10, "bold")).grid(row=19, column=0, sticky=tk.W, pady=(10, 4))
+        ttk.Label(main, text="显示选项:", font=("", 10, "bold")).grid(row=19, column=0, sticky=tk.W, pady=(6, 3))
         show_root_frame = ttk.Frame(main)
         show_root_frame.grid(row=20, column=0, columnspan=3, sticky=tk.EW, pady=(0, 4))
         show_root_choice_frame = ttk.Frame(show_root_frame)
@@ -325,35 +325,26 @@ class CompareToolApp:
         ttk.Radiobutton(show_root_choice_frame, text="否", variable=self.show_project_root_var, value="no").pack(side=tk.LEFT)
         self.show_project_root_help_label = ttk.Label(
             show_root_frame,
-            text="控制最终报告树和变更清单里的文件路径是否以项目名开头。选择“是”显示为 项目名/文件路径；选择“否”只显示项目内部文件路径。",
+            text="是：路径以项目名开头；否：只显示项目内部路径。",
             foreground="#555555",
             justify=tk.LEFT,
             wraplength=720
         )
-        self.show_project_root_help_label.pack(anchor=tk.W, fill=tk.X, pady=(4, 0))
+        self.show_project_root_help_label.pack(anchor=tk.W, fill=tk.X, pady=(2, 0))
         show_root_frame.bind(
             "<Configure>",
             lambda e: self.show_project_root_help_label.configure(wraplength=max(360, e.width - 4))
         )
 
         show_ctx_frame = ttk.Frame(main)
-        show_ctx_frame.grid(row=21, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
+        show_ctx_frame.grid(row=21, column=0, columnspan=3, sticky=tk.EW, pady=(0, 4))
         ttk.Label(show_ctx_frame, text="差异展示方式:").pack(side=tk.LEFT)
         self.show_full_context_var = tk.StringVar(value="yes")
         ttk.Radiobutton(show_ctx_frame, text="全部内容", variable=self.show_full_context_var, value="yes").pack(side=tk.LEFT, padx=(6, 2))
         ttk.Radiobutton(show_ctx_frame, text="仅差异上下文", variable=self.show_full_context_var, value="no").pack(side=tk.LEFT)
 
-        # ── SVN 设置 (仅在 SVN 模式显示) ──
-        self.svn_path_label = ttk.Label(main, text="SVN 可执行文件路径 (可选，留空使用系统默认):", font=("", 10, "bold"))
-        self.svn_path_label.grid(row=22, column=0, sticky=tk.W, pady=(10, 4))
-        self.svn_path_frame = ttk.Frame(main)
-        self.svn_path_frame.grid(row=23, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
-        self.svn_path_var = tk.StringVar(value=self._config.get("svn_path", ""))
-        ttk.Entry(self.svn_path_frame, textvariable=self.svn_path_var).pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Button(self.svn_path_frame, text="浏览...", command=lambda: self._browse_svn_path()).pack(side=tk.LEFT, padx=(6, 0))
-
         # ── 多项目批量任务 ──
-        ttk.Label(main, text="多项目批量任务:", font=("", 10, "bold")).grid(row=24, column=0, sticky=tk.W, pady=(10, 4))
+        ttk.Label(main, text="多项目批量任务:", font=("", 10, "bold")).grid(row=24, column=0, sticky=tk.W, pady=(6, 3))
         multi_btn_frame = ttk.Frame(main)
         multi_btn_frame.grid(row=25, column=0, columnspan=3, sticky=tk.EW, pady=(0, 4))
         self.add_task_btn = ttk.Button(multi_btn_frame, text="添加到多项目任务", command=self._add_or_update_multi_task)
@@ -370,7 +361,7 @@ class CompareToolApp:
         self.generate_multi_btn.pack(side=tk.RIGHT)
 
         multi_list_frame = ttk.Frame(main)
-        multi_list_frame.grid(row=26, column=0, columnspan=3, sticky=tk.EW, pady=(0, 8))
+        multi_list_frame.grid(row=26, column=0, columnspan=3, sticky=tk.EW, pady=(0, 5))
         self.multi_task_tree = ttk.Treeview(
             multi_list_frame,
             columns=("name", "type", "source", "versions"),
@@ -425,24 +416,12 @@ class CompareToolApp:
     @staticmethod
     def _vcs_help_text(vcs_type: str) -> str:
         return {
-            "git": (
-                "选择同一个 Git 仓库里的旧版本和新版本，比较从旧版本之后到新版本为止的代码变化。\n"
-                "不包含旧版本这次提交，包含新版本这次提交。"
-            ),
-            "svn": (
-                "选择同一个 SVN 项目路径里的旧 revision 和新 revision，比较从旧 revision 之后到新 revision 为止的代码变化。\n"
-                "不包含旧 revision，包含新 revision。"
-            ),
+            "git": "比较同一 Git 仓库旧版本之后到新版本为止的变化（不含旧版本，含新版本）。",
+            "svn": "比较同一 SVN 项目旧 revision 之后到新 revision 为止的变化（不含旧 revision，含新 revision）。",
             "folder": "选择旧文件夹和新文件夹，直接比较两个文件夹里的内容差异。",
             "archive": "选择旧压缩包和新压缩包，解压后比较压缩包里的内容差异。",
-            "git_multi": (
-                "选择一个或多个 Git 提交，报告只体现这些选中提交带来的代码变化。\n"
-                "适合从多个提交里挑出某个需求或某几个需求，生成对应的比对报告。"
-            ),
-            "svn_multi": (
-                "选择一个或多个 SVN revision，报告只体现这些选中 revision 带来的代码变化。\n"
-                "适合从多个提交里挑出某个需求或某几个需求，生成对应的比对报告。"
-            ),
+            "git_multi": "选择一个或多个 Git 提交，报告只体现这些选中提交带来的需求改动。",
+            "svn_multi": "选择一个或多个 SVN revision，报告只体现这些选中 revision 带来的需求改动。",
         }.get(vcs_type, "")
 
     @staticmethod
@@ -705,8 +684,6 @@ class CompareToolApp:
         if is_folder:
             self.project_label.grid_remove()
             self.project_dir_frame.grid_remove()
-            self.svn_path_label.grid_remove()
-            self.svn_path_frame.grid_remove()
             self.old_label.config(text="旧版本文件夹:")
             self.new_label.config(text="新版本文件夹:")
             self.old_vcs_btn.pack_forget()
@@ -721,8 +698,6 @@ class CompareToolApp:
         elif is_archive:
             self.project_label.grid_remove()
             self.project_dir_frame.grid_remove()
-            self.svn_path_label.grid_remove()
-            self.svn_path_frame.grid_remove()
             self.old_label.config(text="旧版本压缩包:")
             self.new_label.config(text="新版本压缩包:")
             self.old_vcs_btn.pack_forget()
@@ -737,13 +712,6 @@ class CompareToolApp:
         elif is_multi:
             self.project_label.grid()
             self.project_dir_frame.grid()
-            is_svn_multi = vcs_type == "svn_multi"
-            if is_svn_multi:
-                self.svn_path_label.grid()
-                self.svn_path_frame.grid()
-            else:
-                self.svn_path_label.grid_remove()
-                self.svn_path_frame.grid_remove()
             self.old_label.config(text="选择需求版本 (可多选):")
             self.new_label.config(text="生成结果:")
             self.old_folder_btn.pack_forget()
@@ -762,13 +730,6 @@ class CompareToolApp:
         else:
             self.project_label.grid()
             self.project_dir_frame.grid()
-            is_svn = vcs_type == "svn"
-            if is_svn:
-                self.svn_path_label.grid()
-                self.svn_path_frame.grid()
-            else:
-                self.svn_path_label.grid_remove()
-                self.svn_path_frame.grid_remove()
             self.old_label.config(text="旧版本 (改动前):")
             self.new_label.config(text="新版本 (改动后):")
             self.old_folder_btn.pack_forget()
@@ -809,14 +770,6 @@ class CompareToolApp:
         )
         if path:
             var.set(path)
-
-    def _browse_svn_path(self):
-        path = filedialog.askopenfilename(
-            title="选择 SVN 可执行文件 (svn.exe)",
-            filetypes=[("SVN 可执行文件", "svn.exe"), ("所有文件", "*.*")]
-        )
-        if path:
-            self.svn_path_var.set(path)
 
     def _browse_save_file(self, var, desc, ext):
         path = filedialog.asksaveasfilename(title=f"保存{desc}", filetypes=[(desc, ext)], defaultextension=ext)
@@ -863,11 +816,9 @@ class CompareToolApp:
             elif vcs_type == "git_multi":
                 versions = GitMultiVersionVCS.get_recent_versions(project_path)
             elif vcs_type == "svn_multi":
-                versions = SVNMultiVersionVCS.get_recent_versions(
-                    project_path, svn_path=self.svn_path_var.get().strip()
-                )
+                versions = SVNMultiVersionVCS.get_recent_versions(project_path)
             else:
-                vcs = SVNVCS(project_path, svn_path=self.svn_path_var.get().strip())
+                vcs = SVNVCS(project_path)
                 versions = vcs.get_versions()
             info(f"获取到 {len(versions)} 个版本")
 
@@ -1066,7 +1017,6 @@ class CompareToolApp:
             "project_path": project_path,
             "old_version": old_version,
             "new_version": new_version,
-            "svn_path": self.svn_path_var.get().strip(),
             "exclude_key": exclude_key,
             "exclude_rules": exclude_rules,
             "show_project_root": self.show_project_root_var.get() == "yes",
@@ -1118,7 +1068,6 @@ class CompareToolApp:
         self.dir_entry.insert(0, task.get("project_path", ""))
         self.old_version_var.set(task.get("old_version", ""))
         self.new_version_var.set(task.get("new_version", ""))
-        self.svn_path_var.set(task.get("svn_path", ""))
         self.project_name_var.set(task.get("project_name", ""))
         self.show_project_root_var.set(self._option_value(task.get("show_project_root"), default=True))
         self.show_full_context_var.set(self._option_value(task.get("show_full_context"), default=True))
@@ -1205,12 +1154,11 @@ class CompareToolApp:
         if vcs_type == "svn_multi":
             return SVNMultiVersionVCS(
                 task["project_path"],
-                parse_multi_versions(task["old_version"]),
-                svn_path=task.get("svn_path", "")
+                parse_multi_versions(task["old_version"])
             ), True
         if vcs_type == "git":
             return GitVCS(task["project_path"]), False
-        return SVNVCS(task["project_path"], svn_path=task.get("svn_path", "")), False
+        return SVNVCS(task["project_path"]), False
 
     def _prepare_task_result(self, task: dict, show_full: bool = None):
         vcs = None
@@ -1416,13 +1364,12 @@ class CompareToolApp:
                 vcs = GitMultiVersionVCS(project_path, parse_multi_versions(old_version))
                 cleanup_vcs = vcs
             elif vcs_type == "svn_multi":
-                vcs = SVNMultiVersionVCS(project_path, parse_multi_versions(old_version),
-                                         svn_path=self.svn_path_var.get().strip())
+                vcs = SVNMultiVersionVCS(project_path, parse_multi_versions(old_version))
                 cleanup_vcs = vcs
             elif vcs_type == "git":
                 vcs = GitVCS(project_path)
             else:
-                vcs = SVNVCS(project_path, svn_path=self.svn_path_var.get().strip())
+                vcs = SVNVCS(project_path)
 
             exclude_text = self.exclude_text.get("1.0", tk.END).strip()
             if exclude_text:
@@ -1564,7 +1511,6 @@ class CompareToolApp:
         data = {
             "project_path": self.dir_entry.get().strip(),
             "vcs_type": self.vcs_var.get(),
-            "svn_path": self.svn_path_var.get().strip(),
             "project_exclude_rules": self._project_exclude_rules,
             "project_display_options": self._project_display_options,
             "multi_tasks": self._multi_tasks,

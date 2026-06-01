@@ -1,8 +1,17 @@
 import subprocess
 import os
+import shutil
 from typing import List
 
 from .base import BaseVCS, ChangedFile, ChangeType
+from logger import info, warn
+
+
+GIT_NOT_FOUND_MESSAGE = (
+    "未找到 Git 命令行工具 git.exe。\n"
+    "请安装 Git for Windows，并在安装时允许添加到 PATH；"
+    "或确认 git.exe 位于 C:\\Program Files\\Git\\cmd\\git.exe 等常见安装目录。"
+)
 
 
 def _unescape_git_path(raw: str) -> str:
@@ -34,13 +43,67 @@ def _unescape_git_path(raw: str) -> str:
 class GitVCS(BaseVCS):
     """Git版本控制实现"""
 
+    def __init__(self, project_path: str):
+        super().__init__(project_path)
+        self._git = self._find_git()
+
+    @staticmethod
+    def _find_git() -> str:
+        """自动探测 git 可执行文件路径"""
+        found = shutil.which("git")
+        if found:
+            info(f"自动探测 git (PATH): {found}")
+            return found
+
+        if os.name == "nt":
+            try:
+                import winreg
+                extra_paths = []
+                for root, key in [
+                    (winreg.HKEY_CURRENT_USER, "Environment"),
+                    (winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"),
+                ]:
+                    try:
+                        with winreg.OpenKey(root, key) as regkey:
+                            extra_paths.append(winreg.QueryValueEx(regkey, "Path")[0])
+                    except OSError:
+                        pass
+                merged = os.environ.get("PATH", "") + ";" + ";".join(extra_paths)
+                for p in merged.split(";"):
+                    p = p.strip().strip('"')
+                    candidate = os.path.join(p, "git.exe")
+                    if os.path.isfile(candidate):
+                        info(f"自动探测 git (注册表PATH): {candidate}")
+                        return candidate
+            except Exception:
+                pass
+
+            candidates = [
+                os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "Git", "cmd", "git.exe"),
+                os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "Git", "bin", "git.exe"),
+                os.path.join(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"), "Git", "cmd", "git.exe"),
+                os.path.join(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"), "Git", "bin", "git.exe"),
+                os.path.join(os.environ.get("LocalAppData", ""), "Programs", "Git", "cmd", "git.exe"),
+                os.path.join(os.environ.get("LocalAppData", ""), "Programs", "Git", "bin", "git.exe"),
+            ]
+            for candidate in candidates:
+                if candidate and os.path.isfile(candidate):
+                    info(f"自动探测 git (常见位置): {candidate}")
+                    return candidate
+
+        warn("未找到 git，回退使用 'git'")
+        return "git"
+
     def _run(self, args: list) -> str:
-        result = subprocess.run(
-            ["git"] + args,
-            cwd=self.project_path,
-            capture_output=True, text=True,
-            encoding="utf-8", errors="replace"
-        )
+        try:
+            result = subprocess.run(
+                [self._git] + args,
+                cwd=self.project_path,
+                capture_output=True, text=True,
+                encoding="utf-8", errors="replace"
+            )
+        except FileNotFoundError:
+            raise RuntimeError(GIT_NOT_FOUND_MESSAGE)
         if result.returncode != 0:
             raise RuntimeError(f"Git命令失败: {' '.join(args)}\n{result.stderr}")
         return result.stdout
@@ -73,7 +136,7 @@ class GitVCS(BaseVCS):
     def get_file_content(self, version: str, file_path: str) -> str:
         try:
             result = subprocess.run(
-                ["git", "show", f"{version}:{file_path}"],
+                [self._git, "show", f"{version}:{file_path}"],
                 cwd=self.project_path,
                 capture_output=True,
                 timeout=30
@@ -87,13 +150,13 @@ class GitVCS(BaseVCS):
                 except UnicodeDecodeError:
                     continue
             return data.decode("utf-8", errors="replace")
-        except (subprocess.TimeoutExpired, RuntimeError):
+        except (subprocess.TimeoutExpired, RuntimeError, FileNotFoundError):
             return ""
 
     def get_file_content_bytes(self, version: str, file_path: str) -> bytes:
         try:
             result = subprocess.run(
-                ["git", "show", f"{version}:{file_path}"],
+                [self._git, "show", f"{version}:{file_path}"],
                 cwd=self.project_path,
                 capture_output=True,
                 timeout=30
@@ -104,7 +167,7 @@ class GitVCS(BaseVCS):
             if self._autocrlf_effective() and self._is_text_bytes(data):
                 data = self._apply_crlf(data)
             return data
-        except (subprocess.TimeoutExpired, RuntimeError):
+        except (subprocess.TimeoutExpired, RuntimeError, FileNotFoundError):
             return None
 
     def _autocrlf_effective(self) -> bool:
@@ -113,7 +176,7 @@ class GitVCS(BaseVCS):
             return self._cached_autocrlf
         try:
             r = subprocess.run(
-                ["git", "config", "--get", "core.autocrlf"],
+                [self._git, "config", "--get", "core.autocrlf"],
                 cwd=self.project_path,
                 capture_output=True, text=True, timeout=5
             )
@@ -176,5 +239,7 @@ class GitVCS(BaseVCS):
         try:
             self._run(["rev-parse", "--verify", f"{version}^{{commit}}"])
             return True
-        except RuntimeError:
+        except RuntimeError as exc:
+            if GIT_NOT_FOUND_MESSAGE in str(exc):
+                raise
             return False

@@ -8,6 +8,12 @@ from .base import BaseVCS, ChangedFile, ChangeType
 from logger import info, warn, error, cmd as log_cmd
 
 
+SVN_NOT_FOUND_MESSAGE = (
+    "未找到 SVN 命令行工具 svn.exe。\n"
+    "请安装 SVN 命令行工具；如果使用 TortoiseSVN，请重新安装并勾选 command line client tools。"
+)
+
+
 def _decode_bytes(data: bytes) -> str:
     """自动检测编码：UTF-8 → GBK → 回退"""
     for enc in ("utf-8", "gbk"):
@@ -82,11 +88,14 @@ class SVNVCS(BaseVCS):
     def _run(self, args: list) -> str:
         full_cmd = [self._svn] + args
         info(f"SVN cmd (text): {' '.join(full_cmd)}")
-        result = subprocess.run(
-            full_cmd,
-            cwd=self.project_path,
-            capture_output=True
-        )
+        try:
+            result = subprocess.run(
+                full_cmd,
+                cwd=self.project_path,
+                capture_output=True
+            )
+        except FileNotFoundError:
+            raise RuntimeError(SVN_NOT_FOUND_MESSAGE)
         if result.returncode != 0:
             stderr = result.stderr.decode("utf-8", errors="replace") if result.stderr else ""
             warn(f"SVN cmd FAIL: {' '.join(full_cmd)} | rc={result.returncode} | {stderr[:200]}")
@@ -98,12 +107,15 @@ class SVNVCS(BaseVCS):
         """执行SVN命令并返回原始字节（用于获取文件内容）"""
         full_cmd = [self._svn] + args
         info(f"SVN cmd (bytes): {' '.join(full_cmd)}")
-        result = subprocess.run(
-            full_cmd,
-            cwd=self.project_path,
-            capture_output=True,
-            timeout=30
-        )
+        try:
+            result = subprocess.run(
+                full_cmd,
+                cwd=self.project_path,
+                capture_output=True,
+                timeout=30
+            )
+        except FileNotFoundError:
+            raise RuntimeError(SVN_NOT_FOUND_MESSAGE)
         if result.returncode != 0:
             stderr = result.stderr.decode("utf-8", errors="replace") if result.stderr else ""
             warn(f"SVN bytes FAIL: {' '.join(full_cmd)} | rc={result.returncode} | {stderr[:200]}")
@@ -230,7 +242,9 @@ class SVNVCS(BaseVCS):
                 else:
                     revisions.append(rev)
             return revisions
-        except RuntimeError:
+        except RuntimeError as exc:
+            if SVN_NOT_FOUND_MESSAGE in str(exc):
+                raise
             return []
 
     def check_version_exists(self, version: str) -> bool:
@@ -238,5 +252,7 @@ class SVNVCS(BaseVCS):
         try:
             self._run(["log", f"-r{rev}", "--limit", "1"])
             return True
-        except RuntimeError:
+        except RuntimeError as exc:
+            if SVN_NOT_FOUND_MESSAGE in str(exc):
+                raise
             return False

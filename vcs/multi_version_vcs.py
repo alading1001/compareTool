@@ -8,7 +8,8 @@ from typing import List
 
 from .base import BaseVCS, ChangedFile
 from .folder_vcs import FolderVCS
-from .svn_vcs import SVNVCS
+from .git_vcs import GitVCS, GIT_NOT_FOUND_MESSAGE
+from .svn_vcs import SVNVCS, SVN_NOT_FOUND_MESSAGE
 
 
 def parse_multi_versions(raw: str) -> List[str]:
@@ -112,6 +113,7 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
     """Git 需求包比对：从最早选中提交的第一父提交开始，只应用选中提交。"""
 
     def __init__(self, project_path: str, selected_versions: List[str]):
+        self._git_exe = GitVCS._find_git()
         super().__init__(project_path, selected_versions, "comparetool_git_multi_")
         try:
             self._prepare()
@@ -122,13 +124,18 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
 
     @staticmethod
     def _run(args: list, cwd: str, input_bytes: bytes = None) -> bytes:
-        result = subprocess.run(
-            args,
-            cwd=cwd,
-            input=input_bytes,
-            capture_output=True,
-            timeout=600
-        )
+        try:
+            result = subprocess.run(
+                args,
+                cwd=cwd,
+                input=input_bytes,
+                capture_output=True,
+                timeout=600
+            )
+        except FileNotFoundError:
+            if args and os.path.basename(args[0]).lower() in ("git", "git.exe"):
+                raise RuntimeError(GIT_NOT_FOUND_MESSAGE)
+            raise
         if result.returncode != 0:
             stderr = result.stderr.decode("utf-8", errors="replace")
             stdout = result.stdout.decode("utf-8", errors="replace")
@@ -137,15 +144,19 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
 
     @staticmethod
     def get_recent_versions(project_path: str, limit: int = 100) -> List[str]:
-        result = subprocess.run(
-            ["git", "log", "--first-parent", f"-{limit}", "--format=%h%x09%p%x09%s"],
-            cwd=project_path,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=30
-        )
+        git = GitVCS._find_git()
+        try:
+            result = subprocess.run(
+                [git, "log", "--first-parent", f"-{limit}", "--format=%h%x09%p%x09%s"],
+                cwd=project_path,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=30
+            )
+        except FileNotFoundError:
+            raise RuntimeError(GIT_NOT_FOUND_MESSAGE)
         if result.returncode != 0:
             raise RuntimeError(f"Git命令失败: git log\n{result.stderr}")
         versions = []
@@ -161,7 +172,7 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
         return versions
 
     def _git(self, *args: str, cwd: str = None) -> str:
-        out = self._run(["git"] + list(args), cwd or self.source_project_path)
+        out = self._run([self._git_exe] + list(args), cwd or self.source_project_path)
         return out.decode("utf-8", errors="replace").strip()
 
     def _prepare(self):
@@ -173,10 +184,10 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
 
         work_dir = os.path.join(self._tmp_root, "work")
         self._run(
-            ["git", "clone", "--local", "--no-hardlinks", self.source_project_path, work_dir],
+            [self._git_exe, "clone", "--local", "--no-hardlinks", self.source_project_path, work_dir],
             cwd=self.source_project_path
         )
-        self._run(["git", "checkout", "--detach", base_commit], cwd=work_dir)
+        self._run([self._git_exe, "checkout", "--detach", base_commit], cwd=work_dir)
 
         _copy_snapshot(work_dir, self._old_dir)
 
@@ -194,7 +205,7 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
                 conflicts = self._conflict_files(work_dir)
                 detail = "\n".join(conflicts) if conflicts else (result.stderr or result.stdout)
                 subprocess.run(
-                    ["git", "cherry-pick", "--abort"],
+                    [self._git_exe, "cherry-pick", "--abort"],
                     cwd=work_dir,
                     capture_output=True,
                     text=True,
@@ -217,7 +228,7 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
                 raise RuntimeError(f"提交不存在: {raw}")
 
             is_ancestor = subprocess.run(
-                ["git", "merge-base", "--is-ancestor", commit, "HEAD"],
+                [self._git_exe, "merge-base", "--is-ancestor", commit, "HEAD"],
                 cwd=self.source_project_path,
                 capture_output=True
             )
@@ -244,16 +255,15 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
         return len(self._parents(commit)) > 1
 
     def _cherry_pick_args(self, commit: str) -> List[str]:
-        args = ["git", "cherry-pick", "--no-commit"]
+        args = [self._git_exe, "cherry-pick", "--no-commit"]
         if self._is_merge_commit(commit):
             args.extend(["-m", "1"])
         args.append(commit)
         return args
 
-    @staticmethod
-    def _conflict_files(work_dir: str) -> List[str]:
+    def _conflict_files(self, work_dir: str) -> List[str]:
         result = subprocess.run(
-            ["git", "diff", "--name-only", "--diff-filter=U"],
+            [self._git_exe, "diff", "--name-only", "--diff-filter=U"],
             cwd=work_dir,
             capture_output=True,
             text=True,
@@ -269,22 +279,28 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
     @staticmethod
     def get_recent_versions(project_path: str, svn_path: str = "", limit: int = 100) -> List[str]:
         svn = svn_path or SVNVCS._find_svn()
-        info = subprocess.run(
-            [svn, "info", "--non-interactive", "--show-item", "url"],
-            cwd=project_path,
-            capture_output=True,
-            timeout=60
-        )
+        try:
+            info = subprocess.run(
+                [svn, "info", "--non-interactive", "--show-item", "url"],
+                cwd=project_path,
+                capture_output=True,
+                timeout=60
+            )
+        except FileNotFoundError:
+            raise RuntimeError(SVN_NOT_FOUND_MESSAGE)
         if info.returncode != 0:
             stderr = SVNMultiVersionVCS._decode(info.stderr) if info.stderr else ""
             stdout = SVNMultiVersionVCS._decode(info.stdout) if info.stdout else ""
             raise RuntimeError(f"SVN命令失败: info\n{stderr or stdout}")
         url = SVNMultiVersionVCS._decode(info.stdout).strip()
-        result = subprocess.run(
-            [svn, "log", "-r", "HEAD:1", "-l", str(limit), "--non-interactive", f"{url}@HEAD"],
-            capture_output=True,
-            timeout=60
-        )
+        try:
+            result = subprocess.run(
+                [svn, "log", "-r", "HEAD:1", "-l", str(limit), "--non-interactive", f"{url}@HEAD"],
+                capture_output=True,
+                timeout=60
+            )
+        except FileNotFoundError:
+            raise RuntimeError(SVN_NOT_FOUND_MESSAGE)
         if result.returncode != 0:
             stderr = SVNMultiVersionVCS._decode(result.stderr) if result.stderr else ""
             stdout = SVNMultiVersionVCS._decode(result.stdout) if result.stdout else ""
@@ -334,12 +350,15 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
 
     def _run(self, args: list, cwd: str = None) -> str:
         full_cmd = [self._svn] + args
-        result = subprocess.run(
-            full_cmd,
-            cwd=cwd or self.source_project_path,
-            capture_output=True,
-            timeout=600
-        )
+        try:
+            result = subprocess.run(
+                full_cmd,
+                cwd=cwd or self.source_project_path,
+                capture_output=True,
+                timeout=600
+            )
+        except FileNotFoundError:
+            raise RuntimeError(SVN_NOT_FOUND_MESSAGE)
         if result.returncode != 0:
             stderr = result.stderr.decode("utf-8", errors="replace") if result.stderr else ""
             stdout = result.stdout.decode("utf-8", errors="replace") if result.stdout else ""
@@ -378,13 +397,16 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
             apply_revisions = revisions[1:]
 
         for rev in apply_revisions:
-            result = subprocess.run(
-                [self._svn, "merge", "--non-interactive", "--accept", "postpone",
-                 "-c", str(rev), f"{url}@HEAD", work_dir],
-                cwd=work_dir,
-                capture_output=True,
-                timeout=600
-            )
+            try:
+                result = subprocess.run(
+                    [self._svn, "merge", "--non-interactive", "--accept", "postpone",
+                     "-c", str(rev), f"{url}@HEAD", work_dir],
+                    cwd=work_dir,
+                    capture_output=True,
+                    timeout=600
+                )
+            except FileNotFoundError:
+                raise RuntimeError(SVN_NOT_FOUND_MESSAGE)
             conflicts = self._conflict_files(work_dir)
             if result.returncode != 0 or conflicts:
                 stderr = self._decode(result.stderr) if result.stderr else ""
@@ -399,12 +421,15 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         _copy_snapshot(work_dir, self._new_dir)
 
     def _url_exists(self, url: str, rev: int) -> bool:
-        result = subprocess.run(
-            [self._svn, "info", "--non-interactive", "--show-item", "kind", f"{url}@{rev}"],
-            cwd=self.source_project_path,
-            capture_output=True,
-            timeout=60
-        )
+        try:
+            result = subprocess.run(
+                [self._svn, "info", "--non-interactive", "--show-item", "kind", f"{url}@{rev}"],
+                cwd=self.source_project_path,
+                capture_output=True,
+                timeout=60
+            )
+        except FileNotFoundError:
+            raise RuntimeError(SVN_NOT_FOUND_MESSAGE)
         return result.returncode == 0
 
     def _parse_revisions(self) -> List[int]:

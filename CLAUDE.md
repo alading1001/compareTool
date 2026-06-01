@@ -50,7 +50,7 @@ main.py                  # tkinter GUI 入口，线程管理，配置持久化�
 
 ### 多项目总报告
 
-`main.py` 维护 `multi_tasks` 任务列表，每个任务保存项目名、VCS 类型、路径/版本、SVN 路径、排除规则、是否使用项目名、差异展示方式等快照。输出批次名称是当前这次输出的全局字段，启动时默认 `yyyyMMdd`，不按项目记忆、不保存到配置、不写入多项目任务快照。生成多项目总报告时，逐个任务创建对应 VCS、按任务自己的差异展示方式运行 `DiffEngine`，全部成功后统一调用 `ReportGenerator.generate_multi()` 渲染 `templates/multi_report.html`，并用 `FileExporter` 导出到：
+`main.py` 维护 `multi_tasks` 任务列表，每个任务保存项目名、VCS 类型、路径/版本、排除规则、是否使用项目名、差异展示方式等快照。输出批次名称是当前这次输出的全局字段，启动时默认 `yyyyMMdd`，不按项目记忆、不保存到配置、不写入多项目任务快照。生成多项目总报告时，逐个任务创建对应 VCS、按任务自己的差异展示方式运行 `DiffEngine`，全部成功后统一调用 `ReportGenerator.generate_multi()` 渲染 `templates/multi_report.html`，并用 `FileExporter` 导出到：
 
 ```
 oldVersion/项目名/...
@@ -106,7 +106,7 @@ SVN 对**已删除文件**必须使用仓库 URL + peg revision 语法，工作�
 
 `SVNVCS._repo_url` 通过 `svn info --show-item url` 懒加载缓存仓库根 URL，`get_file_content` / `get_file_content_bytes` 拼接 `{url}/{path}@{rev}` 获取内容。路径中的反斜杠需转正斜杠（Windows `os.path.relpath` 输出反斜杠）。
 
-SVN 可执行文件路径通过 `_find_svn()` 自动探测：先查 `shutil.which`，再查 Windows 注册表中的用户/系统 PATH，最后搜常见安装目录（TortoiseSVN、VisualSVN 等）。GUI 中 SVN 路径输入框仅在 SVN 模式下显示，留空自动探测。
+Git/SVN 可执行文件路径均自动探测：先查 `shutil.which`，再查 Windows 注册表中的用户/系统 PATH，最后搜常见安装目录。Git 常见目录包括 Git for Windows 的 `cmd/git.exe` / `bin/git.exe`；SVN 常见目录包括 TortoiseSVN、VisualSVN、SlikSVN 等。GUI 不再提供 SVN 可执行文件路径输入框，若最终找不到 `git.exe` / `svn.exe`，应提示用户安装 Git for Windows 或 SVN 命令行工具（TortoiseSVN 需勾选 command line client tools）。
 
 ### 压缩包比对
 
@@ -168,4 +168,4 @@ Windows 上 `core.autocrlf=true`（Git）或 `svn:eol-style=native`（SVN）会�
 
 ### 配置持久化
 
-`compareTool_config.json` 保存项目路径、VCS 类型、SVN 路径、输出路径、多项目任务列表、`project_exclude_rules` 和 `project_display_options`。项目级配置按规范化绝对路径保存：Git/SVN/Git需求包/SVN需求包用项目目录，文件夹用新版本文件夹，压缩包用新版本压缩包完整文件路径。新路径没有专属排除规则时，使用 `main.py` 内置默认模板；旧版全局 `exclude_rules` 不再作为默认模板来源。多项目任务添加/更新时保存排除规则和显示选项快照，后续项目默认配置变化不会偷偷影响已添加任务。输出批次名称不持久化，每次启动默认当天日期。
+`compareTool_config.json` 保存项目路径、VCS 类型、输出路径、多项目任务列表、`project_exclude_rules` 和 `project_display_options`。项目级配置按规范化绝对路径保存：Git/SVN/Git需求包/SVN需求包用项目目录，文件夹用新版本文件夹，压缩包用新版本压缩包完整文件路径。新路径没有专属排除规则时，使用 `main.py` 内置默认模板；旧版全局 `exclude_rules` 不再作为默认模板来源。多项目任务添加/更新时保存排除规则和显示选项快照，后续项目默认配置变化不会偷偷影响已添加任务。输出批次名称不持久化，每次启动默认当天日期。
