@@ -61,11 +61,19 @@ body { font-family: "Microsoft YaHei","Segoe UI",sans-serif; height: 100vh; over
 #tree .children { display: none; padding-left: 16px; }
 #tree .children.open { display: block; }
 .main { flex: 1; overflow: auto; }
+.diff-toolbar { display: none; position: sticky; top: 0; z-index: 5; align-items: center; gap: 8px; padding: 8px 14px; background: #f7f9fc; border-bottom: 1px solid #d9e2ef; box-shadow: 0 1px 3px rgba(0,0,0,.06); font-family: "Microsoft YaHei","Segoe UI",sans-serif; }
+.diff-toolbar.active { display: flex; }
+.diff-toolbar-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #444; font-size: 12px; }
+.diff-toolbar button { padding: 4px 10px; border: 1px solid #c8c8c8; border-radius: 3px; background: #fff; color: #444; cursor: pointer; font-size: 12px; }
+.diff-toolbar button:hover:not(:disabled) { background: #eef3fb; border-color: #9db7d8; color: #1f5f9f; }
+.diff-toolbar button:disabled { opacity: .45; cursor: default; }
+.diff-nav-count { min-width: 48px; text-align: center; color: #666; font-size: 12px; }
 .empty-state { display: flex; align-items: center; justify-content: center; height: 100%; color: #bbb; font-size: 16px; flex-direction: column; gap: 8px; }
 .empty-state .tip { font-size: 13px; color: #ccc; }
 .diff-panel { display: none; }
 .diff-panel.active { display: block; overflow-x: auto; }
-.diff-file-header { padding: 10px 20px; background: #f0f0f0; border-bottom: 1px solid #ddd; font-family: Consolas,"Courier New",monospace; font-size: 13px; position: sticky; top: 0; z-index: 2; white-space: nowrap; }
+.diff-file-header { padding: 10px 20px; background: #f0f0f0; border-bottom: 1px solid #ddd; font-family: Consolas,"Courier New",monospace; font-size: 13px; white-space: nowrap; display: flex; align-items: center; gap: 12px; }
+.diff-file-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .diff-file-header .project-name { color: #555; font-family: "Microsoft YaHei","Segoe UI",sans-serif; margin-right: 8px; }
 .diff-file-header .change-tag { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 11px; color: white; margin-right: 8px; }
 .diff-file-header .change-tag.A { background: #27ae60; }
@@ -81,6 +89,10 @@ table.diff .diff_add { background: #d4fcd4; }
 table.diff .diff_sub { background: #fdd; }
 table.diff .diff_chg { background: #fff3b0; }
 table.diff td.diff_header { color: #888; font-size: 11px; text-align: right; width: 1%; white-space: nowrap; padding: 0 4px; }
+table.diff tr.diff-current td:first-child { border-left: 2px solid #4a90e2; }
+table.diff tr.diff-current td:last-child { border-right: 2px solid #4a90e2; }
+table.diff tr.diff-current-start td { border-top: 2px solid #4a90e2; }
+table.diff tr.diff-current-end td { border-bottom: 2px solid #4a90e2; }
 table.diff span { white-space: pre; }
 </style>
 </head>
@@ -136,6 +148,12 @@ table.diff span { white-space: pre; }
         <div id="tree"></div>
     </div>
     <div class="main">
+        <div class="diff-toolbar" id="diffNavBar">
+            <span class="diff-toolbar-title" id="diffNavTitle"></span>
+            <button type="button" id="prevDiffBtn" onclick="jumpDiff(-1)">上一处</button>
+            <span class="diff-nav-count" id="diffCounter">0/0</span>
+            <button type="button" id="nextDiffBtn" onclick="jumpDiff(1)">下一处</button>
+        </div>
         <div class="empty-state" id="emptyState">
             <span>点击左侧文件查看差异详情</span>
             <span class="tip">点击文件夹展开/折叠</span>
@@ -151,6 +169,9 @@ table.diff span { white-space: pre; }
 <div id="sbs-{{ project_loop.index }}-{{ loop.index }}" data-path="{{ file.file_path | e }}" data-type="{{ file.change_type.value }}">{{ file.side_by_side_html }}</div>
 {% endfor %}
 {% endfor %}
+var currentDiffAnchors = [];
+var currentDiffGroups = [];
+var currentDiffIndex = -1;
 </div>
 
 <script>
@@ -264,6 +285,10 @@ function renderTree(node, container, isRoot) {
 function clearDiff() {
     document.getElementById('emptyState').style.display = 'flex';
     document.getElementById('diffContainer').innerHTML = '';
+    currentDiffAnchors = [];
+    currentDiffGroups = [];
+    currentDiffIndex = -1;
+    setDiffNavVisible(false);
 }
 
 function showDiff(file) {
@@ -274,27 +299,107 @@ function showDiff(file) {
     panel.className = 'diff-panel active';
     var header = document.createElement('div');
     header.className = 'diff-file-header';
-    header.innerHTML = '<span class="change-tag ' + file.type + '">' + typeLabel(file.type) + '</span>' +
-        (file.showProjectRoot ? '<span class="project-name">' + esc(file.project) + '</span>' : '') + esc(displayPath(file));
+    var shownPath = displayPath(file);
+    var navTitle = (file.showProjectRoot ? file.project + ' ' : '') + shownPath;
+    header.innerHTML = '<div class="diff-file-title"><span class="change-tag ' + file.type + '">' + typeLabel(file.type) + '</span>' +
+        (file.showProjectRoot ? '<span class="project-name">' + esc(file.project) + '</span>' : '') + esc(shownPath) + '</div>';
     panel.appendChild(header);
+    setDiffNavTitle(navTitle);
     var tableWrapper = document.createElement('div');
     tableWrapper.innerHTML = file.html;
+    currentDiffAnchors = [];
+    currentDiffGroups = [];
+    currentDiffIndex = -1;
     var table = tableWrapper.querySelector('table.diff');
     if (table) {
+        var previousWasChange = false;
+        var currentGroup = null;
         table.querySelectorAll('tr').forEach(function(tr) {
             var headers = tr.querySelectorAll('td.diff_header');
+            var hasChange = false;
             if (tr.querySelector('.diff_add')) {
                 headers.forEach(function(td) { td.style.background = '#d4fcd4'; td.style.color = '#27ae60'; });
+                hasChange = true;
             } else if (tr.querySelector('.diff_sub')) {
                 headers.forEach(function(td) { td.style.background = '#fdd'; td.style.color = '#e74c3c'; });
+                hasChange = true;
             } else if (tr.querySelector('.diff_chg')) {
                 headers.forEach(function(td) { td.style.background = '#fff3b0'; td.style.color = '#b8860b'; });
+                hasChange = true;
             }
+            if (hasChange) {
+                tr.classList.add('diff-change-row');
+                if (!previousWasChange) {
+                    currentGroup = [];
+                    currentDiffGroups.push(currentGroup);
+                    tr.classList.add('diff-change-anchor');
+                    currentDiffAnchors.push(tr);
+                }
+                if (currentGroup) currentGroup.push(tr);
+            } else {
+                currentGroup = null;
+            }
+            previousWasChange = hasChange;
         });
     }
     panel.appendChild(tableWrapper);
     container.appendChild(panel);
     document.querySelector('.main').scrollTop = 0;
+    updateDiffNav();
+}
+
+function updateDiffNav() {
+    setDiffNavVisible(true);
+    var prevBtn = document.getElementById('prevDiffBtn');
+    var nextBtn = document.getElementById('nextDiffBtn');
+    var counter = document.getElementById('diffCounter');
+    var hasDiff = currentDiffGroups.length > 0;
+    if (prevBtn) prevBtn.disabled = !hasDiff;
+    if (nextBtn) nextBtn.disabled = !hasDiff;
+    if (counter) {
+        var current = currentDiffIndex >= 0 ? currentDiffIndex + 1 : 0;
+        counter.textContent = current + '/' + currentDiffGroups.length;
+    }
+}
+
+function setDiffNavVisible(visible) {
+    var bar = document.getElementById('diffNavBar');
+    if (bar) bar.classList.toggle('active', visible);
+}
+
+function setDiffNavTitle(title) {
+    var titleEl = document.getElementById('diffNavTitle');
+    if (titleEl) titleEl.textContent = title || '';
+}
+
+function jumpDiff(direction) {
+    if (!currentDiffGroups.length) return;
+    if (currentDiffIndex < 0) {
+        currentDiffIndex = direction < 0 ? currentDiffGroups.length - 1 : 0;
+    } else {
+        currentDiffIndex = (currentDiffIndex + direction + currentDiffGroups.length) % currentDiffGroups.length;
+    }
+    scrollToCurrentDiff();
+}
+
+function scrollToCurrentDiff() {
+    document.querySelectorAll('tr.diff-current, tr.diff-current-start, tr.diff-current-end').forEach(function(row) {
+        row.classList.remove('diff-current', 'diff-current-start', 'diff-current-end');
+    });
+    var group = currentDiffGroups[currentDiffIndex] || [];
+    var target = group[0];
+    if (!target) return;
+    group.forEach(function(row, idx) {
+        row.classList.add('diff-current');
+        if (idx === 0) row.classList.add('diff-current-start');
+        if (idx === group.length - 1) row.classList.add('diff-current-end');
+    });
+    var mainEl = document.querySelector('.main');
+    var navBar = document.getElementById('diffNavBar');
+    var offset = (navBar && navBar.classList.contains('active') ? navBar.offsetHeight : 0) + 12;
+    var top = target.getBoundingClientRect().top - mainEl.getBoundingClientRect().top + mainEl.scrollTop - offset;
+    mainEl.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+    updateDiffNav();
 }
 
 function openSummary() {

@@ -94,12 +94,13 @@ class CompareToolApp:
         self.root = tk.Tk()
         self.root.title("代码比对报告工具")
         self.root.resizable(True, True)
-        self.root.minsize(600, 700)
+        self.root.minsize(600, 560)
         # 窗口居中显示
-        w, h = 760, 960
+        w = 760
         ws = self.root.winfo_screenwidth()
         hs = self.root.winfo_screenheight()
-        x = (ws - w) // 2
+        h = max(560, min(920, hs - 90))
+        x = max(0, (ws - w) // 2)
         y = 0
         self.root.geometry(f"{w}x{h}+{x}+{y}")
 
@@ -130,8 +131,20 @@ class CompareToolApp:
         return DEFAULT_EXCLUDE_RULES
 
     def _build_ui(self):
+        bottom_frame = ttk.Frame(self.root, padding=(16, 8, 16, 10))
+        bottom_frame.pack(side=tk.BOTTOM, fill=tk.X)
+
+        self.progress = ttk.Progressbar(bottom_frame, mode="indeterminate")
+        self.progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 12))
+
+        self.generate_btn = ttk.Button(bottom_frame, text="生成比对报告", command=self._generate)
+        self.generate_btn.pack(side=tk.RIGHT)
+
+        self.status_var = tk.StringVar(value="就绪")
+        ttk.Label(bottom_frame, textvariable=self.status_var, font=("", 9)).pack(side=tk.RIGHT, padx=(0, 16))
+
         container = ttk.Frame(self.root)
-        container.pack(fill=tk.BOTH, expand=True)
+        container.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         canvas = tk.Canvas(container, highlightthickness=0)
         scroll = ttk.Scrollbar(container, orient=tk.VERTICAL, command=canvas.yview)
         canvas.configure(yscrollcommand=scroll.set)
@@ -377,19 +390,6 @@ class CompareToolApp:
         multi_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self.multi_task_tree.config(yscrollcommand=multi_scroll.set)
         self.multi_task_tree.bind("<<TreeviewSelect>>", lambda _e: self._sync_multi_task_buttons())
-
-        # ── 底部 ──
-        bottom_frame = ttk.Frame(main)
-        bottom_frame.grid(row=27, column=0, columnspan=3, sticky=tk.EW, pady=(6, 0))
-
-        self.progress = ttk.Progressbar(bottom_frame, mode="indeterminate")
-        self.progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 12))
-
-        self.generate_btn = ttk.Button(bottom_frame, text="生成比对报告", command=self._generate)
-        self.generate_btn.pack(side=tk.RIGHT)
-
-        self.status_var = tk.StringVar(value="就绪")
-        ttk.Label(bottom_frame, textvariable=self.status_var, font=("", 9)).pack(side=tk.RIGHT, padx=(0, 16))
 
         main.columnconfigure(0, weight=1)
 
