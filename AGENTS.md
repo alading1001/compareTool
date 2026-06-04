@@ -46,7 +46,7 @@ main.py                  # tkinter GUI 入口，线程管理，配置持久化�
 4. `ReportGenerator` 用 Jinja2 渲染模板 → 单文件 HTML
 5. `FileExporter` 导出变更文件：统一通过 `vcs.get_file_content_bytes()` 读取原始字节（失败返回 `None`，空文件返回 `b""`），以 `wb` 模式写入保留原始编码。`None` 时回退到文本内容（UTF-8）。重命名文件导出时 oldVersion 使用 `old_path`，newVersion 使用 `file_path`。
 
-项目名只在能从有效项目目录、新版本文件夹或新版本压缩包推断出真实名称时自动填充。推断不到且用户未手工填写时，生成报告或添加多项目任务应直接提示失败，不使用 `project` 之类的假兜底名称。
+项目名只在能从有效项目目录、新版本文件夹或新版本压缩包推断出真实名称时自动填充。推断不到且用户未手工填写时，生成报告或添加多项目任务应直接提示失败，不使用 `project` 之类的假兜底名称。Git/SVN/Git需求包/SVN需求包模式下，项目名输入框是可编辑下拉框，会按 Git/SVN 家族记忆最近 10 个有效项目；选择最近项目时必须同步回填项目目录和项目名，并触发项目路径变化逻辑清空旧/新版本和版本列表，避免跨项目复用版本号。
 
 ### 多项目总报告
 
@@ -71,6 +71,12 @@ newVersion/项目名/...
 | 压缩包 | 旧压缩包路径 | 新压缩包路径 | 解压到临时目录后委托 `FolderVCS` 比对；支持 `.zip` / `.jar` / `.war` / `.ear` / `.aar` / `.tar` / `.tar.gz` / `.tgz` / `.tar.bz2` / `.tbz2` |
 | Git需求包 | 多个 commit hash | `基线 + 选中版本` | `old = 最早选中提交的父提交`，`new = old + 按时间顺序 cherry-pick 选中提交` |
 | SVN需求包 | 多个 `rNNNNN` 或 `NNNNN` | `基线 + 选中版本` | `old = 最早选中 revision - 1`，`new = old + 按 revision 顺序 svn merge 选中修订` |
+
+### 版本列表交互
+
+Git/SVN/Git需求包/SVN需求包的版本列表只搜索当前已经展示的列表内容，不额外查询仓库。普通 Git/SVN 模式仍由 `GitVCS.get_versions()` / `SVNVCS.get_versions()` 获取 tags/分支/最近 100 条日志或最近 100 条 revision；需求包模式仍由 `get_recent_versions()` 获取当前项目最近 100 条主线提交或相关 revision。
+
+版本列表工具条包含搜索框、清空按钮、填入按钮，以及「隐藏版本列表 / 显示版本列表」切换按钮。隐藏只收起 `Listbox`，不清空 `_version_items`、搜索词或需求包多选状态；重新获取版本列表、切换项目路径或切换 VCS 类型时应重置版本列表状态并自动展开。Git需求包/SVN需求包多选要通过 `_selected_multi_versions` 保留跨搜索过滤、隐藏/显示后的选择，填入时按原始版本列表顺序输出。
 
 ### 重命名处理
 
@@ -168,4 +174,4 @@ Windows 上 `core.autocrlf=true`（Git）或 `svn:eol-style=native`（SVN）会�
 
 ### 配置持久化
 
-`compareTool_config.json` 保存项目路径、VCS 类型、输出路径、多项目任务列表、`project_exclude_rules` 和 `project_display_options`。项目级配置按规范化绝对路径保存：Git/SVN/Git需求包/SVN需求包用项目目录，文件夹用新版本文件夹，压缩包用新版本压缩包完整文件路径。新路径没有专属排除规则时，使用 `main.py` 内置默认模板；旧版全局 `exclude_rules` 不再作为默认模板来源。多项目任务添加/更新时保存排除规则和显示选项快照，后续项目默认配置变化不会偷偷影响已添加任务。输出批次名称不持久化，每次启动默认当天日期。
+`compareTool_config.json` 保存项目路径、VCS 类型、输出路径、多项目任务列表、`recent_projects`、`project_exclude_rules` 和 `project_display_options`。项目级配置按规范化绝对路径保存：Git/SVN/Git需求包/SVN需求包用项目目录，文件夹用新版本文件夹，压缩包用新版本压缩包完整文件路径。最近项目列表按 Git/SVN 家族分组，每组最多保留最近 10 个有效项目，旧配置没有 `recent_projects` 时应兼容为空并可由当前有效项目回填。新路径没有专属排除规则时，使用 `main.py` 内置默认模板；旧版全局 `exclude_rules` 不再作为默认模板来源。多项目任务添加/更新时保存排除规则和显示选项快照，后续项目默认配置变化不会偷偷影响已添加任务。输出批次名称不持久化，每次启动默认当天日期。
