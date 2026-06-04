@@ -127,6 +127,7 @@ class CompareToolApp:
         self._version_items = []
         self._selected_multi_versions = set()
         self._updating_version_list = False
+        self._version_list_visible = True
         self._build_ui()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -301,8 +302,10 @@ class CompareToolApp:
         self.version_search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.clear_version_search_btn = ttk.Button(fill_btn_frame, text="清空", command=self._clear_version_filter)
         self.clear_version_search_btn.pack(side=tk.LEFT, padx=(6, 0))
+        self.toggle_version_list_btn = ttk.Button(fill_btn_frame, text="隐藏版本列表", command=self._toggle_version_list)
+        self.toggle_version_list_btn.pack(side=tk.RIGHT)
         self.fill_selected_btn = ttk.Button(fill_btn_frame, text="← 填入选中版本", command=self._fill_selected_version)
-        self.fill_selected_btn.pack(side=tk.RIGHT)
+        self.fill_selected_btn.pack(side=tk.RIGHT, padx=(0, 6))
 
         self._version_target = "old"
 
@@ -927,11 +930,42 @@ class CompareToolApp:
     def _reset_version_list_state(self):
         self._version_items = []
         self._selected_multi_versions.clear()
+        self._version_list_visible = True
+        if hasattr(self, "version_listbox"):
+            self.version_listbox.delete(0, tk.END)
         if hasattr(self, "version_search_var"):
             self.version_search_var.set("")
+            self._refresh_version_list_visibility()
 
     def _clear_version_filter(self):
         self.version_search_var.set("")
+
+    def _refresh_version_list_visibility(self):
+        if not hasattr(self, "version_listbox"):
+            return
+        if self._version_list_visible:
+            if self.fill_btn_frame.winfo_ismapped() and self.version_listbox.size() > 0:
+                self.version_listbox.grid()
+            self.toggle_version_list_btn.config(text="隐藏版本列表")
+        else:
+            self.version_listbox.grid_remove()
+            self.toggle_version_list_btn.config(text="显示版本列表")
+
+    def _set_version_list_visible(self, visible: bool):
+        self._version_list_visible = visible
+        self._refresh_version_list_visibility()
+
+    def _toggle_version_list(self):
+        if self._version_list_visible:
+            self._sync_selected_multi_versions_from_listbox()
+            self._set_version_list_visible(False)
+            self.status_var.set("版本列表已隐藏")
+        else:
+            self._set_version_list_visible(True)
+            if self._version_items:
+                self._apply_version_filter()
+            else:
+                self.status_var.set("版本列表已显示")
 
     def _sync_selected_multi_versions_from_listbox(self):
         if self.vcs_var.get() not in ("git_multi", "svn_multi") or self._updating_version_list:
@@ -971,6 +1005,7 @@ class CompareToolApp:
                         self.version_listbox.selection_set(idx)
         finally:
             self._updating_version_list = False
+        self._refresh_version_list_visibility()
 
     def _apply_version_filter(self, *_):
         if not hasattr(self, "version_listbox") or not self._version_items:
@@ -1010,8 +1045,8 @@ class CompareToolApp:
         self._reset_version_list_state()
         self.version_listbox.delete(0, tk.END)
         self.version_listbox.insert(tk.END, "正在获取版本列表，请稍候...")
-        self.version_listbox.grid()
         self.fill_btn_frame.grid()
+        self._set_version_list_visible(True)
         is_multi = vcs_type in ("git_multi", "svn_multi")
         self.fill_target_label.config(
             text="将填入: " + ("需求版本列表" if is_multi else ("旧版本" if target == "old" else "新版本"))
