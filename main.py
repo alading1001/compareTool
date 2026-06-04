@@ -16,6 +16,7 @@ else:
     CONFIG_DIR = BASE_DIR
 
 CONFIG_FILE = os.path.join(CONFIG_DIR, "compareTool_config.json")
+RECENT_PROJECT_LIMIT = 10
 
 DEFAULT_EXCLUDE_RULES = "\n".join([
     "**/.git/**",
@@ -116,11 +117,16 @@ class CompareToolApp:
         self._default_exclude_rules = self._load_default_exclude_rules()
         self._project_exclude_rules = dict(self._config.get("project_exclude_rules", {}))
         self._project_display_options = dict(self._config.get("project_display_options", {}))
+        self._recent_projects = self._normalize_recent_projects(self._config.get("recent_projects", []))
+        self._recent_project_value_map = {}
         self._multi_tasks = list(self._config.get("multi_tasks", []))
         self._editing_task_index = None
         self._generating = False
         self._last_exclude_key = ""
         self._project_name_manual = False
+        self._version_items = []
+        self._selected_multi_versions = set()
+        self._updating_version_list = False
         self._build_ui()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -224,9 +230,10 @@ class CompareToolApp:
         project_name_frame = ttk.Frame(main)
         project_name_frame.grid(row=5, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
         self.project_name_var = tk.StringVar()
-        self.project_name_entry = ttk.Entry(project_name_frame, textvariable=self.project_name_var)
+        self.project_name_entry = ttk.Combobox(project_name_frame, textvariable=self.project_name_var)
         self.project_name_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.project_name_entry.bind("<KeyRelease>", lambda e: setattr(self, "_project_name_manual", True))
+        self.project_name_entry.bind("<<ComboboxSelected>>", self._on_recent_project_selected)
 
         # ── 排除规则 ──
         ttk.Label(main, text="排除规则 (每行一个，支持 * 和 ** 通配符):", font=("", 10)).grid(row=6, column=0, sticky=tk.W, pady=(0, 3))
@@ -279,6 +286,7 @@ class CompareToolApp:
         self.version_listbox.grid(row=12, column=0, columnspan=3, sticky=tk.EW, pady=(0, 4))
         self.version_listbox.grid_remove()
         self.version_listbox.bind("<ButtonRelease-1>", self._on_version_click)
+        self.version_listbox.bind("<<ListboxSelect>>", self._on_version_selection_changed)
 
         fill_btn_frame = ttk.Frame(main)
         fill_btn_frame.grid(row=13, column=0, columnspan=3, sticky=tk.EW, pady=(0, 4))
@@ -286,6 +294,13 @@ class CompareToolApp:
         self.fill_btn_frame = fill_btn_frame
         self.fill_target_label = ttk.Label(fill_btn_frame, text="", font=("", 9))
         self.fill_target_label.pack(side=tk.LEFT)
+        ttk.Label(fill_btn_frame, text="搜索:").pack(side=tk.LEFT, padx=(14, 4))
+        self.version_search_var = tk.StringVar()
+        self.version_search_var.trace_add("write", self._apply_version_filter)
+        self.version_search_entry = ttk.Entry(fill_btn_frame, textvariable=self.version_search_var, width=28)
+        self.version_search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.clear_version_search_btn = ttk.Button(fill_btn_frame, text="清空", command=self._clear_version_filter)
+        self.clear_version_search_btn.pack(side=tk.LEFT, padx=(6, 0))
         self.fill_selected_btn = ttk.Button(fill_btn_frame, text="← 填入选中版本", command=self._fill_selected_version)
         self.fill_selected_btn.pack(side=tk.RIGHT)
 
@@ -390,6 +405,7 @@ class CompareToolApp:
         self._last_project_path = self._normalize_project_path(self.dir_entry.get().strip())
         self._refresh_project_name_default(force=True)
         self._switch_exclude_rules_for_current_source(save_previous=False)
+        self._remember_recent_project(refresh=True)
 
     # ========== 界面交互 ==========
 
@@ -401,6 +417,118 @@ class CompareToolApp:
 
     def _is_project_vcs_mode(self) -> bool:
         return self.vcs_var.get() in ("git", "svn", "git_multi", "svn_multi")
+
+    @staticmethod
+    def _vcs_family(vcs_type: str) -> str:
+        if vcs_type in ("git", "git_multi"):
+            return "git"
+        if vcs_type in ("svn", "svn_multi"):
+            return "svn"
+        return ""
+
+    def _normalize_recent_projects(self, projects) -> list:
+        normalized = []
+        seen = set()
+        if not isinstance(projects, list):
+            return normalized
+        for item in projects:
+            if not isinstance(item, dict):
+                continue
+            family = item.get("vcs_family") or self._vcs_family(item.get("vcs_type", ""))
+            project_path = (item.get("project_path") or "").strip()
+            project_name = self._sanitize_project_name(item.get("project_name") or "")
+            if family not in ("git", "svn") or not project_path or not project_name:
+                continue
+            key = (family, self._normalize_project_path(project_path))
+            if key in seen:
+                continue
+            seen.add(key)
+            normalized.append({
+                "vcs_family": family,
+                "project_path": project_path,
+                "project_name": project_name,
+                "last_used": item.get("last_used") or "",
+            })
+        return self._trim_recent_projects(normalized)
+
+    def _trim_recent_projects(self, projects: list) -> list:
+        counts = {}
+        trimmed = []
+        for item in projects:
+            family = item.get("vcs_family", "")
+            count = counts.get(family, 0)
+            if count >= RECENT_PROJECT_LIMIT:
+                continue
+            counts[family] = count + 1
+            trimmed.append(item)
+        return trimmed
+
+    def _recent_project_display(self, item: dict) -> str:
+        return f"{item.get('project_name', '')}    {self._display_path(item.get('project_path', ''))}"
+
+    def _refresh_recent_project_values(self):
+        if not hasattr(self, "project_name_entry"):
+            return
+        family = self._vcs_family(self.vcs_var.get())
+        values = []
+        self._recent_project_value_map = {}
+        if family:
+            for item in self._recent_projects:
+                if item.get("vcs_family") != family:
+                    continue
+                display = self._recent_project_display(item)
+                values.append(display)
+                self._recent_project_value_map[display] = item
+        self.project_name_entry.configure(values=values)
+
+    def _remember_recent_project(
+            self,
+            vcs_type: str = None,
+            project_path: str = None,
+            project_name: str = None,
+            refresh: bool = True):
+        vcs_type = vcs_type or self.vcs_var.get()
+        family = self._vcs_family(vcs_type)
+        if not family:
+            return
+        project_path = (project_path if project_path is not None else self.dir_entry.get().strip()).strip()
+        project_name = self._sanitize_project_name(
+            project_name if project_name is not None else self._current_project_name_for_output()
+        )
+        if not project_path or not project_name or not os.path.isdir(project_path):
+            return
+        norm_path = self._normalize_project_path(project_path)
+        entry = {
+            "vcs_family": family,
+            "project_path": project_path,
+            "project_name": project_name,
+            "last_used": datetime.now().isoformat(timespec="seconds"),
+        }
+        remaining = [
+            item for item in self._recent_projects
+            if not (
+                item.get("vcs_family") == family and
+                self._normalize_project_path(item.get("project_path", "")) == norm_path
+            )
+        ]
+        self._recent_projects = self._trim_recent_projects([entry] + remaining)
+        if refresh:
+            self._refresh_recent_project_values()
+
+    def _on_recent_project_selected(self, _event=None):
+        item = self._recent_project_value_map.get(self.project_name_var.get())
+        if not item:
+            return
+        old_path = self._normalize_project_path(self.dir_entry.get().strip())
+        new_path = item.get("project_path", "")
+        project_name = item.get("project_name", "")
+        self.dir_entry.delete(0, tk.END)
+        self.dir_entry.insert(0, new_path)
+        if self._normalize_project_path(new_path) != old_path:
+            self._on_project_path_changed()
+        self.project_name_var.set(project_name)
+        self._project_name_manual = True
+        self._update_output_paths()
 
     @staticmethod
     def _vcs_label(vcs_type: str) -> str:
@@ -588,6 +716,7 @@ class CompareToolApp:
             if self._is_project_vcs_mode():
                 self.old_version_var.set("")
                 self.new_version_var.set("")
+                self._reset_version_list_state()
                 self.version_listbox.delete(0, tk.END)
                 self.version_listbox.grid_remove()
                 self.fill_btn_frame.grid_remove()
@@ -680,6 +809,8 @@ class CompareToolApp:
         self.new_version_var.set("")
         self.version_listbox.config(selectmode=tk.SINGLE)
         self.fill_selected_btn.config(text="← 填入选中版本")
+        self._reset_version_list_state()
+        self._refresh_recent_project_values()
 
         if is_folder:
             self.project_label.grid_remove()
@@ -746,6 +877,7 @@ class CompareToolApp:
         # 重新绑定 trace
         self._new_version_cb_id = self.new_version_var.trace_add("write", lambda *_: self._update_output_paths())
         self._refresh_project_name_default(force=True)
+        self._refresh_recent_project_values()
         self._switch_exclude_rules_for_current_source()
 
     def _browse_project(self):
@@ -776,6 +908,87 @@ class CompareToolApp:
         if path:
             var.set(path)
 
+    @staticmethod
+    def _is_version_placeholder(item: str) -> bool:
+        text = (item or "").strip()
+        return (
+            not text or
+            text.startswith("——") or
+            text.startswith("──") or
+            text.startswith("(") or
+            text.startswith("正在")
+        )
+
+    @staticmethod
+    def _version_token(item: str) -> str:
+        item = (item or "").strip()
+        return item.split(" ")[0] if " " in item else item
+
+    def _reset_version_list_state(self):
+        self._version_items = []
+        self._selected_multi_versions.clear()
+        if hasattr(self, "version_search_var"):
+            self.version_search_var.set("")
+
+    def _clear_version_filter(self):
+        self.version_search_var.set("")
+
+    def _sync_selected_multi_versions_from_listbox(self):
+        if self.vcs_var.get() not in ("git_multi", "svn_multi") or self._updating_version_list:
+            return
+        visible_tokens = []
+        for idx in range(self.version_listbox.size()):
+            item = self.version_listbox.get(idx)
+            if self._is_version_placeholder(item):
+                continue
+            token = self._version_token(item)
+            if token:
+                visible_tokens.append(token)
+        for token in visible_tokens:
+            self._selected_multi_versions.discard(token)
+        for idx in self.version_listbox.curselection():
+            item = self.version_listbox.get(idx)
+            if self._is_version_placeholder(item):
+                continue
+            token = self._version_token(item)
+            if token:
+                self._selected_multi_versions.add(token)
+
+    def _on_version_selection_changed(self, _event=None):
+        self._sync_selected_multi_versions_from_listbox()
+
+    def _render_version_items(self, items):
+        self._updating_version_list = True
+        try:
+            self.version_listbox.delete(0, tk.END)
+            for item in items:
+                self.version_listbox.insert(tk.END, item)
+            if self.vcs_var.get() in ("git_multi", "svn_multi"):
+                for idx in range(self.version_listbox.size()):
+                    item = self.version_listbox.get(idx)
+                    token = self._version_token(item)
+                    if token in self._selected_multi_versions:
+                        self.version_listbox.selection_set(idx)
+        finally:
+            self._updating_version_list = False
+
+    def _apply_version_filter(self, *_):
+        if not hasattr(self, "version_listbox") or not self._version_items:
+            return
+        self._sync_selected_multi_versions_from_listbox()
+        keyword = self.version_search_var.get().strip().lower()
+        if keyword:
+            items = [
+                item for item in self._version_items
+                if not self._is_version_placeholder(item) and keyword in item.lower()
+            ]
+            self._render_version_items(items or ["(未找到匹配版本)"])
+            self.status_var.set(f"匹配 {len(items)} 个版本")
+        else:
+            self._render_version_items(self._version_items)
+            real_count = sum(1 for item in self._version_items if not self._is_version_placeholder(item))
+            self.status_var.set(f"共 {real_count} 个版本")
+
     # ========== 版本列表获取 ==========
 
     def _fetch_versions(self, target="old"):
@@ -794,6 +1007,7 @@ class CompareToolApp:
             messagebox.showwarning("提示", "请先选择项目目录")
             return
 
+        self._reset_version_list_state()
         self.version_listbox.delete(0, tk.END)
         self.version_listbox.insert(tk.END, "正在获取版本列表，请稍候...")
         self.version_listbox.grid()
@@ -827,14 +1041,13 @@ class CompareToolApp:
                         self._normalize_project_path(self.dir_entry.get().strip()) !=
                         self._normalize_project_path(project_path)):
                     return
-                self.version_listbox.delete(0, tk.END)
+                self._version_items = list(versions)
                 if versions:
-                    for v in versions:
-                        self.version_listbox.insert(tk.END, v)
-                    real_count = sum(1 for v in versions if not v.startswith("──"))
+                    self._apply_version_filter()
+                    real_count = sum(1 for v in versions if not self._is_version_placeholder(v))
                     self.status_var.set(f"共 {real_count} 个版本，单击选中再点「填入」或直接双击")
                 else:
-                    self.version_listbox.insert(tk.END, "(未找到版本，请手动输入)")
+                    self._render_version_items(["(未找到版本，请手动输入)"])
                     self.status_var.set("未找到版本，请手动输入commit/revision号")
             self.root.after(0, update_ui)
         except Exception as e:
@@ -849,7 +1062,7 @@ class CompareToolApp:
         if idx < 0:
             return
         item = self.version_listbox.get(idx)
-        if item.startswith("──") or item.startswith("(") or item.startswith("正在"):
+        if self._is_version_placeholder(item):
             return
         if self.vcs_var.get() in ("git_multi", "svn_multi"):
             now = event.time
@@ -878,22 +1091,32 @@ class CompareToolApp:
     def _fill_selected_version(self):
         """将列表框中当前选中的版本填入对应的输入框"""
         sel = self.version_listbox.curselection()
-        if not sel:
+        is_multi = self.vcs_var.get() in ("git_multi", "svn_multi")
+        if not sel and not (is_multi and self._selected_multi_versions):
             return
-        if self.vcs_var.get() in ("git_multi", "svn_multi"):
+        if is_multi:
+            self._sync_selected_multi_versions_from_listbox()
             versions = []
-            for idx in sel:
-                item = self.version_listbox.get(idx)
-                if item.startswith("──") or item.startswith("(") or item.startswith("正在"):
-                    continue
-                versions.append(item.split(" ")[0] if " " in item else item)
+            if self._selected_multi_versions:
+                for item in self._version_items:
+                    if self._is_version_placeholder(item):
+                        continue
+                    token = self._version_token(item)
+                    if token in self._selected_multi_versions:
+                        versions.append(token)
+            else:
+                for idx in sel:
+                    item = self.version_listbox.get(idx)
+                    if self._is_version_placeholder(item):
+                        continue
+                    versions.append(self._version_token(item))
             if versions:
                 self.old_version_var.set("\n".join(versions))
             return
         item = self.version_listbox.get(sel[0])
-        if item.startswith("──") or item.startswith("(") or item.startswith("正在"):
+        if self._is_version_placeholder(item):
             return
-        version = item.split(" ")[0] if " " in item else item
+        version = self._version_token(item)
         if self._version_target == "new":
             self.new_version_var.set(version)
         else:
@@ -1050,6 +1273,11 @@ class CompareToolApp:
             self.status_var.set(f"已更新多项目任务: {task['project_name']}")
             self._editing_task_index = None
 
+        self._remember_recent_project(
+            task["vcs_type"],
+            task["project_path"],
+            task["project_name"],
+        )
         self._render_multi_tasks()
         self._save_current_config()
 
@@ -1468,6 +1696,7 @@ class CompareToolApp:
     def _on_complete(self, report_path, summary):
         self.progress.stop()
         self._set_generating(False)
+        self._refresh_recent_project_values()
         output_dir = self._display_path(os.path.dirname(report_path))
         self.status_var.set(
             f"完成! 共 {summary['total_files']} 个文件变更 "
@@ -1508,11 +1737,13 @@ class CompareToolApp:
     def _save_current_config(self):
         """保存当前界面配置到文件"""
         self._save_current_exclude_rules_for_current_key()
+        self._remember_recent_project(refresh=False)
         data = {
             "project_path": self.dir_entry.get().strip(),
             "vcs_type": self.vcs_var.get(),
             "project_exclude_rules": self._project_exclude_rules,
             "project_display_options": self._project_display_options,
+            "recent_projects": self._recent_projects,
             "multi_tasks": self._multi_tasks,
             "output_dir": self.output_dir_var.get().strip(),
         }
