@@ -1,5 +1,8 @@
+import ntpath
 import os
+import posixpath
 import shutil
+import stat
 import tempfile
 import zipfile
 import tarfile
@@ -15,12 +18,19 @@ class ArchiveVCS(BaseVCS):
     def __init__(self, old_archive: str, new_archive: str):
         self.old_archive = old_archive
         self.new_archive = new_archive
-        self._tmp_old = tempfile.mkdtemp(prefix="cmp_old_")
-        self._tmp_new = tempfile.mkdtemp(prefix="cmp_new_")
-        self._extract(old_archive, self._tmp_old)
-        self._extract(new_archive, self._tmp_new)
-        self._folder = FolderVCS(self._tmp_old, self._tmp_new)
-        super().__init__(self._tmp_new)
+        self._tmp_old = ""
+        self._tmp_new = ""
+        self._folder = None
+        try:
+            self._tmp_old = tempfile.mkdtemp(prefix="cmp_old_")
+            self._tmp_new = tempfile.mkdtemp(prefix="cmp_new_")
+            self._extract(old_archive, self._tmp_old)
+            self._extract(new_archive, self._tmp_new)
+            self._folder = FolderVCS(self._tmp_old, self._tmp_new)
+            super().__init__(self._tmp_new)
+        except Exception:
+            self.cleanup()
+            raise
 
     # ── 压缩包解压 ──
 
@@ -47,7 +57,10 @@ class ArchiveVCS(BaseVCS):
         with zipfile.ZipFile(path, 'r') as zf:
             for info in zf.infolist():
                 name = self._fix_zip_filename(info)
-                target = os.path.join(dest, name)
+                target = self._safe_extract_target(dest, name)
+                unix_mode = info.external_attr >> 16
+                if stat.S_ISLNK(unix_mode):
+                    raise ValueError(f"压缩包包含不安全的符号链接: {name}")
                 if info.is_dir():
                     os.makedirs(target, exist_ok=True)
                 else:
@@ -59,7 +72,48 @@ class ArchiveVCS(BaseVCS):
         mode = 'r:gz' if path.lower().endswith(('.gz', '.tgz')) else \
                'r:bz2' if path.lower().endswith(('.bz2', '.tbz2')) else 'r'
         with tarfile.open(path, mode) as tf:
-            tf.extractall(dest)
+            for member in tf.getmembers():
+                target = self._safe_extract_target(dest, member.name)
+                if member.isdir():
+                    os.makedirs(target, exist_ok=True)
+                    continue
+                if not member.isfile():
+                    raise ValueError(f"压缩包包含不安全或不支持的链接/特殊文件: {member.name}")
+                os.makedirs(os.path.dirname(target), exist_ok=True)
+                src = tf.extractfile(member)
+                if src is None:
+                    raise ValueError(f"无法读取压缩包成员: {member.name}")
+                with src, open(target, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+
+    @staticmethod
+    def _safe_extract_target(dest: str, member_name: str) -> str:
+        """解析压缩包成员路径，并保证最终目标仍位于临时解压目录内。"""
+        name = (member_name or "").replace("\\", "/")
+        drive, _ = ntpath.splitdrive(name)
+        parts = [part for part in name.split("/") if part not in ("", ".")]
+        if (
+            not name or
+            "\x00" in name or
+            drive or
+            name.startswith("/") or
+            any(part == ".." for part in parts)
+        ):
+            raise ValueError(f"压缩包包含越界路径: {member_name}")
+
+        normalized = posixpath.normpath(name)
+        if normalized in ("", ".", "..") or normalized.startswith("../"):
+            raise ValueError(f"压缩包包含越界路径: {member_name}")
+
+        root = os.path.abspath(dest)
+        target = os.path.abspath(os.path.join(root, *normalized.split("/")))
+        try:
+            inside_root = os.path.commonpath([root, target]) == root
+        except ValueError:
+            inside_root = False
+        if not inside_root:
+            raise ValueError(f"压缩包包含越界路径: {member_name}")
+        return target
 
     @staticmethod
     def _fix_zip_filename(info: zipfile.ZipInfo) -> str:
@@ -93,6 +147,9 @@ class ArchiveVCS(BaseVCS):
     def get_file_content_bytes(self, version: str, file_path: str) -> bytes:
         return self._folder.get_file_content_bytes(self._to_folder_ver(version), file_path)
 
+    def get_file_content_raw_bytes(self, version: str, file_path: str) -> bytes:
+        return self._folder.get_file_content_raw_bytes(self._to_folder_ver(version), file_path)
+
     def _to_folder_ver(self, version: str) -> str:
         """将外部版本标识（zip 路径）转为 FolderVCS 能识别的 'old'/'new'"""
         if version in ("old", "new"):
@@ -122,7 +179,7 @@ class ArchiveVCS(BaseVCS):
 
     def cleanup(self):
         """删除临时解压目录"""
-        for d in (self._tmp_old, self._tmp_new):
+        for d in (getattr(self, "_tmp_old", ""), getattr(self, "_tmp_new", "")):
             if os.path.isdir(d):
                 shutil.rmtree(d, ignore_errors=True)
 

@@ -20,6 +20,7 @@ body { font-family: "Microsoft YaHei","Segoe UI",sans-serif; height: 100vh; over
 .card.project .num { color: #7f8c8d; }
 .card.added .num { color: #27ae60; }
 .card.modified .num { color: #2980b9; }
+.card.format .num { color: #d68910; }
 .card.deleted .num { color: #e74c3c; }
 .card.renamed .num { color: #8e44ad; }
 .project-strip { padding: 8px 24px; background: #fff; border-bottom: 1px solid #e8e8e8; display: flex; gap: 8px; flex-wrap: wrap; flex-shrink: 0; }
@@ -33,6 +34,7 @@ body { font-family: "Microsoft YaHei","Segoe UI",sans-serif; height: 100vh; over
 .leg .dot { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
 .dot.added { background: #27ae60; }
 .dot.modified { background: #2980b9; }
+.dot.format { background: #d68910; }
 .dot.deleted { background: #e74c3c; }
 .dot.renamed { background: #8e44ad; }
 #tree { flex: 1; overflow-y: auto; padding: 4px 0; }
@@ -44,10 +46,12 @@ body { font-family: "Microsoft YaHei","Segoe UI",sans-serif; height: 100vh; over
 #tree .row .tag { font-size: 10px; padding: 1px 5px; border-radius: 2px; margin-left: 6px; color: white; flex-shrink: 0; }
 #tree .row .tag.A { background: #27ae60; }
 #tree .row .tag.M { background: #2980b9; }
+#tree .row .tag.F { background: #d68910; }
 #tree .row .tag.D { background: #e74c3c; }
 #tree .row .tag.R { background: #8e44ad; }
 #tree .row.added .name { color: #27ae60; }
 #tree .row.modified .name { color: #2980b9; }
+#tree .row.format .name { color: #d68910; }
 #tree .row.deleted .name { color: #e74c3c; }
 #tree .row.renamed .name { color: #8e44ad; }
 .filter-bar { display: flex; gap: 4px; padding: 6px 14px; border-bottom: 1px solid #eee; background: #fafafa; flex-shrink: 0; align-items: center; }
@@ -56,6 +60,7 @@ body { font-family: "Microsoft YaHei","Segoe UI",sans-serif; height: 100vh; over
 .filter-bar .flt.all { color: #555; }
 .filter-bar .flt.a.on { background: #27ae60; }
 .filter-bar .flt.m.on { background: #2980b9; }
+.filter-bar .flt.f.on { background: #d68910; }
 .filter-bar .flt.d.on { background: #e74c3c; }
 .filter-bar .flt.r.on { background: #8e44ad; }
 #tree .children { display: none; padding-left: 16px; }
@@ -78,6 +83,7 @@ body { font-family: "Microsoft YaHei","Segoe UI",sans-serif; height: 100vh; over
 .diff-file-header .change-tag { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 11px; color: white; margin-right: 8px; }
 .diff-file-header .change-tag.A { background: #27ae60; }
 .diff-file-header .change-tag.M { background: #2980b9; }
+.diff-file-header .change-tag.F { background: #d68910; }
 .diff-file-header .change-tag.D { background: #e74c3c; }
 .diff-file-header .change-tag.R { background: #8e44ad; }
 table.diff { font-family: Consolas,"Courier New",monospace; font-size: 12px; width: 100%; border-collapse: collapse; }
@@ -111,6 +117,7 @@ table.diff span { white-space: pre; }
     <div class="card total"><div class="num">{{ summary.total_files }}</div><div class="lbl">变更文件</div></div>
     <div class="card added"><div class="num">{{ summary.added_files }}</div><div class="lbl">新增</div></div>
     <div class="card modified"><div class="num">{{ summary.modified_files }}</div><div class="lbl">修改</div></div>
+    <div class="card format"><div class="num">{{ summary.format_changed_files }}</div><div class="lbl">格式变化</div></div>
     <div class="card deleted"><div class="num">{{ summary.deleted_files }}</div><div class="lbl">删除</div></div>
     <div class="card renamed"><div class="num">{{ summary.renamed_files }}</div><div class="lbl">重命名</div></div>
 </div>
@@ -133,6 +140,7 @@ table.diff span { white-space: pre; }
             <div class="legend">
                 <span class="leg"><span class="dot added"></span>新增</span>
                 <span class="leg"><span class="dot modified"></span>修改</span>
+                <span class="leg"><span class="dot format"></span>格式变化</span>
                 <span class="leg"><span class="dot deleted"></span>删除</span>
                 <span class="leg"><span class="dot renamed"></span>重命名</span>
             </div>
@@ -141,6 +149,7 @@ table.diff span { white-space: pre; }
             <span class="flt all on" onclick="setFilter('all')">全部</span>
             <span class="flt a on" onclick="toggleFilter('A')">新增</span>
             <span class="flt m on" onclick="toggleFilter('M')">修改</span>
+            <span class="flt f on" onclick="toggleFilter('F')">格式变化</span>
             <span class="flt d on" onclick="toggleFilter('D')">删除</span>
             <span class="flt r on" onclick="toggleFilter('R')">重命名</span>
             <span style="font-size:10px;color:#bbb;margin-left:4px;">点击标签过滤，支持任意组合</span>
@@ -166,7 +175,7 @@ table.diff span { white-space: pre; }
 {% for project in projects %}
 {% set project_loop = loop %}
 {% for file in project.diff_result.files %}
-<div id="sbs-{{ project_loop.index }}-{{ loop.index }}" data-path="{{ file.file_path | e }}" data-type="{{ file.change_type.value }}">{{ file.side_by_side_html }}</div>
+<div id="sbs-{{ project_loop.index }}-{{ loop.index }}" data-path="{{ file.file_path | e }}" data-type="{{ file.report_type }}">{{ file.side_by_side_html | safe }}</div>
 {% endfor %}
 {% endfor %}
 var currentDiffAnchors = [];
@@ -186,14 +195,14 @@ fileData.push({
     oldPath: {{ file.old_path | replace('\\','/') | tojson }},
     displayPath: {{ ((project.project_name ~ '/' ~ (file.file_path | replace('\\','/'))) if project.show_project_root else (file.file_path | replace('\\','/'))) | tojson }},
     oldDisplayPath: {{ ((project.project_name ~ '/' ~ (file.old_path | replace('\\','/'))) if project.show_project_root and file.old_path else (file.old_path | replace('\\','/'))) | tojson }},
-    type: {{ file.change_type.value | tojson }},
+    type: {{ file.report_type | tojson }},
     html: document.getElementById("sbs-{{ project_loop.index }}-{{ loop.index }}").innerHTML
 });
 {% endfor %}
 {% endfor %}
 
-function typeLabel(t) { return t === 'A' ? '新增' : t === 'M' ? '修改' : t === 'D' ? '删除' : t === 'R' ? '重命名' : ''; }
-function typeClass(t) { return t === 'A' ? 'added' : t === 'M' ? 'modified' : t === 'D' ? 'deleted' : t === 'R' ? 'renamed' : ''; }
+function typeLabel(t) { return t === 'A' ? '新增' : t === 'M' ? '修改' : t === 'F' ? '格式变化' : t === 'D' ? '删除' : t === 'R' ? '重命名' : ''; }
+function typeClass(t) { return t === 'A' ? 'added' : t === 'M' ? 'modified' : t === 'F' ? 'format' : t === 'D' ? 'deleted' : t === 'R' ? 'renamed' : ''; }
 function displayPath(file) {
     return file.type === 'R' && file.oldPath ? file.oldPath + ' -> ' + file.path : file.path;
 }
@@ -231,12 +240,14 @@ function getDirType(node) {
     Object.values(node.children).forEach(function(c) { types.push(getDirType(c)); });
     var hasD = types.indexOf('D') >= 0;
     var hasM = types.indexOf('M') >= 0;
+    var hasF = types.indexOf('F') >= 0;
     var hasA = types.indexOf('A') >= 0;
     var hasR = types.indexOf('R') >= 0;
-    if (hasD && !hasM && !hasA && !hasR) return 'D';
-    if (hasM && !hasD && !hasA && !hasR) return 'M';
-    if (hasA && !hasD && !hasM && !hasR) return 'A';
-    if (hasR && !hasD && !hasM && !hasA) return 'R';
+    if (hasD && !hasM && !hasF && !hasA && !hasR) return 'D';
+    if (hasM && !hasD && !hasF && !hasA && !hasR) return 'M';
+    if (hasF && !hasD && !hasM && !hasA && !hasR) return 'F';
+    if (hasA && !hasD && !hasM && !hasF && !hasR) return 'A';
+    if (hasR && !hasD && !hasM && !hasF && !hasA) return 'R';
     return '';
 }
 
@@ -405,17 +416,17 @@ function scrollToCurrentDiff() {
 function openSummary() {
     var w = window.open('', '_blank', 'width=920,height=760');
     if (!w) return;
-    var groups = {A:[], M:[], D:[], R:[]};
+    var groups = {A:[], M:[], F:[], D:[], R:[]};
     fileData.forEach(function(f) {
         if (groups[f.type]) groups[f.type].push(summaryPath(f));
     });
-    var labels = {A:'新增文件', M:'修改文件', D:'删除文件', R:'重命名文件'};
+    var labels = {A:'新增文件', M:'修改文件', F:'格式变化文件', D:'删除文件', R:'重命名文件'};
     var lines = [
         '变更清单',
         '',
         '共 {{ summary.project_count }} 个项目，{{ summary.total_files }} 个变更文件'
     ];
-    ['A','M','D','R'].forEach(function(t) {
+    ['A','M','F','D','R'].forEach(function(t) {
         var list = groups[t].sort();
         lines.push('');
         lines.push(labels[t] + '（' + list.length + ' 个）');
@@ -431,11 +442,12 @@ function openSummary() {
     w.document.getElementById('summaryText').textContent = lines.join('\n');
 }
 
-var filterState = { A: true, M: true, D: true, R: true };
+var filterState = { A: true, M: true, F: true, D: true, R: true };
 function updateFilterUI() {
-    var allOn = filterState.A && filterState.M && filterState.D && filterState.R;
+    var allOn = filterState.A && filterState.M && filterState.F && filterState.D && filterState.R;
     document.querySelectorAll('.filter-bar .flt.a').forEach(function(el) { el.classList.toggle('on', filterState.A); });
     document.querySelectorAll('.filter-bar .flt.m').forEach(function(el) { el.classList.toggle('on', filterState.M); });
+    document.querySelectorAll('.filter-bar .flt.f').forEach(function(el) { el.classList.toggle('on', filterState.F); });
     document.querySelectorAll('.filter-bar .flt.d').forEach(function(el) { el.classList.toggle('on', filterState.D); });
     document.querySelectorAll('.filter-bar .flt.r').forEach(function(el) { el.classList.toggle('on', filterState.R); });
     document.querySelectorAll('.filter-bar .flt.all').forEach(function(el) { el.classList.toggle('on', allOn); });
@@ -445,7 +457,7 @@ function toggleFilter(type) {
     applyFilter();
 }
 function setFilter(type) {
-    if (type === 'all') filterState.A = filterState.M = filterState.D = filterState.R = true;
+    if (type === 'all') filterState.A = filterState.M = filterState.F = filterState.D = filterState.R = true;
     applyFilter();
 }
 function applyFilter() {

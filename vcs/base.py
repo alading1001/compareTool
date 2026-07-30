@@ -92,6 +92,13 @@ class BaseVCS(ABC):
         content = self.get_file_content(version, file_path)
         return content.encode("utf-8") if content else None
 
+    def get_file_content_raw_bytes(self, version: str, file_path: str) -> bytes:
+        """获取仓库/快照中的原始字节，用于编码和换行符差异分析。
+
+        默认与导出字节一致；会进行工作副本换行符转换的 VCS 应覆写本方法。
+        """
+        return self.get_file_content_bytes(version, file_path)
+
     def get_file_content_bytes_working(self, file_path: str) -> bytes:
         """从工作目录读取文件原始字节。失败返回 None，文件为空返回 b"""""
         full_path = os.path.join(self.project_path, file_path)

@@ -1,6 +1,6 @@
 import os
 from datetime import datetime
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 from diff_engine import DiffResult
 
 
@@ -10,7 +10,10 @@ class ReportGenerator:
     def __init__(self, template_dir: str = None):
         if template_dir is None:
             template_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates")
-        self.env = Environment(loader=FileSystemLoader(template_dir))
+        self.env = Environment(
+            loader=FileSystemLoader(template_dir),
+            autoescape=select_autoescape(enabled_extensions=("html", "xml")),
+        )
 
     def generate(self, diff_result: DiffResult, output_path: str, show_project_root: bool = True):
         summary = diff_result.summary
@@ -51,6 +54,7 @@ class ReportGenerator:
             "total_files": 0,
             "added_files": 0,
             "modified_files": 0,
+            "format_changed_files": 0,
             "deleted_files": 0,
             "renamed_files": 0,
             "total_added_lines": 0,
@@ -59,7 +63,7 @@ class ReportGenerator:
         for project in project_results:
             s = project["diff_result"].summary
             for key in (
-                "total_files", "added_files", "modified_files", "deleted_files",
+                "total_files", "added_files", "modified_files", "format_changed_files", "deleted_files",
                 "renamed_files", "total_added_lines", "total_deleted_lines"
             ):
                 summary[key] += s.get(key, 0)

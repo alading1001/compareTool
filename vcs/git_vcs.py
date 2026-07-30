@@ -115,6 +115,8 @@ class GitVCS(BaseVCS):
             if not line:
                 continue
             parts = line.split("\t")
+            if len(parts) < 2:
+                raise RuntimeError(f"无法解析 Git 变更记录: {line}")
             code = parts[0]
             path = _unescape_git_path(parts[-1])
 
@@ -122,15 +124,24 @@ class GitVCS(BaseVCS):
                 "A": ChangeType.ADDED,
                 "M": ChangeType.MODIFIED,
                 "D": ChangeType.DELETED,
+                "T": ChangeType.MODIFIED,
             }
 
             if code.startswith("R"):
-                old_path = _unescape_git_path(parts[1]) if len(parts) > 2 else ""
+                if len(parts) < 3:
+                    raise RuntimeError(f"无法解析 Git 重命名记录: {line}")
+                old_path = _unescape_git_path(parts[1])
                 files.append(ChangedFile(
                     path=path, change_type=ChangeType.RENAMED, old_path=old_path
                 ))
+            elif code.startswith("C"):
+                if len(parts) < 3:
+                    raise RuntimeError(f"无法解析 Git 复制记录: {line}")
+                files.append(ChangedFile(path=path, change_type=ChangeType.ADDED))
             elif code in change_map:
                 files.append(ChangedFile(path=path, change_type=change_map[code]))
+            else:
+                raise RuntimeError(f"暂不支持的 Git 变更类型 {code}: {path}")
         return self._filter_files(files)
 
     def get_file_content(self, version: str, file_path: str) -> str:
@@ -154,6 +165,13 @@ class GitVCS(BaseVCS):
             return ""
 
     def get_file_content_bytes(self, version: str, file_path: str) -> bytes:
+        data = self.get_file_content_raw_bytes(version, file_path)
+        if data is not None and self._autocrlf_effective() and self._is_text_bytes(data):
+            data = self._apply_crlf(data)
+        return data
+
+    def get_file_content_raw_bytes(self, version: str, file_path: str) -> bytes:
+        """读取 Git 对象中的原始字节，不应用工作副本换行符转换。"""
         try:
             result = subprocess.run(
                 [self._git, "show", f"{version}:{file_path}"],
@@ -163,10 +181,7 @@ class GitVCS(BaseVCS):
             )
             if result.returncode != 0:
                 return None
-            data = result.stdout
-            if self._autocrlf_effective() and self._is_text_bytes(data):
-                data = self._apply_crlf(data)
-            return data
+            return result.stdout
         except (subprocess.TimeoutExpired, RuntimeError, FileNotFoundError):
             return None
 

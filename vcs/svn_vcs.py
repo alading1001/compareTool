@@ -3,6 +3,7 @@ import shutil
 import subprocess
 import os
 from typing import List
+from xml.etree import ElementTree
 
 from .base import BaseVCS, ChangedFile, ChangeType
 from logger import info, warn, error, cmd as log_cmd
@@ -124,15 +125,21 @@ class SVNVCS(BaseVCS):
         return result.stdout
 
     def _parse_svn_diff_summarize(self, old_rev: str, new_rev: str) -> List[ChangedFile]:
-        """使用 svn diff --summarize 获取变更文件列表"""
-        output = self._run(["diff", "--summarize", f"-r{old_rev}:{new_rev}"])
+        """使用 XML 摘要获取变更文件，可靠区分文件、目录和替换节点。"""
+        output = self._run(["diff", "--summarize", "--xml", f"-r{old_rev}:{new_rev}"])
+        try:
+            root = ElementTree.fromstring(output)
+        except ElementTree.ParseError as exc:
+            raise RuntimeError(f"无法解析 SVN 变更摘要: {exc}") from exc
+
         files = []
-        for line in output.strip().split("\n"):
-            if not line:
+        for node in root.findall(".//path"):
+            if node.get("kind") == "dir":
                 continue
-            # 格式: "M       path/to/file" 或 "A       path/to/file"
-            code = line[0].strip()
-            path = line[1:].strip()
+            path = (node.text or "").strip()
+            if not path:
+                continue
+
             # svn diff 返回的是相对于项目目录的路径，先拼成绝对路径再算相对路径
             # 避免 Python 进程的 CWD 干扰 os.path.relpath 的结果
             abs_path = os.path.normpath(os.path.join(self.project_path, path))
@@ -142,13 +149,20 @@ class SVNVCS(BaseVCS):
                 rel_path = path
 
             change_map = {
-                "A": ChangeType.ADDED,
-                "M": ChangeType.MODIFIED,
-                "D": ChangeType.DELETED,
-                "R": ChangeType.RENAMED,
+                "added": ChangeType.ADDED,
+                "modified": ChangeType.MODIFIED,
+                "deleted": ChangeType.DELETED,
+                # SVN 的 replaced 是同一路径节点替换，不是重命名。
+                "replaced": ChangeType.MODIFIED,
             }
-            if code in change_map:
-                files.append(ChangedFile(path=rel_path, change_type=change_map[code]))
+            item = node.get("item", "")
+            change_type = change_map.get(item)
+            if change_type is None and item in ("none", "normal") and node.get("props") == "modified":
+                change_type = ChangeType.MODIFIED
+            if change_type is not None:
+                files.append(ChangedFile(path=rel_path, change_type=change_type))
+            elif item not in ("none", "normal"):
+                raise RuntimeError(f"暂不支持的 SVN 变更类型 {item}: {path}")
         return files
 
     def get_changed_files(self, old_version: str, new_version: str) -> List[ChangedFile]:
@@ -165,34 +179,43 @@ class SVNVCS(BaseVCS):
             return ""
 
     def get_file_content_bytes(self, version: str, file_path: str) -> bytes:
+        data = self.get_file_content_raw_bytes(version, file_path)
+        if (
+            data is not None and
+            self._get_eol_style(version, file_path) == "native" and
+            self._is_text_bytes(data)
+        ):
+            data = self._apply_crlf(data)
+        return data
+
+    def get_file_content_raw_bytes(self, version: str, file_path: str) -> bytes:
+        """读取仓库中的原始字节，不应用工作副本换行符转换。"""
         try:
             rev = version.lstrip("r")
             url = f"{self._repo_url}/{file_path.replace(chr(92), '/')}@{rev}"
-            data = self._run_bytes(["cat", url])
-            # svn:eol-style=native 时，仓库存 LF，Windows 工作副本用 CRLF
-            if self._get_eol_style(file_path) == "native" and self._is_text_bytes(data):
-                data = self._apply_crlf(data)
-            return data
+            return self._run_bytes(["cat", url])
         except RuntimeError:
             return None
 
-    def _get_eol_style(self, file_path: str) -> str:
-        """获取文件生效的 svn:eol-style 属性值（缓存结果）"""
+    def _get_eol_style(self, version: str, file_path: str) -> str:
+        """按所选 revision 从仓库读取 svn:eol-style（删除文件也能正确读取）。"""
         cache = getattr(self, '_eol_cache', None)
         if cache is None:
             self._eol_cache = {}
-        if file_path in self._eol_cache:
-            return self._eol_cache[file_path]
+        cache_key = (version, file_path)
+        if cache_key in self._eol_cache:
+            return self._eol_cache[cache_key]
         try:
-            full_path = os.path.join(self.project_path, file_path)
+            rev = version.lstrip("r")
+            url = f"{self._repo_url}/{file_path.replace(chr(92), '/')}@{rev}"
             result = subprocess.run(
-                [self._svn, "propget", "svn:eol-style", "--strict", full_path],
+                [self._svn, "propget", "svn:eol-style", "--strict", "-r", rev, url],
                 capture_output=True, timeout=10
             )
             style = result.stdout.decode("utf-8").strip() if result.returncode == 0 else ""
         except Exception:
             style = ""
-        self._eol_cache[file_path] = style
+        self._eol_cache[cache_key] = style
         return style
 
     def get_file_content_working(self, file_path: str) -> str:

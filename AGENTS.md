@@ -44,7 +44,7 @@ main.py                  # tkinter GUI 入口，线程管理，配置持久化�
 2. 根据 VCS 类型创建 `GitVCS` / `SVNVCS` / `FolderVCS` / `ArchiveVCS` / `GitMultiVersionVCS` / `SVNMultiVersionVCS` → `get_changed_files()` 获取变更文件列表
 3. `DiffEngine.generate_diff()` 遍历文件，对文本文件用 `difflib.HtmlDiff.make_table()` 生成 side-by-side HTML；二进制文件跳过内容只设占位标记；内容完全一致且唯一匹配的删除+新增会合并为重命名
 4. `ReportGenerator` 用 Jinja2 渲染模板 → 单文件 HTML
-5. `FileExporter` 导出变更文件：统一通过 `vcs.get_file_content_bytes()` 读取原始字节（失败返回 `None`，空文件返回 `b""`），以 `wb` 模式写入保留原始编码。`None` 时回退到文本内容（UTF-8）。重命名文件导出时 oldVersion 使用 `old_path`，newVersion 使用 `file_path`。
+5. `FileExporter` 导出变更文件：统一通过 `vcs.get_file_content_bytes()` 读取原始字节（失败返回 `None`，空文件返回 `b""`），以 `wb` 模式写入保留原始编码。`None` 必须使本次导出失败，不能静默漏文件或用不可靠的空文本兜底。单项目先完整写入同盘暂存目录，再成组替换 old/new 目标；多项目则在全部项目和报告均成功后一次提交，任一步失败都恢复原有输出。重命名文件导出时 oldVersion 使用 `old_path`，newVersion 使用 `file_path`。
 
 项目名只在能从有效项目目录、新版本文件夹或新版本压缩包推断出真实名称时自动填充。推断不到且用户未手工填写时，生成报告或添加多项目任务应直接提示失败，不使用 `project` 之类的假兜底名称。Git/SVN/Git需求包/SVN需求包模式下，项目名输入框是可编辑下拉框，会按 Git/SVN 家族记忆最近 10 个有效项目；选择最近项目时必须同步回填项目目录和项目名，并触发项目路径变化逻辑清空旧/新版本和版本列表，避免跨项目复用版本号。
 
@@ -59,7 +59,7 @@ newVersion/项目名/...
 
 若填写了输出批次名称，实际导出根目录会变成 `输出目录/输出批次名称/`，报告、`oldVersion` 和 `newVersion` 都生成在这一层下。生成单项目或多项目报告前会提示当前批次名称和实际输出目录，用户确认后才继续。
 
-多项目任务允许混用 Git/SVN/文件夹/压缩包/Git需求包/SVN需求包。任一任务失败时本次生成失败，不跳过项目。总报告文件名格式为 `multi_compare_report_yyyyMMdd_HHmmss_SSS.html`。任务列表保存到 `compareTool_config.json`。多项目变更清单是纯文本页面，按新增/修改/删除/重命名汇总；每条路径是否带项目名由该任务自己的 `show_project_root` 决定。生成总报告前会检测最终展示路径冲突，若同一展示路径来自多个项目，则失败并提示开启相关任务的项目名展示。
+多项目任务允许混用 Git/SVN/文件夹/压缩包/Git需求包/SVN需求包。任一任务失败时本次生成失败，不跳过项目，也不提交任何项目的新导出目录或新报告。总报告文件名格式为 `multi_compare_report_yyyyMMdd_HHmmss_SSS.html`。任务列表保存到 `compareTool_config.json`。多项目项目名按 Windows 大小写不敏感规则判重，避免 `Demo` / `demo` 写入同一目录。多项目变更清单是纯文本页面，按新增/修改/格式变化/删除/重命名汇总；每条路径是否带项目名由该任务自己的 `show_project_root` 决定。生成总报告前会检测最终展示路径冲突，若同一展示路径来自多个项目，则失败并提示开启相关任务的项目名展示。
 
 ### VCS 类型与版本标识
 
@@ -123,7 +123,7 @@ Git/SVN 可执行文件路径均自动探测：先查 `shutil.which`，再查 Wi
 
 **ZIP 文件名编码修正**：Windows 中文环境创建的 zip 文件名通常用 GBK 编码而不设 UTF-8 标志位（`flag_bits & 0x800 == 0`）。`_fix_zip_filename()` 将 `ZipInfo.filename` 反向编码为 CP437 原始字节，再按 GBK 解码为正确的中文文件名。
 
-**临时目录清理**：`ArchiveVCS.cleanup()` 通过 `shutil.rmtree` 删除临时目录，`__del__` 和 `_do_generate` 的 `finally` 块均会调用。
+**安全解压与临时目录清理**：ZIP/TAR 每个成员都必须先通过临时目录边界校验，拒绝父目录穿越、绝对路径、盘符路径、符号链接、硬链接和设备等特殊成员；不得直接使用无过滤的 `extractall()`。`ArchiveVCS.cleanup()` 通过 `shutil.rmtree` 删除临时目录，构造中途失败、`__del__` 和 `_do_generate` 的 `finally` 块均会调用。
 
 **排除规则转发**：`ArchiveVCS` 覆写 `set_exclude_patterns()`，将规则同步传给内部 `FolderVCS`，否则排除规则不会生效。
 
@@ -174,4 +174,4 @@ Windows 上 `core.autocrlf=true`（Git）或 `svn:eol-style=native`（SVN）会�
 
 ### 配置持久化
 
-`compareTool_config.json` 保存项目路径、VCS 类型、输出路径、多项目任务列表、`recent_projects`、`project_exclude_rules` 和 `project_display_options`。项目级配置按规范化绝对路径保存：Git/SVN/Git需求包/SVN需求包用项目目录，文件夹用新版本文件夹，压缩包用新版本压缩包完整文件路径。最近项目列表按 Git/SVN 家族分组，每组最多保留最近 10 个有效项目，旧配置没有 `recent_projects` 时应兼容为空并可由当前有效项目回填。新路径没有专属排除规则时，使用 `main.py` 内置默认模板；旧版全局 `exclude_rules` 不再作为默认模板来源。多项目任务添加/更新时保存排除规则和显示选项快照，后续项目默认配置变化不会偷偷影响已添加任务。输出批次名称不持久化，每次启动默认当天日期。
+`compareTool_config.json` 保存项目路径、VCS 类型、输出路径、多项目任务列表、`recent_projects`、`project_exclude_rules` 和 `project_display_options`。配置必须先写同目录临时文件并 `os.replace()` 原子替换，避免进程中断破坏已有任务。项目级配置按规范化绝对路径保存：Git/SVN/Git需求包/SVN需求包用项目目录，文件夹用新版本文件夹，压缩包用新版本压缩包完整文件路径。最近项目列表按 Git/SVN 家族分组，每组最多保留最近 10 个有效项目，旧配置没有 `recent_projects` 时应兼容为空并可由当前有效项目回填。新路径没有专属排除规则时，使用 `main.py` 内置默认模板；旧版全局 `exclude_rules` 不再作为默认模板来源。多项目任务添加/更新时保存排除规则和显示选项快照，后续项目默认配置变化不会偷偷影响已添加任务。输出批次名称不持久化，每次启动默认当天日期。

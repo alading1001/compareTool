@@ -84,6 +84,9 @@ class _MultiVersionFolderDelegate(BaseVCS):
     def get_file_content_bytes(self, version: str, file_path: str) -> bytes:
         return self._folder.get_file_content_bytes(self._to_folder_ver(version), file_path)
 
+    def get_file_content_raw_bytes(self, version: str, file_path: str) -> bytes:
+        return self._folder.get_file_content_raw_bytes(self._to_folder_ver(version), file_path)
+
     def get_file_content_working(self, file_path: str) -> str:
         return self._folder.get_file_content_working(file_path)
 

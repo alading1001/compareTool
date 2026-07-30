@@ -3,7 +3,7 @@ import hashlib
 import html
 import os
 from dataclasses import dataclass, field
-from typing import List, Dict
+from typing import List, Dict, Optional
 from vcs.base import ChangedFile, ChangeType
 
 
@@ -19,10 +19,26 @@ class FileDiff:
     side_by_side_html: str = ""
     added_lines: int = 0
     deleted_lines: int = 0
+    format_only: bool = False
+    format_details: List[str] = field(default_factory=list)
 
     @property
     def total_changes(self) -> int:
         return self.added_lines + self.deleted_lines
+
+    @property
+    def report_type(self) -> str:
+        """报告展示类型；底层 change_type 保持不变，确保导出逻辑完整。"""
+        if self.change_type == ChangeType.MODIFIED and self.format_only:
+            return "F"
+        return self.change_type.value
+
+
+@dataclass
+class _DecodedText:
+    text: str
+    encoding: str
+    bom: str = "无"
 
 
 @dataclass
@@ -38,7 +54,11 @@ class DiffResult:
     @property
     def summary(self) -> Dict:
         added = sum(1 for f in self.files if f.change_type == ChangeType.ADDED)
-        modified = sum(1 for f in self.files if f.change_type == ChangeType.MODIFIED)
+        format_changed = sum(1 for f in self.files if f.report_type == "F")
+        modified = sum(
+            1 for f in self.files
+            if f.change_type == ChangeType.MODIFIED and f.report_type != "F"
+        )
         deleted = sum(1 for f in self.files if f.change_type == ChangeType.DELETED)
         renamed = sum(1 for f in self.files if f.change_type == ChangeType.RENAMED)
         total_added_lines = sum(f.added_lines for f in self.files)
@@ -47,6 +67,7 @@ class DiffResult:
             "total_files": len(self.files),
             "added_files": added,
             "modified_files": modified,
+            "format_changed_files": format_changed,
             "deleted_files": deleted,
             "renamed_files": renamed,
             "total_added_lines": total_added_lines,
@@ -90,10 +111,6 @@ class DiffEngine:
         )
 
         for cf in changed_files:
-            # 跳过目录（SVN 会把目录也作为变更项）
-            full_path = os.path.join(self.vcs.project_path, cf.path)
-            if os.path.isdir(full_path):
-                continue
             file_diff = self._diff_file(old_version, new_version, cf)
             result.files.append(file_diff)
 
@@ -113,7 +130,7 @@ class DiffEngine:
 
         if cf.change_type == ChangeType.ADDED:
             file_diff.old_content = ""
-            file_diff.new_content = self.vcs.get_file_content_working(cf.path)
+            file_diff.new_content = self.vcs.get_file_content(new_version, cf.path)
             file_diff.deleted_lines = 0
             file_diff.added_lines = len(file_diff.new_content.splitlines()) if file_diff.new_content else 0
             file_diff.side_by_side_html = self._side_by_side_empty_vs_new(
@@ -130,12 +147,12 @@ class DiffEngine:
         elif cf.change_type == ChangeType.RENAMED:
             old_path = cf.old_path or cf.path
             file_diff.old_content = self.vcs.get_file_content(old_version, old_path)
-            file_diff.new_content = self.vcs.get_file_content_working(cf.path)
+            file_diff.new_content = self.vcs.get_file_content(new_version, cf.path)
 
             old_lines = file_diff.old_content.splitlines()
             new_lines = file_diff.new_content.splitlines()
-            file_diff.added_lines = max(0, len(new_lines) - len(old_lines))
-            file_diff.deleted_lines = max(0, len(old_lines) - len(new_lines))
+            file_diff.added_lines, file_diff.deleted_lines = self._count_line_changes(
+                old_lines, new_lines)
 
             if self._same_file_bytes(old_version, new_version, old_path, cf.path):
                 file_diff.added_lines = 0
@@ -146,19 +163,37 @@ class DiffEngine:
                     old_lines, new_lines, cf.path, old_path=old_path)
 
         else:
-            file_diff.old_content = self.vcs.get_file_content(old_version, cf.path)
-            file_diff.new_content = self.vcs.get_file_content_working(cf.path)
+            old_raw = self._get_raw_bytes(old_version, cf.path)
+            new_raw = self._get_raw_bytes(new_version, cf.path)
+            old_decoded = self._decode_text_strict(old_raw)
+            new_decoded = self._decode_text_strict(new_raw)
+
+            if old_decoded is not None and new_decoded is not None:
+                file_diff.old_content = old_decoded.text
+                file_diff.new_content = new_decoded.text
+                format_details = self._format_only_details(old_decoded, new_decoded, old_raw, new_raw)
+                if format_details is not None:
+                    file_diff.format_only = True
+                    file_diff.format_details = format_details
+            else:
+                # 无法可靠解码时维持普通修改，绝不猜测成“仅格式变化”。
+                file_diff.old_content = self.vcs.get_file_content(old_version, cf.path)
+                file_diff.new_content = self.vcs.get_file_content(new_version, cf.path)
 
             old_lines = file_diff.old_content.splitlines()
             new_lines = file_diff.new_content.splitlines()
 
-            # 统计行数
-            file_diff.added_lines = max(0, len(new_lines) - len(old_lines))
-            file_diff.deleted_lines = max(0, len(old_lines) - len(new_lines))
+            file_diff.added_lines, file_diff.deleted_lines = self._count_line_changes(
+                old_lines, new_lines)
 
-            # side-by-side HTML
-            file_diff.side_by_side_html = self._side_by_side_html(
-                old_lines, new_lines, cf.path)
+            if file_diff.format_only:
+                file_diff.added_lines = 0
+                file_diff.deleted_lines = 0
+                file_diff.side_by_side_html = self._format_only_placeholder(
+                    cf.path, file_diff.format_details)
+            else:
+                file_diff.side_by_side_html = self._side_by_side_html(
+                    old_lines, new_lines, cf.path)
 
         return file_diff
 
@@ -214,15 +249,112 @@ class DiffEngine:
         return result
 
     def _file_bytes_signature(self, version: str, file_path: str):
-        data = self.vcs.get_file_content_bytes(version, file_path)
+        data = self._get_raw_bytes(version, file_path)
         if data is None:
             return None
         return len(data), hashlib.sha256(data).hexdigest()
 
     def _same_file_bytes(self, old_version: str, new_version: str, old_path: str, new_path: str) -> bool:
-        old_data = self.vcs.get_file_content_bytes(old_version, old_path)
-        new_data = self.vcs.get_file_content_bytes(new_version, new_path)
+        old_data = self._get_raw_bytes(old_version, old_path)
+        new_data = self._get_raw_bytes(new_version, new_path)
         return old_data is not None and new_data is not None and old_data == new_data
+
+    def _get_raw_bytes(self, version: str, file_path: str) -> Optional[bytes]:
+        getter = getattr(self.vcs, "get_file_content_raw_bytes", None)
+        if getter is not None:
+            return getter(version, file_path)
+        return self.vcs.get_file_content_bytes(version, file_path)
+
+    @staticmethod
+    def _decode_text_strict(data: Optional[bytes]) -> Optional[_DecodedText]:
+        """保守解码。只有严格解码成功时才参与格式变化判断。"""
+        if data is None:
+            return None
+
+        bom_specs = (
+            (b"\x00\x00\xfe\xff", "utf-32", "UTF-32 BE", "UTF-32 BOM"),
+            (b"\xff\xfe\x00\x00", "utf-32", "UTF-32 LE", "UTF-32 BOM"),
+            (b"\xef\xbb\xbf", "utf-8-sig", "UTF-8", "UTF-8 BOM"),
+            (b"\xfe\xff", "utf-16", "UTF-16 BE", "UTF-16 BOM"),
+            (b"\xff\xfe", "utf-16", "UTF-16 LE", "UTF-16 BOM"),
+        )
+        for prefix, codec, label, bom in bom_specs:
+            if data.startswith(prefix):
+                try:
+                    return _DecodedText(data.decode(codec), label, bom)
+                except UnicodeDecodeError:
+                    return None
+
+        if b"\x00" in data:
+            return None
+
+        try:
+            text = data.decode("utf-8")
+            label = "ASCII" if data.isascii() else "UTF-8"
+            return _DecodedText(text, label)
+        except UnicodeDecodeError:
+            pass
+
+        try:
+            return _DecodedText(data.decode("gb18030"), "GB18030/GBK")
+        except UnicodeDecodeError:
+            return None
+
+    @staticmethod
+    def _line_ending(text: str) -> str:
+        crlf = text.count("\r\n")
+        rest = text.replace("\r\n", "")
+        lf = rest.count("\n")
+        cr = rest.count("\r")
+        kinds = [("CRLF", crlf), ("LF", lf), ("CR", cr)]
+        present = [name for name, count in kinds if count]
+        if not present:
+            return "无换行符"
+        return present[0] if len(present) == 1 else "混合(" + "/".join(present) + ")"
+
+    @staticmethod
+    def _normalize_line_endings(text: str) -> str:
+        return text.replace("\r\n", "\n").replace("\r", "\n")
+
+    def _format_only_details(
+        self,
+        old: _DecodedText,
+        new: _DecodedText,
+        old_raw: bytes,
+        new_raw: bytes,
+    ) -> Optional[List[str]]:
+        if old_raw == new_raw:
+            return None
+        if old.text != new.text and (
+            self._normalize_line_endings(old.text) != self._normalize_line_endings(new.text)
+        ):
+            return None
+
+        details = []
+        if old.encoding != new.encoding:
+            details.append(f"编码：{old.encoding} → {new.encoding}")
+        if old.bom != new.bom:
+            details.append(f"BOM：{old.bom} → {new.bom}")
+        old_eol = self._line_ending(old.text)
+        new_eol = self._line_ending(new.text)
+        if old_eol != new_eol:
+            details.append(f"换行符：{old_eol} → {new_eol}")
+        if not details:
+            # 解码文本相同但无法可靠归因时，保守说明事实，不虚构编码名称。
+            details.append("原始字节发生变化，文字内容一致")
+        return details
+
+    @staticmethod
+    def _count_line_changes(old_lines: List[str], new_lines: List[str]):
+        added = 0
+        deleted = 0
+        for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(
+            None, old_lines, new_lines, autojunk=False).get_opcodes():
+            if tag in ("replace", "delete"):
+                deleted += i2 - i1
+            if tag in ("replace", "insert"):
+                added += j2 - j1
+        return added, deleted
 
     def _binary_placeholder(self, cf: ChangedFile) -> str:
         """二进制文件：占位提示"""
@@ -251,22 +383,42 @@ class DiffEngine:
             '</div>'
         )
 
+    def _format_only_placeholder(self, file_path: str, details: List[str]) -> str:
+        """纯格式变化：不制造虚假的逐行内容差异。"""
+        detail_html = "".join(
+            f'<div style="margin-top:6px;">{html.escape(item)}</div>'
+            for item in details
+        )
+        return (
+            '<div style="padding:40px;text-align:center;color:#666;font-size:15px;">'
+            '<div style="font-size:18px;margin-bottom:12px;font-weight:bold;">'
+            '仅格式变化，文字内容无变化</div>'
+            f'<div style="font-family:Consolas,\'Courier New\',monospace;margin-bottom:12px;">'
+            f'{html.escape(file_path)}</div>'
+            f'{detail_html}'
+            '<div style="font-size:12px;margin-top:14px;color:#999;">'
+            '文件原始字节已变化，仍会包含在导出的变更文件中</div>'
+            '</div>'
+        )
+
     def _side_by_side_html(self, old_lines, new_lines, path, old_path=None):
         """生成左右对比的HTML表格"""
         hd = difflib.HtmlDiff(tabsize=4)
         old_desc = old_path or path
+        escaped_old_desc = html.escape(old_desc)
+        escaped_path = html.escape(path)
         if self.show_full_context:
             return hd.make_table(
                 old_lines, new_lines,
-                fromdesc=f'旧版本: {old_desc}',
-                todesc=f'新版本: {path}',
+                fromdesc=f'旧版本: {escaped_old_desc}',
+                todesc=f'新版本: {escaped_path}',
                 context=False
             )
         else:
             return hd.make_table(
                 old_lines, new_lines,
-                fromdesc=f'旧版本: {old_desc}',
-                todesc=f'新版本: {path}',
+                fromdesc=f'旧版本: {escaped_old_desc}',
+                todesc=f'新版本: {escaped_path}',
                 context=True,
                 numlines=3
             )
@@ -279,7 +431,7 @@ class DiffEngine:
         return hd.make_table(
             old_lines, new_lines,
             fromdesc='(新文件)',
-            todesc=f'新版本: {path}',
+            todesc=f'新版本: {html.escape(path)}',
             context=False
         )
 
@@ -290,7 +442,7 @@ class DiffEngine:
         hd = difflib.HtmlDiff(tabsize=4)
         return hd.make_table(
             old_lines, new_lines,
-            fromdesc=f'旧版本: {path}',
+            fromdesc=f'旧版本: {html.escape(path)}',
             todesc='(已删除)',
             context=False
         )

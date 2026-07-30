@@ -1,8 +1,10 @@
 build/
 dist/
+.tmp/
 *.spec
 __pycache__/
 *.pyc
+compareTool.log
 compareTool_config.json
 /.claude
 /compareTool_config.json

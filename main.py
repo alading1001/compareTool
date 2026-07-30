@@ -1,6 +1,8 @@
 import json
 import os
+import shutil
 import sys
+import tempfile
 import threading
 import webbrowser
 import tkinter as tk
@@ -77,17 +79,34 @@ from logger import info, warn, error
 def _load_config():
     try:
         with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return {}
 
 
 def _save_config(data):
+    temp_path = ""
     try:
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        fd, temp_path = tempfile.mkstemp(
+            prefix=".compareTool_config_",
+            suffix=".tmp",
+            dir=CONFIG_DIR,
+        )
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
-    except OSError:
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temp_path, CONFIG_FILE)
+        temp_path = ""
+    except (OSError, TypeError, ValueError):
         pass
+    finally:
+        if temp_path and os.path.isfile(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
 
 
 class CompareToolApp:
@@ -115,11 +134,18 @@ class CompareToolApp:
         self._update_after_id = None
         self._config = _load_config()
         self._default_exclude_rules = self._load_default_exclude_rules()
-        self._project_exclude_rules = dict(self._config.get("project_exclude_rules", {}))
-        self._project_display_options = dict(self._config.get("project_display_options", {}))
+        raw_exclude_rules = self._config.get("project_exclude_rules", {})
+        raw_display_options = self._config.get("project_display_options", {})
+        self._project_exclude_rules = dict(raw_exclude_rules) if isinstance(raw_exclude_rules, dict) else {}
+        self._project_display_options = dict(raw_display_options) if isinstance(raw_display_options, dict) else {}
         self._recent_projects = self._normalize_recent_projects(self._config.get("recent_projects", []))
         self._recent_project_value_map = {}
-        self._multi_tasks = list(self._config.get("multi_tasks", []))
+        raw_multi_tasks = self._config.get("multi_tasks", [])
+        self._multi_tasks = (
+            [dict(task) for task in raw_multi_tasks if isinstance(task, dict)]
+            if isinstance(raw_multi_tasks, list)
+            else []
+        )
         self._editing_task_index = None
         self._generating = False
         self._last_exclude_key = ""
@@ -563,6 +589,11 @@ class CompareToolApp:
             return ""
         cleaned = "".join("_" if ch in '<>:"/\\|?*' else ch for ch in raw)
         return cleaned.strip(" .")
+
+    @staticmethod
+    def _project_name_key(name: str) -> str:
+        """Windows 导出目录按大小写不敏感规则判重。"""
+        return os.path.normcase((name or "").strip()).casefold()
 
     @staticmethod
     def _sanitize_output_batch_name(name: str) -> str:
@@ -1282,10 +1313,11 @@ class CompareToolApp:
         }
 
     def _ensure_unique_task_name(self, project_name: str, editing_index=None) -> bool:
+        project_key = self._project_name_key(project_name)
         for idx, task in enumerate(self._multi_tasks):
             if editing_index is not None and idx == editing_index:
                 continue
-            if task.get("project_name") == project_name:
+            if self._project_name_key(task.get("project_name", "")) == project_key:
                 messagebox.showwarning("提示", f"多项目任务中已存在项目名: {project_name}\n请换一个项目名，避免报告和导出目录混淆。")
                 return False
         return True
@@ -1405,6 +1437,18 @@ class CompareToolApp:
             self._effective_output_dir(),
             f"multi_compare_report_{stamp}.html"
         )
+
+    @staticmethod
+    def _make_report_stage_path(report_path: str) -> str:
+        parent = os.path.dirname(os.path.abspath(report_path))
+        os.makedirs(parent, exist_ok=True)
+        fd, stage_path = tempfile.mkstemp(
+            prefix=".comparetool_report_",
+            suffix=".html",
+            dir=parent,
+        )
+        os.close(fd)
+        return stage_path
 
     def _create_vcs_for_task(self, task: dict):
         vcs_type = task["vcs_type"]
@@ -1567,12 +1611,22 @@ class CompareToolApp:
         if not self._confirm_output_batch():
             return
 
+        exclude_patterns = [
+            line.strip()
+            for line in self.exclude_text.get("1.0", tk.END).splitlines()
+            if line.strip()
+        ]
+        show_full = self.show_full_context_var.get() == "yes"
+        show_project_root = self.show_project_root_var.get() == "yes"
+        self._save_current_config()
         self._set_generating(True)
         self.progress.start()
         self.status_var.set("正在生成比对报告...")
 
         thread = threading.Thread(target=self._do_generate, args=(
-            project_path, vcs_type, old_version, new_version, project_name
+            project_path, vcs_type, old_version, new_version, project_name,
+            exclude_patterns, show_full, show_project_root,
+            report_path, old_export, new_export,
         ), daemon=True)
         thread.start()
 
@@ -1585,13 +1639,21 @@ class CompareToolApp:
             messagebox.showwarning("提示", "请先选择输出目录")
             return
 
-        names = set()
+        names = {}
         for task in self._multi_tasks:
-            name = task.get("project_name", "")
-            if name in names:
-                messagebox.showwarning("提示", f"多项目任务存在重复项目名: {name}")
+            raw_name = str(task.get("project_name", "") or "").strip()
+            name = self._sanitize_project_name(raw_name)
+            if not name or name != raw_name:
+                messagebox.showwarning("提示", f"多项目任务包含无效项目名，请编辑后重试: {raw_name or '(空)'}")
                 return
-            names.add(name)
+            key = self._project_name_key(name)
+            if key in names:
+                messagebox.showwarning(
+                    "提示",
+                    f"多项目任务存在会写入同一 Windows 目录的项目名: {names[key]} / {name}"
+                )
+                return
+            names[key] = name
 
         if not self._confirm_output_batch():
             return
@@ -1604,15 +1666,24 @@ class CompareToolApp:
         self.new_export_var.set(self._join_display_path(effective_output_dir, "newVersion"))
 
         report_path = self._multi_report_path()
+        old_export = self.old_export_var.get().strip()
+        new_export = self.new_export_var.get().strip()
         self._set_generating(True)
         self.progress.start()
         self.status_var.set("正在生成多项目总报告...")
 
         tasks = [dict(task) for task in self._multi_tasks]
-        thread = threading.Thread(target=self._do_generate_multi, args=(tasks, report_path), daemon=True)
+        thread = threading.Thread(
+            target=self._do_generate_multi,
+            args=(tasks, report_path, old_export, new_export),
+            daemon=True,
+        )
         thread.start()
 
-    def _do_generate(self, project_path, vcs_type, old_version, new_version, project_name):
+    def _do_generate(
+            self, project_path, vcs_type, old_version, new_version, project_name,
+            exclude_patterns, show_full, show_project_root,
+            report_path, old_export, new_export):
         cleanup_vcs = None  # 持有引用以便 finally 清理临时目录
         try:
             info(f"=== 开始生成比对报告 ===")
@@ -1634,22 +1705,18 @@ class CompareToolApp:
             else:
                 vcs = SVNVCS(project_path)
 
-            exclude_text = self.exclude_text.get("1.0", tk.END).strip()
-            if exclude_text:
-                vcs.set_exclude_patterns(exclude_text.split("\n"))
+            if exclude_patterns:
+                vcs.set_exclude_patterns(exclude_patterns)
 
             if vcs_type not in ("folder", "archive", "git_multi", "svn_multi"):
                 if not vcs.check_version_exists(old_version):
                     warn(f"旧版本不存在: {old_version}")
-                    self._show_error(f"旧版本不存在: {old_version}")
-                    return
+                    raise RuntimeError(f"旧版本不存在: {old_version}")
                 if not vcs.check_version_exists(new_version):
                     warn(f"新版本不存在: {new_version}")
-                    self._show_error(f"新版本不存在: {new_version}")
-                    return
+                    raise RuntimeError(f"新版本不存在: {new_version}")
 
             info("获取变更文件列表...")
-            show_full = self.show_full_context_var.get() == "yes"
             engine = DiffEngine(vcs, show_full_context=show_full)
             diff_result = engine.generate_diff(old_version, new_version)
             diff_result.project_name = project_name
@@ -1659,22 +1726,25 @@ class CompareToolApp:
                 diff_result.project_path = project_path
             info(f"变更文件数: {len(diff_result.files)}")
 
-            report_path = self.report_path_var.get().strip()
             info(f"生成报告: {report_path}")
             template_dir = os.path.join(BASE_DIR, "templates")
             report_gen = ReportGenerator(template_dir)
-            show_project_root = self.show_project_root_var.get() == "yes"
-            report_gen.generate(diff_result, report_path, show_project_root=show_project_root)
+            report_stage = self._make_report_stage_path(report_path)
+            try:
+                report_gen.generate(
+                    diff_result,
+                    report_stage,
+                    show_project_root=show_project_root,
+                )
 
-            old_export = self.old_export_var.get().strip()
-            new_export = self.new_export_var.get().strip()
-            info(f"导出文件: old={old_export}, new={new_export}")
-            exporter = FileExporter(diff_result, vcs)
-            project_name = diff_result.project_name
-            exporter.export(old_export, new_export, project_name=project_name)
-
-            # 保存配置
-            self._save_current_config()
+                info(f"导出文件: old={old_export}, new={new_export}")
+                exporter = FileExporter(diff_result, vcs)
+                project_name = diff_result.project_name
+                exporter.export(old_export, new_export, project_name=project_name)
+                os.replace(report_stage, report_path)
+            finally:
+                if os.path.isfile(report_stage):
+                    os.remove(report_stage)
 
             summary = diff_result.summary
             info(f"=== 完成: {summary} ===")
@@ -1689,8 +1759,11 @@ class CompareToolApp:
             if cleanup_vcs:
                 cleanup_vcs.cleanup()
 
-    def _do_generate_multi(self, tasks, report_path):
+    def _do_generate_multi(self, tasks, report_path, old_export, new_export):
         project_results = []
+        stage_old_root = ""
+        stage_new_root = ""
+        report_stage = ""
         try:
             info("=== 开始生成多项目总报告 ===")
             for idx, task in enumerate(tasks, start=1):
@@ -1701,16 +1774,37 @@ class CompareToolApp:
 
             self._check_multi_display_path_conflicts(project_results)
 
-            old_export = self.old_export_var.get().strip()
-            new_export = self.new_export_var.get().strip()
+            stage_old_root = FileExporter._make_stage_dir(old_export)
+            stage_new_root = FileExporter._make_stage_dir(new_export)
             for item in project_results:
                 task = item["task"]
                 exporter = FileExporter(item["diff_result"], item["vcs"])
-                exporter.export(old_export, new_export, project_name=task["project_name"])
+                exporter.export(
+                    stage_old_root,
+                    stage_new_root,
+                    project_name=task["project_name"],
+                )
 
             template_dir = os.path.join(BASE_DIR, "templates")
             report_gen = ReportGenerator(template_dir)
-            report_gen.generate_multi(project_results, report_path)
+            report_stage = self._make_report_stage_path(report_path)
+            report_gen.generate_multi(project_results, report_stage)
+
+            export_pairs = []
+            for item in project_results:
+                project_name = item["task"]["project_name"]
+                export_pairs.extend([
+                    (
+                        FileExporter._safe_join(stage_old_root, project_name),
+                        FileExporter._safe_join(old_export, project_name),
+                    ),
+                    (
+                        FileExporter._safe_join(stage_new_root, project_name),
+                        FileExporter._safe_join(new_export, project_name),
+                    ),
+                ])
+            export_pairs.append((report_stage, report_path))
+            FileExporter._replace_outputs(export_pairs)
 
             summary = ReportGenerator._multi_summary(project_results)
             info(f"=== 多项目完成: {summary} ===")
@@ -1721,6 +1815,14 @@ class CompareToolApp:
             import traceback; error(traceback.format_exc())
             self.root.after(0, lambda msg=msg: self._show_error(msg))
         finally:
+            for stage_root in (stage_old_root, stage_new_root):
+                if stage_root and os.path.isdir(stage_root):
+                    shutil.rmtree(stage_root, ignore_errors=True)
+            if report_stage and os.path.isfile(report_stage):
+                try:
+                    os.remove(report_stage)
+                except OSError:
+                    pass
             for item in project_results:
                 if item.get("cleanup_needed"):
                     try:
@@ -1739,6 +1841,7 @@ class CompareToolApp:
         )
         if messagebox.askyesno("完成", f"比对报告已生成!\n\n"
                                        f"变更文件: {summary['total_files']} 个\n"
+                                       f"格式变化: {summary.get('format_changed_files', 0)} 个\n"
                                        f"新增行数: +{summary['total_added_lines']}\n"
                                        f"删除行数: -{summary['total_deleted_lines']}\n\n"
                                        f"输出目录:\n{output_dir}\n\n"
@@ -1757,6 +1860,7 @@ class CompareToolApp:
         if messagebox.askyesno("完成", f"多项目总报告已生成!\n\n"
                                        f"项目: {summary['project_count']} 个\n"
                                        f"变更文件: {summary['total_files']} 个\n"
+                                       f"格式变化: {summary.get('format_changed_files', 0)} 个\n"
                                        f"新增行数: +{summary['total_added_lines']}\n"
                                        f"删除行数: -{summary['total_deleted_lines']}\n\n"
                                        f"输出目录:\n{output_dir}\n\n"
@@ -1785,6 +1889,9 @@ class CompareToolApp:
         _save_config(data)
 
     def _on_close(self):
+        if self._generating:
+            messagebox.showwarning("任务进行中", "正在生成报告，请等待任务完成后再关闭程序。")
+            return
         self._save_current_config()
         self.root.destroy()
 
