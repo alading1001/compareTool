@@ -116,7 +116,7 @@ class ArchiveBoundaryTests(unittest.TestCase):
                 zf.writestr("../escaped.txt", b"owned")
 
             instance = ArchiveVCS.__new__(ArchiveVCS)
-            with self.assertRaisesRegex(ValueError, "越界路径"):
+            with self.assertRaisesRegex(ValueError, "不安全路径"):
                 instance._extract_zip(archive, dest)
 
             self.assertFalse(os.path.exists(outside))
@@ -272,15 +272,13 @@ class ExportIntegrityTests(unittest.TestCase):
 
 
 class VCSParsingTests(unittest.TestCase):
-    def test_git_type_change_is_reported_as_modified(self):
+    def test_git_type_change_fails_closed(self):
         vcs = GitVCS.__new__(GitVCS)
         vcs.exclude_patterns = []
         vcs._run = lambda args: "T\tchanged.txt\n"
 
-        files = vcs.get_changed_files("old", "new")
-
-        self.assertEqual(1, len(files))
-        self.assertEqual(ChangeType.MODIFIED, files[0].change_type)
+        with self.assertRaisesRegex(RuntimeError, "文件类型发生变化"):
+            vcs.get_changed_files("old", "new")
 
     def test_unknown_git_change_type_fails_instead_of_being_omitted(self):
         vcs = GitVCS.__new__(GitVCS)
@@ -430,7 +428,8 @@ class ConfigPersistenceTests(unittest.TestCase):
             with mock.patch.object(main, "CONFIG_FILE", config_path), \
                     mock.patch.object(main, "CONFIG_DIR", root), \
                     mock.patch("main.json.dump", side_effect=OSError("write failed")):
-                main._save_config({"new": "value"})
+                with self.assertRaises(main.ConfigSaveError):
+                    main._save_config({"new": "value"})
                 self.assertEqual({"kept": True}, main._load_config())
 
 

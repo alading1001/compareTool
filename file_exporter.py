@@ -1,14 +1,19 @@
-import ntpath
+import json
 import os
 import shutil
 import tempfile
 import uuid
 from diff_engine import DiffResult
+from logger import warn
+from path_safety import safe_join
 from vcs.base import ChangeType
 
 
 class FileExporter:
     """将变更文件导出到指定目录"""
+
+    TRANSACTION_PREFIX = ".comparetool_transaction_"
+    TRANSACTION_SUFFIX = ".json"
 
     def __init__(self, diff_result: DiffResult, vcs):
         self.diff_result = diff_result
@@ -16,6 +21,14 @@ class FileExporter:
 
     def export(self, old_dir: str, new_dir: str, project_name: str = ""):
         """先在同盘临时目录完整导出，全部成功后再替换目标目录。"""
+        pairs = self.prepare_export(old_dir, new_dir, project_name=project_name)
+        try:
+            self._replace_outputs(pairs)
+        finally:
+            self.cleanup_stages(pairs)
+
+    def prepare_export(self, old_dir: str, new_dir: str, project_name: str = ""):
+        """完整写入暂存目录，返回可与报告一起提交的 (stage, target) 列表。"""
         if project_name:
             old_dir = self._safe_join(old_dir, project_name)
             new_dir = self._safe_join(new_dir, project_name)
@@ -28,10 +41,12 @@ class FileExporter:
         self._validate_export_paths(old_dir, new_dir)
         old_ver = self.diff_result.old_version
         new_ver = self.diff_result.new_version
-        stage_old = self._make_stage_dir(old_dir)
-        stage_new = self._make_stage_dir(new_dir)
+        stage_old = ""
+        stage_new = ""
 
         try:
+            stage_old = self._make_stage_dir(old_dir)
+            stage_new = self._make_stage_dir(new_dir)
             for file_diff in self.diff_result.files:
                 if file_diff.change_type == ChangeType.DELETED:
                     self._write_file(stage_old, file_diff.file_path, old_ver, file_diff.old_content)
@@ -44,14 +59,24 @@ class FileExporter:
                 else:
                     self._write_file(stage_old, file_diff.file_path, old_ver, file_diff.old_content)
                     self._write_file(stage_new, file_diff.file_path, new_ver, file_diff.new_content)
-            self._replace_outputs([
+            return [
                 (stage_old, old_dir),
                 (stage_new, new_dir),
-            ])
-        finally:
+            ]
+        except BaseException:
             for stage in (stage_old, stage_new):
-                if os.path.isdir(stage):
+                if stage and os.path.isdir(stage):
                     shutil.rmtree(stage, ignore_errors=True)
+            raise
+
+    @classmethod
+    def cleanup_stages(cls, pairs):
+        for stage, _target in pairs:
+            if os.path.lexists(stage):
+                try:
+                    cls._remove_path(stage)
+                except OSError as exc:
+                    warn(f"清理导出暂存目录失败: {stage}: {exc}")
 
     def _write_file(self, base_dir: str, rel_path: str, version: str, text_content: str):
         file_path = self._safe_join(base_dir, rel_path)
@@ -96,29 +121,10 @@ class FileExporter:
 
     @staticmethod
     def _safe_join(base_dir: str, rel_path: str) -> str:
-        """拼接受控相对路径，拒绝盘符、绝对路径和父目录越界。"""
-        raw = (rel_path or "").replace("\\", "/")
-        drive, _ = ntpath.splitdrive(raw)
-        parts = [part for part in raw.split("/") if part not in ("", ".")]
-        if (
-            not raw or
-            not parts or
-            "\x00" in raw or
-            drive or
-            raw.startswith("/") or
-            any(part == ".." for part in parts)
-        ):
-            raise RuntimeError(f"导出路径不安全: {rel_path}")
-
-        root = os.path.abspath(base_dir)
-        target = os.path.abspath(os.path.join(root, *parts))
         try:
-            inside_root = os.path.commonpath([root, target]) == root
-        except ValueError:
-            inside_root = False
-        if not inside_root:
-            raise RuntimeError(f"导出路径越界: {rel_path}")
-        return target
+            return safe_join(base_dir, rel_path, label="导出路径")
+        except ValueError as exc:
+            raise RuntimeError(str(exc)) from exc
 
     @staticmethod
     def _make_stage_dir(target_dir: str) -> str:
@@ -131,12 +137,31 @@ class FileExporter:
         """成组替换文件或目录；任一步失败时恢复全部原有输出。"""
         token = uuid.uuid4().hex
         states = []
+        journal_path = ""
         try:
+            target_keys = set()
+            normalized_pairs = []
             for stage, target in pairs:
+                stage = os.path.abspath(stage)
+                target = os.path.abspath(target)
+                key = os.path.normcase(target).casefold()
+                if key in target_keys:
+                    raise RuntimeError(f"事务中存在重复输出目标: {target}")
+                if not os.path.lexists(stage):
+                    raise RuntimeError(f"输出暂存项不存在: {stage}")
+                target_keys.add(key)
+                os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
+                normalized_pairs.append((stage, target))
+
+            transaction_root = cls._transaction_root(
+                [target for _stage, target in normalized_pairs]
+            )
+            if transaction_root:
+                cls.recover_transactions(transaction_root, raise_on_error=True)
+
+            for stage, target in normalized_pairs:
                 backup = f"{target}.comparetool_backup_{token}"
                 had_target = os.path.lexists(target)
-                if had_target:
-                    os.replace(target, backup)
                 states.append({
                     "stage": stage,
                     "target": target,
@@ -145,20 +170,265 @@ class FileExporter:
                     "installed": False,
                 })
 
+            journal_path = cls._create_transaction_journal(states, token)
+
+            for state in states:
+                if state["had_target"]:
+                    os.replace(state["target"], state["backup"])
+
             for state in states:
                 os.replace(state["stage"], state["target"])
                 state["installed"] = True
-        except Exception:
+        except BaseException as original_exc:
+            cls._mark_transaction(journal_path, "rollback")
+            rollback_errors = []
             for state in reversed(states):
-                if state["installed"] and os.path.lexists(state["target"]):
-                    cls._remove_path(state["target"])
-                if state["had_target"] and os.path.lexists(state["backup"]):
-                    os.replace(state["backup"], state["target"])
+                try:
+                    if state["installed"] and os.path.lexists(state["target"]):
+                        cls._remove_path(state["target"])
+                    if state["had_target"] and os.path.lexists(state["backup"]):
+                        os.replace(state["backup"], state["target"])
+                except OSError as rollback_exc:
+                    rollback_errors.append(f"{state['target']}: {rollback_exc}")
+            if rollback_errors:
+                raise RuntimeError(
+                    "输出提交失败，且自动回滚未完全成功，请保留现场并检查备份目录：\n"
+                    + "\n".join(rollback_errors)
+                ) from original_exc
+            cls._remove_journal(journal_path)
             raise
         else:
+            cls._mark_transaction(journal_path, "commit")
+            cleanup_failed = False
             for state in states:
                 if state["had_target"] and os.path.lexists(state["backup"]):
+                    try:
+                        cls._remove_path(state["backup"])
+                    except OSError as exc:
+                        cleanup_failed = True
+                        warn(f"输出已提交，但旧备份清理失败: {state['backup']}: {exc}")
+            if not cleanup_failed:
+                cls._remove_journal(journal_path)
+
+    @classmethod
+    def _create_transaction_journal(cls, states, token: str) -> str:
+        """在共同输出根目录写入恢复日志；无安全公共根时仍使用当前进程回滚。"""
+        targets = [state["target"] for state in states]
+        root = cls._transaction_root(targets)
+        if not root:
+            return ""
+
+        os.makedirs(root, exist_ok=True)
+        journal_path = os.path.join(
+            root, f"{cls.TRANSACTION_PREFIX}{token}{cls.TRANSACTION_SUFFIX}"
+        )
+        payload = {
+            "version": 1,
+            "token": token,
+            "states": [
+                {
+                    "stage": state["stage"],
+                    "target": state["target"],
+                    "backup": state["backup"],
+                    "had_target": state["had_target"],
+                }
+                for state in states
+            ],
+        }
+        try:
+            with open(journal_path, "x", encoding="utf-8") as stream:
+                json.dump(payload, stream, ensure_ascii=False, indent=2)
+                stream.flush()
+                os.fsync(stream.fileno())
+        except BaseException:
+            cls._remove_journal(journal_path)
+            raise
+        return journal_path
+
+    @staticmethod
+    def _transaction_root(targets) -> str:
+        if not targets:
+            return ""
+        try:
+            root = os.path.commonpath([os.path.abspath(path) for path in targets])
+        except ValueError:
+            return ""
+        if any(os.path.normcase(root) == os.path.normcase(os.path.abspath(path)) for path in targets):
+            root = os.path.dirname(root)
+        drive, tail = os.path.splitdrive(os.path.abspath(root))
+        if not root or (drive and tail in ("\\", "/")):
+            return ""
+        return os.path.abspath(root)
+
+    @staticmethod
+    def _remove_journal(journal_path: str):
+        if not journal_path:
+            return
+        for path in (journal_path, f"{journal_path}.commit", f"{journal_path}.rollback"):
+            if not os.path.isfile(path):
+                continue
+            try:
+                os.remove(path)
+            except OSError as exc:
+                warn(f"清理输出事务日志失败: {path}: {exc}")
+
+    @staticmethod
+    def _mark_transaction(journal_path: str, decision: str):
+        if not journal_path:
+            return
+        marker = f"{journal_path}.{decision}"
+        try:
+            with open(marker, "x", encoding="ascii") as stream:
+                stream.write(decision)
+                stream.flush()
+                os.fsync(stream.fileno())
+        except FileExistsError:
+            return
+        except OSError as exc:
+            warn(f"写入输出事务 {decision} 标记失败: {marker}: {exc}")
+
+    @classmethod
+    def recover_transactions(
+        cls,
+        output_root: str,
+        include_direct_children: bool = False,
+        raise_on_error: bool = False,
+    ):
+        """恢复上次非正常中断的输出事务。"""
+        if not output_root:
+            return []
+        root = os.path.abspath(output_root)
+        if not os.path.isdir(root) or os.path.islink(root):
+            return []
+        directories = [root]
+        if include_direct_children:
+            try:
+                directories.extend(
+                    entry.path for entry in os.scandir(root)
+                    if entry.is_dir(follow_symlinks=False)
+                )
+            except OSError as exc:
+                warn(f"扫描输出事务日志失败: {root}: {exc}")
+
+        recovered = []
+        failures = []
+        for directory in directories:
+            try:
+                names = os.listdir(directory)
+            except OSError as exc:
+                warn(f"读取输出事务目录失败: {directory}: {exc}")
+                continue
+            for name in names:
+                if not (
+                    name.startswith(cls.TRANSACTION_PREFIX) and
+                    name.endswith(cls.TRANSACTION_SUFFIX)
+                ):
+                    continue
+                journal_path = os.path.join(directory, name)
+                try:
+                    cls._recover_transaction_journal(journal_path, directory)
+                    recovered.append(journal_path)
+                except Exception as exc:
+                    warn(f"恢复输出事务失败，已保留日志: {journal_path}: {exc}")
+                    failures.append(f"{journal_path}: {exc}")
+        if failures and raise_on_error:
+            raise RuntimeError(
+                "存在无法自动恢复的上次输出事务，已中止新提交：\n"
+                + "\n".join(failures)
+            )
+        return recovered
+
+    @classmethod
+    def _recover_transaction_journal(cls, journal_path: str, root: str):
+        with open(journal_path, encoding="utf-8") as stream:
+            payload = json.load(stream)
+        if payload.get("version") != 1 or not isinstance(payload.get("states"), list):
+            raise RuntimeError("事务日志格式不支持")
+
+        token = payload.get("token", "")
+        expected_name = f"{cls.TRANSACTION_PREFIX}{token}{cls.TRANSACTION_SUFFIX}"
+        if not token or os.path.basename(journal_path) != expected_name:
+            raise RuntimeError("事务日志标识不一致")
+
+        root = os.path.abspath(root)
+        root_real = os.path.realpath(root)
+        states = []
+        for raw in payload["states"]:
+            if not isinstance(raw, dict):
+                raise RuntimeError("事务日志状态无效")
+            stage = os.path.abspath(raw.get("stage", ""))
+            target = os.path.abspath(raw.get("target", ""))
+            backup = os.path.abspath(raw.get("backup", ""))
+            try:
+                inside = os.path.commonpath([root, stage, target, backup]) == root
+                real_inside = os.path.commonpath([
+                    root_real,
+                    os.path.realpath(stage),
+                    os.path.realpath(target),
+                    os.path.realpath(backup),
+                ]) == root_real
+            except ValueError:
+                inside = False
+                real_inside = False
+            stage_name = os.path.basename(stage)
+            stage_parent_name = os.path.basename(os.path.dirname(stage))
+            valid_stage_layout = (
+                os.path.dirname(stage) == os.path.dirname(target) and
+                stage_name.startswith((".comparetool_stage_", ".comparetool_report_"))
+            ) or (
+                stage_parent_name.startswith(".comparetool_stage_") and
+                os.path.normcase(stage_name).casefold() ==
+                os.path.normcase(os.path.basename(target)).casefold()
+            )
+            if not inside or not real_inside or not valid_stage_layout:
+                raise RuntimeError("事务日志路径越界")
+            if backup != os.path.abspath(f"{target}.comparetool_backup_{token}"):
+                raise RuntimeError("事务备份路径无效")
+            states.append({
+                "stage": stage,
+                "target": target,
+                "backup": backup,
+                "had_target": bool(raw.get("had_target")),
+            })
+
+        commit_marker = os.path.isfile(f"{journal_path}.commit")
+        rollback_marker = os.path.isfile(f"{journal_path}.rollback")
+        if commit_marker and rollback_marker:
+            raise RuntimeError("事务决策标记冲突")
+        inferred_commit = bool(states) and all(
+            os.path.lexists(state["target"]) and not os.path.lexists(state["stage"])
+            for state in states
+        )
+        committed = commit_marker or (not rollback_marker and inferred_commit)
+        if committed:
+            missing = [state["target"] for state in states if not os.path.lexists(state["target"])]
+            if missing:
+                raise RuntimeError("已提交事务缺少正式输出: " + ", ".join(missing))
+            for state in states:
+                if os.path.lexists(state["backup"]):
                     cls._remove_path(state["backup"])
+        else:
+            for state in reversed(states):
+                if os.path.lexists(state["backup"]):
+                    if os.path.lexists(state["target"]):
+                        cls._remove_path(state["target"])
+                    os.replace(state["backup"], state["target"])
+                elif (
+                    not state["had_target"] and
+                    os.path.lexists(state["target"]) and
+                    not os.path.lexists(state["stage"])
+                ):
+                    cls._remove_path(state["target"])
+                if os.path.lexists(state["stage"]):
+                    cls._remove_path(state["stage"])
+        for state in states:
+            stage_parent = os.path.dirname(state["stage"])
+            if os.path.basename(stage_parent).startswith(".comparetool_stage_"):
+                try:
+                    os.rmdir(stage_parent)
+                except OSError:
+                    pass
+        cls._remove_journal(journal_path)
 
     @staticmethod
     def _remove_path(path: str):

@@ -19,6 +19,7 @@ else:
 
 CONFIG_FILE = os.path.join(CONFIG_DIR, "compareTool_config.json")
 RECENT_PROJECT_LIMIT = 10
+SUPPORTED_VCS_TYPES = {"git", "svn", "folder", "archive", "git_multi", "svn_multi"}
 
 DEFAULT_EXCLUDE_RULES = "\n".join([
     "**/.git/**",
@@ -85,6 +86,10 @@ def _load_config():
         return {}
 
 
+class ConfigSaveError(RuntimeError):
+    pass
+
+
 def _save_config(data):
     temp_path = ""
     try:
@@ -99,8 +104,8 @@ def _save_config(data):
             os.fsync(f.fileno())
         os.replace(temp_path, CONFIG_FILE)
         temp_path = ""
-    except (OSError, TypeError, ValueError):
-        pass
+    except (OSError, TypeError, ValueError) as exc:
+        raise ConfigSaveError(f"配置保存失败，原配置已保留: {CONFIG_FILE}\n{exc}") from exc
     finally:
         if temp_path and os.path.isfile(temp_path):
             try:
@@ -133,6 +138,15 @@ class CompareToolApp:
         self._default_output = os.path.join(os.path.expanduser("~"), "Desktop")
         self._update_after_id = None
         self._config = _load_config()
+        if self._config.get("vcs_type", "git") not in SUPPORTED_VCS_TYPES:
+            warn(f"配置中的 VCS 类型无效，已回退到 Git: {self._config.get('vcs_type')}")
+            self._config["vcs_type"] = "git"
+        recovered = FileExporter.recover_transactions(
+            self._config.get("output_dir", ""),
+            include_direct_children=True,
+        )
+        if recovered:
+            warn(f"已自动恢复 {len(recovered)} 个上次中断的输出事务")
         self._default_exclude_rules = self._load_default_exclude_rules()
         raw_exclude_rules = self._config.get("project_exclude_rules", {})
         raw_display_options = self._config.get("project_display_options", {})
@@ -141,11 +155,7 @@ class CompareToolApp:
         self._recent_projects = self._normalize_recent_projects(self._config.get("recent_projects", []))
         self._recent_project_value_map = {}
         raw_multi_tasks = self._config.get("multi_tasks", [])
-        self._multi_tasks = (
-            [dict(task) for task in raw_multi_tasks if isinstance(task, dict)]
-            if isinstance(raw_multi_tasks, list)
-            else []
-        )
+        self._multi_tasks = self._normalize_loaded_multi_tasks(raw_multi_tasks)
         self._editing_task_index = None
         self._generating = False
         self._last_exclude_key = ""
@@ -154,6 +164,7 @@ class CompareToolApp:
         self._selected_multi_versions = set()
         self._updating_version_list = False
         self._version_list_visible = True
+        self._version_request_id = 0
         self._build_ui()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -480,6 +491,55 @@ class CompareToolApp:
             })
         return self._trim_recent_projects(normalized)
 
+    def _normalize_loaded_multi_tasks(self, tasks) -> list:
+        """丢弃损坏任务并收敛到当前 schema，避免坏配置阻止应用启动。"""
+        if not isinstance(tasks, list):
+            return []
+        normalized = []
+        seen_names = set()
+        for index, item in enumerate(tasks, start=1):
+            if not isinstance(item, dict):
+                warn(f"忽略损坏的多项目任务 #{index}: 不是对象")
+                continue
+            vcs_type = item.get("vcs_type")
+            if vcs_type not in SUPPORTED_VCS_TYPES:
+                warn(f"忽略损坏的多项目任务 #{index}: 未知类型 {vcs_type}")
+                continue
+            raw_name = item.get("project_name")
+            if not isinstance(raw_name, str):
+                warn(f"忽略损坏的多项目任务 #{index}: 项目名无效")
+                continue
+            project_name = self._sanitize_project_name(raw_name)
+            old_version = item.get("old_version")
+            new_version = item.get("new_version")
+            project_path = item.get("project_path", "")
+            if (
+                not project_name or
+                not isinstance(old_version, str) or not old_version.strip() or
+                not isinstance(new_version, str) or not new_version.strip() or
+                not isinstance(project_path, str) or
+                (vcs_type not in ("folder", "archive") and not project_path.strip())
+            ):
+                warn(f"忽略损坏的多项目任务 #{index}: 缺少必填字段")
+                continue
+            name_key = self._project_name_key(project_name)
+            if name_key in seen_names:
+                warn(f"忽略重复项目名的多项目任务 #{index}: {project_name}")
+                continue
+            seen_names.add(name_key)
+            normalized.append({
+                "project_name": project_name,
+                "vcs_type": vcs_type,
+                "project_path": project_path.strip(),
+                "old_version": old_version.strip(),
+                "new_version": new_version.strip(),
+                "exclude_key": item.get("exclude_key", "") if isinstance(item.get("exclude_key", ""), str) else "",
+                "exclude_rules": item.get("exclude_rules", "") if isinstance(item.get("exclude_rules", ""), str) else "",
+                "show_project_root": self._option_bool(item.get("show_project_root"), default=True),
+                "show_full_context": self._option_bool(item.get("show_full_context"), default=True),
+            })
+        return normalized
+
     def _trim_recent_projects(self, projects: list) -> list:
         counts = {}
         trimmed = []
@@ -745,6 +805,7 @@ class CompareToolApp:
         current = self._normalize_project_path(self.dir_entry.get().strip())
         previous = getattr(self, "_last_project_path", current)
         if current != previous:
+            self._version_request_id += 1
             self._last_project_path = current
             self._project_name_manual = False
             if self._is_project_vcs_mode():
@@ -823,6 +884,7 @@ class CompareToolApp:
 
     def _on_vcs_changed(self):
         """VCS 类型切换时更新界面"""
+        self._version_request_id += 1
         vcs_type = self.vcs_var.get()
         is_folder = vcs_type == "folder"
         is_archive = vcs_type == "archive"
@@ -1073,6 +1135,8 @@ class CompareToolApp:
             messagebox.showwarning("提示", "请先选择项目目录")
             return
 
+        self._version_request_id += 1
+        request_id = self._version_request_id
         self._reset_version_list_state()
         self.version_listbox.delete(0, tk.END)
         self.version_listbox.insert(tk.END, "正在获取版本列表，请稍候...")
@@ -1084,10 +1148,22 @@ class CompareToolApp:
         )
         self.status_var.set("获取版本列表中...")
 
-        thread = threading.Thread(target=self._do_fetch_versions, args=(project_path, vcs_type), daemon=True)
+        thread = threading.Thread(
+            target=self._do_fetch_versions,
+            args=(project_path, vcs_type, request_id),
+            daemon=True,
+        )
         thread.start()
 
-    def _do_fetch_versions(self, project_path, vcs_type):
+    def _do_fetch_versions(self, project_path, vcs_type, request_id):
+        def request_is_current():
+            return (
+                self._version_request_id == request_id and
+                self.vcs_var.get() == vcs_type and
+                self._normalize_project_path(self.dir_entry.get().strip()) ==
+                self._normalize_project_path(project_path)
+            )
+
         try:
             info(f"获取版本列表: path={project_path}, vcs={vcs_type}")
             if vcs_type == "git":
@@ -1097,15 +1173,15 @@ class CompareToolApp:
                 versions = GitMultiVersionVCS.get_recent_versions(project_path)
             elif vcs_type == "svn_multi":
                 versions = SVNMultiVersionVCS.get_recent_versions(project_path)
-            else:
+            elif vcs_type == "svn":
                 vcs = SVNVCS(project_path)
                 versions = vcs.get_versions()
+            else:
+                raise RuntimeError(f"不支持的版本控制类型: {vcs_type}")
             info(f"获取到 {len(versions)} 个版本")
 
             def update_ui():
-                if (self.vcs_var.get() != vcs_type or
-                        self._normalize_project_path(self.dir_entry.get().strip()) !=
-                        self._normalize_project_path(project_path)):
+                if not request_is_current():
                     return
                 self._version_items = list(versions)
                 if versions:
@@ -1118,8 +1194,12 @@ class CompareToolApp:
             self.root.after(0, update_ui)
         except Exception as e:
             msg = str(e)
-            self.root.after(0, lambda msg=msg: messagebox.showerror("错误", f"获取版本列表失败:\n{msg}"))
-            self.root.after(0, lambda: self.status_var.set("出错"))
+            def show_error():
+                if not request_is_current():
+                    return
+                messagebox.showerror("错误", f"获取版本列表失败:\n{msg}")
+                self.status_var.set("出错")
+            self.root.after(0, show_error)
 
     def _on_version_click(self, event):
         """单击选中列表项；双击直接填入"""
@@ -1191,16 +1271,16 @@ class CompareToolApp:
     # ========== 多项目任务 ==========
 
     def _task_source_text(self, task: dict) -> str:
-        if task["vcs_type"] == "archive":
+        if task.get("vcs_type") == "archive":
             return task.get("new_version", "")
-        if task["vcs_type"] == "folder":
+        if task.get("vcs_type") == "folder":
             return task.get("new_version", "")
         return task.get("project_path", "")
 
     def _task_versions_text(self, task: dict) -> str:
         old_version = (task.get("old_version") or "").replace("\n", ", ")
         new_version = (task.get("new_version") or "").replace("\n", ", ")
-        if task["vcs_type"] in ("git_multi", "svn_multi"):
+        if task.get("vcs_type") in ("git_multi", "svn_multi"):
             return old_version
         return f"{old_version} → {new_version}"
 
@@ -1334,10 +1414,10 @@ class CompareToolApp:
 
         if self._editing_task_index is None:
             self._multi_tasks.append(task)
-            self.status_var.set(f"已添加多项目任务: {task['project_name']}")
+            action = "添加"
         else:
             self._multi_tasks[self._editing_task_index] = task
-            self.status_var.set(f"已更新多项目任务: {task['project_name']}")
+            action = "更新"
             self._editing_task_index = None
 
         self._remember_recent_project(
@@ -1346,7 +1426,11 @@ class CompareToolApp:
             task["project_name"],
         )
         self._render_multi_tasks()
-        self._save_current_config()
+        saved = self._save_current_config()
+        if saved:
+            self.status_var.set(f"已{action}多项目任务: {task['project_name']}")
+        else:
+            self.status_var.set(f"任务仅保留在当前会话，配置保存失败: {task['project_name']}")
 
     def _edit_multi_task(self):
         idx = self._selected_multi_task_index()
@@ -1388,8 +1472,11 @@ class CompareToolApp:
         del self._multi_tasks[idx]
         self._editing_task_index = None
         self._render_multi_tasks()
-        self._save_current_config()
-        self.status_var.set(f"已删除多项目任务: {name}")
+        saved = self._save_current_config()
+        self.status_var.set(
+            f"已删除多项目任务: {name}" if saved
+            else f"当前会话已删除，但配置保存失败: {name}"
+        )
 
     def _clear_multi_tasks(self):
         if not self._multi_tasks:
@@ -1399,8 +1486,8 @@ class CompareToolApp:
         self._multi_tasks.clear()
         self._editing_task_index = None
         self._render_multi_tasks()
-        self._save_current_config()
-        self.status_var.set("已清空多项目任务")
+        saved = self._save_current_config()
+        self.status_var.set("已清空多项目任务" if saved else "当前会话已清空，但配置保存失败")
 
     # ========== 生成报告 ==========
 
@@ -1465,7 +1552,9 @@ class CompareToolApp:
             ), True
         if vcs_type == "git":
             return GitVCS(task["project_path"]), False
-        return SVNVCS(task["project_path"]), False
+        if vcs_type == "svn":
+            return SVNVCS(task["project_path"]), False
+        raise RuntimeError(f"不支持的多项目任务类型: {vcs_type}")
 
     def _prepare_task_result(self, task: dict, show_full: bool = None):
         vcs = None
@@ -1702,8 +1791,10 @@ class CompareToolApp:
                 cleanup_vcs = vcs
             elif vcs_type == "git":
                 vcs = GitVCS(project_path)
-            else:
+            elif vcs_type == "svn":
                 vcs = SVNVCS(project_path)
+            else:
+                raise RuntimeError(f"不支持的版本控制类型: {vcs_type}")
 
             if exclude_patterns:
                 vcs.set_exclude_patterns(exclude_patterns)
@@ -1730,6 +1821,7 @@ class CompareToolApp:
             template_dir = os.path.join(BASE_DIR, "templates")
             report_gen = ReportGenerator(template_dir)
             report_stage = self._make_report_stage_path(report_path)
+            export_pairs = []
             try:
                 report_gen.generate(
                     diff_result,
@@ -1740,9 +1832,14 @@ class CompareToolApp:
                 info(f"导出文件: old={old_export}, new={new_export}")
                 exporter = FileExporter(diff_result, vcs)
                 project_name = diff_result.project_name
-                exporter.export(old_export, new_export, project_name=project_name)
-                os.replace(report_stage, report_path)
+                export_pairs = exporter.prepare_export(
+                    old_export,
+                    new_export,
+                    project_name=project_name,
+                )
+                FileExporter._replace_outputs(export_pairs + [(report_stage, report_path)])
             finally:
+                FileExporter.cleanup_stages(export_pairs)
                 if os.path.isfile(report_stage):
                     os.remove(report_stage)
 
@@ -1873,7 +1970,7 @@ class CompareToolApp:
         self.status_var.set("出错")
         messagebox.showerror("错误", msg)
 
-    def _save_current_config(self):
+    def _save_current_config(self, notify: bool = True) -> bool:
         """保存当前界面配置到文件"""
         self._save_current_exclude_rules_for_current_key()
         self._remember_recent_project(refresh=False)
@@ -1886,13 +1983,24 @@ class CompareToolApp:
             "multi_tasks": self._multi_tasks,
             "output_dir": self.output_dir_var.get().strip(),
         }
-        _save_config(data)
+        try:
+            _save_config(data)
+            return True
+        except ConfigSaveError as exc:
+            warn(str(exc))
+            if notify:
+                messagebox.showerror("配置保存失败", str(exc))
+            return False
 
     def _on_close(self):
         if self._generating:
             messagebox.showwarning("任务进行中", "正在生成报告，请等待任务完成后再关闭程序。")
             return
-        self._save_current_config()
+        if not self._save_current_config(notify=False):
+            if not messagebox.askyesno(
+                    "配置未保存",
+                    "配置保存失败，本次修改可能在退出后丢失。\n\n仍要退出吗？"):
+                return
         self.root.destroy()
 
     def run(self):

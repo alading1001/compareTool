@@ -70,7 +70,25 @@ class BaseVCS(ABC):
         """过滤掉匹配排除规则的文件"""
         if not self.exclude_patterns:
             return files
-        return [f for f in files if not self._is_excluded(f.path)]
+        result = []
+        for item in files:
+            if item.change_type != ChangeType.RENAMED:
+                if not self._is_excluded(item.path):
+                    result.append(item)
+                continue
+
+            old_path = item.old_path or item.path
+            old_excluded = self._is_excluded(old_path)
+            new_excluded = self._is_excluded(item.path)
+            if old_excluded and new_excluded:
+                continue
+            if old_excluded:
+                result.append(ChangedFile(path=item.path, change_type=ChangeType.ADDED))
+            elif new_excluded:
+                result.append(ChangedFile(path=old_path, change_type=ChangeType.DELETED))
+            else:
+                result.append(item)
+        return result
 
     @abstractmethod
     def get_changed_files(self, old_version: str, new_version: str) -> List[ChangedFile]:

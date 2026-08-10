@@ -44,7 +44,7 @@ main.py                  # tkinter GUI 入口，线程管理，配置持久化�
 2. 根据 VCS 类型创建 `GitVCS` / `SVNVCS` / `FolderVCS` / `ArchiveVCS` / `GitMultiVersionVCS` / `SVNMultiVersionVCS` → `get_changed_files()` 获取变更文件列表
 3. `DiffEngine.generate_diff()` 遍历文件，对文本文件用 `difflib.HtmlDiff.make_table()` 生成 side-by-side HTML；二进制文件跳过内容只设占位标记；内容完全一致且唯一匹配的删除+新增会合并为重命名
 4. `ReportGenerator` 用 Jinja2 渲染模板 → 单文件 HTML
-5. `FileExporter` 导出变更文件：统一通过 `vcs.get_file_content_bytes()` 读取原始字节（失败返回 `None`，空文件返回 `b""`），以 `wb` 模式写入保留原始编码。`None` 必须使本次导出失败，不能静默漏文件或用不可靠的空文本兜底。单项目先完整写入同盘暂存目录，再成组替换 old/new 目标；多项目则在全部项目和报告均成功后一次提交，任一步失败都恢复原有输出。重命名文件导出时 oldVersion 使用 `old_path`，newVersion 使用 `file_path`。
+5. `FileExporter` 导出变更文件：统一通过 `vcs.get_file_content_bytes()` 读取原始字节（失败返回 `None`，空文件返回 `b""`），以 `wb` 模式写入保留原始编码。`None` 必须使本次导出失败，不能静默漏文件或用不可靠的空文本兜底。单项目的报告和 old/new 目录在各自同盘暂存后一次成组提交；多项目则在全部项目和报告均成功后一次提交，任一步失败都恢复原有输出。提交前写 `.comparetool_transaction_*.json` 恢复日志和 commit/rollback 决策标记；启动时扫描配置输出目录及其一级批次目录，新提交前再严格恢复当前目录，防止强退/断电后遗留半包。重命名文件导出时 oldVersion 使用 `old_path`，newVersion 使用 `file_path`。
 
 项目名只在能从有效项目目录、新版本文件夹或新版本压缩包推断出真实名称时自动填充。推断不到且用户未手工填写时，生成报告或添加多项目任务应直接提示失败，不使用 `project` 之类的假兜底名称。Git/SVN/Git需求包/SVN需求包模式下，项目名输入框是可编辑下拉框，会按 Git/SVN 家族记忆最近 10 个有效项目；选择最近项目时必须同步回填项目目录和项目名，并触发项目路径变化逻辑清空旧/新版本和版本列表，避免跨项目复用版本号。
 
@@ -80,7 +80,7 @@ Git/SVN/Git需求包/SVN需求包的版本列表只搜索当前已经展示的�
 
 ### 重命名处理
 
-`ChangeType.RENAMED` 中 `file_path` 表示新路径，`old_path` 表示旧路径。`GitVCS` 使用 `git diff --name-status --find-renames` 获取 Git 明确识别的重命名。`DiffEngine._merge_exact_renames()` 会把内容字节完全一致且唯一匹配的 `DELETED + ADDED` 合并成 `RENAMED`，用于文件夹、压缩包、Git需求包、SVN需求包，以及 SVN 普通比对输出为删除+新增的纯重命名场景。工具不做相似度猜测：如果重命名同时修改内容且 VCS 没有明确返回重命名，就保持删除+新增。报告模板必须把 `R` 纳入汇总卡片、文件树标签、过滤器和纯文本变更清单。
+`ChangeType.RENAMED` 中 `file_path` 表示新路径，`old_path` 表示旧路径。`GitVCS` 使用 `git diff --name-status --find-renames` 获取 Git 明确识别的重命名。`DiffEngine._merge_exact_renames()` 会把内容字节完全一致且唯一匹配的 `DELETED + ADDED` 合并成 `RENAMED`，用于文件夹、压缩包、Git需求包、SVN需求包，以及 SVN 普通比对输出为删除+新增的纯重命名场景。工具不做相似度猜测：如果重命名同时修改内容且 VCS 没有明确返回重命名，就保持删除+新增。重命名只发生编码/BOM/换行变化时要显示明确说明；排除规则只命中新旧一侧时必须转换为删除或新增。Git `T` 类型变化必须中止而不能冒充普通修改。报告模板必须把 `R` 纳入汇总卡片、文件树标签、过滤器和纯文本变更清单。
 
 ### 需求包比对
 
@@ -97,7 +97,7 @@ new = old + 按时间顺序应用所有选中版本
 实现要点：
 - `GitMultiVersionVCS`：解析选中 commit，按历史顺序排序；取最早选中 commit 的第一父提交作为 base；临时 clone 后 checkout base；普通提交依次 `git cherry-pick --no-commit`，合并提交依次 `git cherry-pick --no-commit -m 1`，成功后复制为 `new`，base 快照为 `old`。版本列表用 `git log --first-parent -100` 展示当前分支主线提交，并用 `[merge]` 标记 merge commit。
 - `SVNMultiVersionVCS`：解析 revision，升序排序；取最小 revision - 1 作为 base；若当前 URL 在 base 存在，则 export/checkout base；若当前 URL 在 base 不存在但在首个选中 revision 存在，则 old 为空、checkout 首个选中 revision，并从第二个 revision 开始 merge。之后依次 `svn merge -c REV URL@HEAD workdir`。版本列表用当前项目 `URL@HEAD` 查询最近 100 条相关 revision，不查询全仓库。
-- 两种需求包模式都只在 `tempfile.mkdtemp` 下创建临时目录，成功、失败、冲突都必须在 `finally` 中清理；Windows 只读元数据通过 `_remove_tree()` 恢复写权限后删除。
+- 两种需求包模式都通过 `vcs.temp_storage.create_temp_dir()` 创建临时目录，归档解压也使用同一策略。`COMPARETOOL_TEMP_DIR` 可显式覆盖；默认优先源码/exe 所在非系统盘的 `.tmp/comparetool_runtime`，若运行位置在 C 盘且 D 盘可用则使用 `D:\applications\_cache\CompareTool\tmp`，最后才回退系统临时目录。成功、失败、冲突都必须在 `finally` 中清理；Windows 只读元数据通过 `_remove_tree()` 恢复写权限后删除。
 - 用户切换 Git/SVN/Git需求包/SVN需求包的项目目录时，若路径实际变化，必须清空旧/新版本输入和版本列表，避免跨项目复用版本号；异步获取版本列表返回时也要校验项目路径和 VCS 类型仍一致。
 
 ### SVN 文件内容获取（重要）
@@ -116,14 +116,14 @@ Git/SVN 可执行文件路径均自动探测：先查 `shutil.which`，再查 Wi
 
 ### 压缩包比对
 
-`ArchiveVCS` 解压两个压缩包到 `tempfile.mkdtemp` 临时目录，然后委托 `FolderVCS` 做文件遍历和内容比对。支持的格式：
+`ArchiveVCS` 通过 `vcs.temp_storage.create_temp_dir()` 将两个压缩包解压到 CompareTool 专用临时目录，然后委托 `FolderVCS` 做文件遍历和内容比对。支持的格式：
 
 - `.zip` / `.jar` / `.war` / `.ear` / `.aar` — `zipfile` 标准库，含 ZIP 文件名 GBK 编码修正
 - `.tar` / `.tar.gz` / `.tgz` / `.tar.bz2` / `.tbz2` — `tarfile` 标准库
 
 **ZIP 文件名编码修正**：Windows 中文环境创建的 zip 文件名通常用 GBK 编码而不设 UTF-8 标志位（`flag_bits & 0x800 == 0`）。`_fix_zip_filename()` 将 `ZipInfo.filename` 反向编码为 CP437 原始字节，再按 GBK 解码为正确的中文文件名。
 
-**安全解压与临时目录清理**：ZIP/TAR 每个成员都必须先通过临时目录边界校验，拒绝父目录穿越、绝对路径、盘符路径、符号链接、硬链接和设备等特殊成员；不得直接使用无过滤的 `extractall()`。`ArchiveVCS.cleanup()` 通过 `shutil.rmtree` 删除临时目录，构造中途失败、`__del__` 和 `_do_generate` 的 `finally` 块均会调用。
+**安全解压与临时目录清理**：ZIP/TAR 每个成员都必须先通过临时目录边界和 Windows 文件名校验，拒绝父目录穿越、绝对/盘符路径、ADS、符号链接、硬链接和设备等特殊成员；不得直接使用无过滤的 `extractall()`。默认限制 100,000 个成员、单成员 2 GiB、累计展开 10 GiB 和 1000:1 压缩比，在写文件前统一校验。`ArchiveVCS.cleanup()` 通过 `shutil.rmtree` 删除临时目录，构造中途失败、`__del__` 和 `_do_generate` 的 `finally` 块均会调用。文件夹/需求包快照也必须拒绝符号链接和联接点，避免解引用读取根外内容。
 
 **排除规则转发**：`ArchiveVCS` 覆写 `set_exclude_patterns()`，将规则同步传给内部 `FolderVCS`，否则排除规则不会生效。
 
@@ -157,8 +157,8 @@ Git/SVN 可执行文件路径均自动探测：先查 `shutil.which`，再查 Wi
 
 Windows 上 `core.autocrlf=true`（Git）或 `svn:eol-style=native`（SVN）会导致仓库存储 LF、工作副本为 CRLF。`git show` / `svn cat` 返回仓库原始字节（LF），若直接导出会与工作副本文件字节级不一致。
 
-- **Git**：`GitVCS._autocrlf_effective()` 检查 `git config core.autocrlf`，若为 `true` 且文件是文本文件（无 null 字节），调用 `_apply_crlf()` 将单独的 LF 转为 CRLF
-- **SVN**：`SVNVCS._get_eol_style()` 对每个文件执行 `svn propget svn:eol-style`，若为 `"native"` 且文件是文本文件，同样 LF→CRLF
+- **Git**：先对所选版本执行 `git check-attr --source=<version> text eol`，`.gitattributes` 中 `-text` / `eol=lf` / `eol=crlf` 优先；未指定时再按 `core.autocrlf` 和 `core.eol` 处理。属性无法可靠读取时中止导出。
+- **SVN**：`SVNVCS._get_eol_style()` 对每个文件按所选 revision 执行 `svn propget svn:eol-style`，完整支持 `native` / `LF` / `CR` / `CRLF`。
 - **文件夹**：直接从磁盘读取，不存在换行符差异
 - **公共逻辑**：`BaseVCS._is_text_bytes()` 判断文本文件（不含 `\x00`），`BaseVCS._apply_crlf()` 用正则 `(?<!\r)\n` → `\r\n` 转换，避免重复转换已有的 CRLF
 
@@ -166,7 +166,7 @@ Windows 上 `core.autocrlf=true`（Git）或 `svn:eol-style=native`（SVN）会�
 
 - **SVN 子进程输出**：`_run()` 读取原始字节，通过 `_decode_bytes()` 自动探测编码（UTF-8 → GBK → 回退）。影响 svn log、svn diff、svn info 等所有命令输出
 - **SVN cat / 本地文件**：同样走 `_decode_bytes()`（UTF-8 → GBK）
-- **Git 路径**：`_unescape_git_path()` 解码 `core.quotepath` 八进制转义（`\347\274\226` → 编）
+- **Git 路径**：`_unescape_git_path()` 解码 `core.quotepath` 的八进制和 C 风格转义（包括 tab、换行、引号和反斜杠）。
 
 ### Shell 依赖
 
@@ -174,4 +174,4 @@ Windows 上 `core.autocrlf=true`（Git）或 `svn:eol-style=native`（SVN）会�
 
 ### 配置持久化
 
-`compareTool_config.json` 保存项目路径、VCS 类型、输出路径、多项目任务列表、`recent_projects`、`project_exclude_rules` 和 `project_display_options`。配置必须先写同目录临时文件并 `os.replace()` 原子替换，避免进程中断破坏已有任务。项目级配置按规范化绝对路径保存：Git/SVN/Git需求包/SVN需求包用项目目录，文件夹用新版本文件夹，压缩包用新版本压缩包完整文件路径。最近项目列表按 Git/SVN 家族分组，每组最多保留最近 10 个有效项目，旧配置没有 `recent_projects` 时应兼容为空并可由当前有效项目回填。新路径没有专属排除规则时，使用 `main.py` 内置默认模板；旧版全局 `exclude_rules` 不再作为默认模板来源。多项目任务添加/更新时保存排除规则和显示选项快照，后续项目默认配置变化不会偷偷影响已添加任务。输出批次名称不持久化，每次启动默认当天日期。
+`compareTool_config.json` 保存项目路径、VCS 类型、输出路径、多项目任务列表、`recent_projects`、`project_exclude_rules` 和 `project_display_options`。配置必须先写同目录临时文件并 `os.replace()` 原子替换，避免进程中断破坏已有任务；序列化、写入或替换失败必须向用户报错，不得显示假成功。启动时会规范化 `multi_tasks` schema，损坏、缺字段、VCS 类型未知或同名的任务记录应记录警告并忽略，不能阻止窗口启动。项目级配置按规范化绝对路径保存：Git/SVN/Git需求包/SVN需求包用项目目录，文件夹用新版本文件夹，压缩包用新版本压缩包完整文件路径。最近项目列表按 Git/SVN 家族分组，每组最多保留最近 10 个有效项目，旧配置没有 `recent_projects` 时应兼容为空并可由当前有效项目回填。新路径没有专属排除规则时，使用 `main.py` 内置默认模板；旧版全局 `exclude_rules` 不再作为默认模板来源。多项目任务添加/更新时保存排除规则和显示选项快照，后续项目默认配置变化不会偷偷影响已添加任务。输出批次名称不持久化，每次启动默认当天日期。

@@ -180,13 +180,21 @@ class SVNVCS(BaseVCS):
 
     def get_file_content_bytes(self, version: str, file_path: str) -> bytes:
         data = self.get_file_content_raw_bytes(version, file_path)
-        if (
-            data is not None and
-            self._get_eol_style(version, file_path) == "native" and
-            self._is_text_bytes(data)
-        ):
-            data = self._apply_crlf(data)
+        if data is None or not self._is_text_bytes(data):
+            return data
+
+        style = self._get_eol_style(version, file_path).strip().lower()
+        if style == "crlf" or (style == "native" and os.linesep == "\r\n"):
+            data = self._apply_crlf(self._normalize_lf(data))
+        elif style == "cr" or (style == "native" and os.linesep == "\r"):
+            data = self._normalize_lf(data).replace(b"\n", b"\r")
+        elif style == "lf":
+            data = self._normalize_lf(data)
         return data
+
+    @staticmethod
+    def _normalize_lf(data: bytes) -> bytes:
+        return data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
 
     def get_file_content_raw_bytes(self, version: str, file_path: str) -> bytes:
         """读取仓库中的原始字节，不应用工作副本换行符转换。"""

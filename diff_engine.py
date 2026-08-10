@@ -146,18 +146,36 @@ class DiffEngine:
 
         elif cf.change_type == ChangeType.RENAMED:
             old_path = cf.old_path or cf.path
-            file_diff.old_content = self.vcs.get_file_content(old_version, old_path)
-            file_diff.new_content = self.vcs.get_file_content(new_version, cf.path)
+            old_raw = self._get_raw_bytes(old_version, old_path)
+            new_raw = self._get_raw_bytes(new_version, cf.path)
+            old_decoded = self._decode_text_strict(old_raw)
+            new_decoded = self._decode_text_strict(new_raw)
+            if old_decoded is not None and new_decoded is not None:
+                file_diff.old_content = old_decoded.text
+                file_diff.new_content = new_decoded.text
+                format_details = self._format_only_details(
+                    old_decoded, new_decoded, old_raw, new_raw)
+                if format_details is not None:
+                    file_diff.format_only = True
+                    file_diff.format_details = format_details
+            else:
+                file_diff.old_content = self.vcs.get_file_content(old_version, old_path)
+                file_diff.new_content = self.vcs.get_file_content(new_version, cf.path)
 
             old_lines = file_diff.old_content.splitlines()
             new_lines = file_diff.new_content.splitlines()
             file_diff.added_lines, file_diff.deleted_lines = self._count_line_changes(
                 old_lines, new_lines)
 
-            if self._same_file_bytes(old_version, new_version, old_path, cf.path):
+            if old_raw is not None and new_raw is not None and old_raw == new_raw:
                 file_diff.added_lines = 0
                 file_diff.deleted_lines = 0
                 file_diff.side_by_side_html = self._rename_only_placeholder(old_path, cf.path)
+            elif file_diff.format_only:
+                file_diff.added_lines = 0
+                file_diff.deleted_lines = 0
+                file_diff.side_by_side_html = self._rename_format_placeholder(
+                    old_path, cf.path, file_diff.format_details)
             else:
                 file_diff.side_by_side_html = self._side_by_side_html(
                     old_lines, new_lines, cf.path, old_path=old_path)
@@ -253,11 +271,6 @@ class DiffEngine:
         if data is None:
             return None
         return len(data), hashlib.sha256(data).hexdigest()
-
-    def _same_file_bytes(self, old_version: str, new_version: str, old_path: str, new_path: str) -> bool:
-        old_data = self._get_raw_bytes(old_version, old_path)
-        new_data = self._get_raw_bytes(new_version, new_path)
-        return old_data is not None and new_data is not None and old_data == new_data
 
     def _get_raw_bytes(self, version: str, file_path: str) -> Optional[bytes]:
         getter = getattr(self.vcs, "get_file_content_raw_bytes", None)
@@ -398,6 +411,24 @@ class DiffEngine:
             f'{detail_html}'
             '<div style="font-size:12px;margin-top:14px;color:#999;">'
             '文件原始字节已变化，仍会包含在导出的变更文件中</div>'
+            '</div>'
+        )
+
+    def _rename_format_placeholder(self, old_path: str, new_path: str, details: List[str]) -> str:
+        """重命名同时只有编码/BOM/换行变化。"""
+        detail_html = "".join(
+            f'<div style="margin-top:6px;">{html.escape(item)}</div>'
+            for item in details
+        )
+        return (
+            '<div style="padding:40px;text-align:center;color:#666;font-size:15px;">'
+            '<div style="font-size:18px;margin-bottom:12px;font-weight:bold;">'
+            '文件已重命名，同时发生格式变化</div>'
+            f'<div style="font-family:Consolas,\'Courier New\',monospace;margin-bottom:12px;">'
+            f'{html.escape(old_path)} &rarr; {html.escape(new_path)}</div>'
+            f'{detail_html}'
+            '<div style="font-size:12px;margin-top:14px;color:#999;">'
+            '文字内容无变化，但导出的文件原始字节已变化</div>'
             '</div>'
         )
 

@@ -20,21 +20,33 @@ def _unescape_git_path(raw: str) -> str:
     """
     if raw.startswith('"') and raw.endswith('"'):
         raw = raw[1:-1]
-        # 将 \nnn 八进制转义还原为字节再 UTF-8 解码
-        result = []
+        # Git 使用 C 风格转义：八进制序列表示 UTF-8 字节，
+        # tab/换行/引号/反斜杠等使用单字符转义。
+        result = bytearray()
+        simple_escapes = {
+            "a": 0x07,
+            "b": 0x08,
+            "t": 0x09,
+            "n": 0x0A,
+            "v": 0x0B,
+            "f": 0x0C,
+            "r": 0x0D,
+            "\\": 0x5C,
+            '"': 0x22,
+        }
         i = 0
         while i < len(raw):
-            if raw[i] == '\\' and i + 3 < len(raw) and raw[i+1:i+4].isdigit():
-                # 八进制转义：最多取3位八进制数字
+            if raw[i] == '\\' and i + 1 < len(raw) and raw[i + 1] in "01234567":
                 end = i + 1
                 while end < len(raw) and end - i <= 3 and raw[end] in '01234567':
                     end += 1
-                octal = raw[i+1:end]
-                byte_val = int(octal, 8)
-                result.append(byte_val)
+                result.append(int(raw[i + 1:end], 8))
                 i = end
+            elif raw[i] == '\\' and i + 1 < len(raw) and raw[i + 1] in simple_escapes:
+                result.append(simple_escapes[raw[i + 1]])
+                i += 2
             else:
-                result.append(ord(raw[i]))
+                result.extend(raw[i].encode("utf-8"))
                 i += 1
         raw = bytes(result).decode("utf-8", errors="replace")
     return raw
@@ -124,7 +136,6 @@ class GitVCS(BaseVCS):
                 "A": ChangeType.ADDED,
                 "M": ChangeType.MODIFIED,
                 "D": ChangeType.DELETED,
-                "T": ChangeType.MODIFIED,
             }
 
             if code.startswith("R"):
@@ -138,6 +149,11 @@ class GitVCS(BaseVCS):
                 if len(parts) < 3:
                     raise RuntimeError(f"无法解析 Git 复制记录: {line}")
                 files.append(ChangedFile(path=path, change_type=ChangeType.ADDED))
+            elif code == "T":
+                raise RuntimeError(
+                    f"Git 文件类型发生变化（如普通文件与符号链接互换），"
+                    f"已中止生成以避免导出错误文件: {path}"
+                )
             elif code in change_map:
                 files.append(ChangedFile(path=path, change_type=change_map[code]))
             else:
@@ -166,7 +182,7 @@ class GitVCS(BaseVCS):
 
     def get_file_content_bytes(self, version: str, file_path: str) -> bytes:
         data = self.get_file_content_raw_bytes(version, file_path)
-        if data is not None and self._autocrlf_effective() and self._is_text_bytes(data):
+        if data is not None and self._checkout_uses_crlf(version, file_path, data):
             data = self._apply_crlf(data)
         return data
 
@@ -187,18 +203,89 @@ class GitVCS(BaseVCS):
 
     def _autocrlf_effective(self) -> bool:
         """检查 core.autocrlf 是否为 true（缓存结果）"""
-        if hasattr(self, '_cached_autocrlf'):
-            return self._cached_autocrlf
+        return self._git_config_value("core.autocrlf") == "true"
+
+    def _git_config_value(self, name: str) -> str:
+        cache = getattr(self, "_config_cache", None)
+        if cache is None:
+            self._config_cache = {}
+            cache = self._config_cache
+        if name in cache:
+            return cache[name]
         try:
             r = subprocess.run(
-                [self._git, "config", "--get", "core.autocrlf"],
+                [self._git, "config", "--get", name],
                 cwd=self.project_path,
                 capture_output=True, text=True, timeout=5
             )
-            self._cached_autocrlf = r.stdout.strip().lower() == "true"
+            value = r.stdout.strip().lower() if r.returncode == 0 else ""
         except Exception:
-            self._cached_autocrlf = False
-        return self._cached_autocrlf
+            value = ""
+        cache[name] = value
+        return value
+
+    @staticmethod
+    def _parse_check_attr_output(data: bytes) -> dict:
+        parts = data.split(b"\x00")
+        attrs = {}
+        for index in range(0, len(parts) - 2, 3):
+            name = parts[index + 1].decode("utf-8", errors="replace")
+            value = parts[index + 2].decode("utf-8", errors="replace")
+            attrs[name] = value.lower()
+        return attrs
+
+    def _get_checkout_attributes(self, version: str, file_path: str) -> dict:
+        cache = getattr(self, "_attribute_cache", None)
+        if cache is None:
+            self._attribute_cache = {}
+            cache = self._attribute_cache
+        cache_key = (version, file_path)
+        if cache_key in cache:
+            return cache[cache_key]
+
+        result = subprocess.run(
+            [self._git, "check-attr", "-z", f"--source={version}",
+             "text", "eol", "--", file_path],
+            cwd=self.project_path,
+            capture_output=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            stderr = result.stderr.decode("utf-8", errors="replace")
+            raise RuntimeError(
+                f"无法读取 Git 属性，已中止导出: {file_path}\n{stderr.strip()}"
+            )
+        attrs = self._parse_check_attr_output(result.stdout)
+        cache[cache_key] = attrs
+        return attrs
+
+    def _checkout_uses_crlf(self, version: str, file_path: str, data: bytes) -> bool:
+        if not self._is_text_bytes(data):
+            return False
+
+        attrs = self._get_checkout_attributes(version, file_path)
+        text_attr = attrs.get("text", "unspecified")
+        eol_attr = attrs.get("eol", "unspecified")
+        if text_attr == "unset":
+            return False
+        if eol_attr == "lf":
+            return False
+        if eol_attr == "crlf":
+            return True
+
+        autocrlf = self._git_config_value("core.autocrlf")
+        if autocrlf == "true":
+            return True
+        if autocrlf == "input":
+            return False
+
+        if text_attr in ("set", "auto"):
+            core_eol = self._git_config_value("core.eol")
+            if core_eol == "crlf":
+                return True
+            if core_eol == "native":
+                return os.linesep == "\r\n"
+        return False
 
     def get_file_content_working(self, file_path: str) -> str:
         full_path = os.path.join(self.project_path, file_path)

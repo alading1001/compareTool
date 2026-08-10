@@ -3,13 +3,15 @@ import re
 import shutil
 import stat
 import subprocess
-import tempfile
 from typing import List
+from xml.etree import ElementTree
 
+from path_safety import is_link_or_junction
 from .base import BaseVCS, ChangedFile
 from .folder_vcs import FolderVCS
 from .git_vcs import GitVCS, GIT_NOT_FOUND_MESSAGE
 from .svn_vcs import SVNVCS, SVN_NOT_FOUND_MESSAGE
+from .temp_storage import create_temp_dir
 
 
 def parse_multi_versions(raw: str) -> List[str]:
@@ -31,7 +33,15 @@ def _copy_snapshot(src: str, dst: str):
 
     if os.path.isdir(dst):
         shutil.rmtree(dst)
-    shutil.copytree(src, dst, ignore=ignore)
+    if is_link_or_junction(src):
+        raise RuntimeError(f"临时工作目录是符号链接或联接点，已拒绝复制: {src}")
+    for dirpath, dirnames, filenames in os.walk(src):
+        dirnames[:] = [name for name in dirnames if name not in {".git", ".svn"}]
+        for name in dirnames + filenames:
+            full_path = os.path.join(dirpath, name)
+            if is_link_or_junction(full_path):
+                raise RuntimeError(f"版本快照包含符号链接或联接点，已拒绝复制: {full_path}")
+    shutil.copytree(src, dst, ignore=ignore, symlinks=True)
 
 
 def _remove_tree(path: str):
@@ -56,7 +66,7 @@ class _MultiVersionFolderDelegate(BaseVCS):
         self.source_project_path = source_project_path
         self.selected_versions = selected_versions
         self.old_version_label = ", ".join(selected_versions)
-        self._tmp_root = tempfile.mkdtemp(prefix=prefix)
+        self._tmp_root = create_temp_dir(prefix=prefix)
         self._old_dir = os.path.join(self._tmp_root, "old")
         self._new_dir = os.path.join(self._tmp_root, "new")
         self._folder = None
@@ -445,12 +455,23 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         return revisions
 
     def _conflict_files(self, work_dir: str) -> List[str]:
+        output = self._run(["status", "--xml"], cwd=work_dir)
         try:
-            output = self._run(["status"], cwd=work_dir)
-        except RuntimeError:
-            return []
+            root = ElementTree.fromstring(output)
+        except ElementTree.ParseError as exc:
+            raise RuntimeError(f"无法解析 SVN 冲突状态: {exc}") from exc
+
         conflicts = []
-        for line in output.splitlines():
-            if line and line[0] == "C":
-                conflicts.append(line[1:].strip())
+        for entry in root.findall(".//entry"):
+            status = entry.find("wc-status")
+            if status is None:
+                continue
+            if (
+                status.get("item") == "conflicted" or
+                status.get("props") == "conflicted" or
+                status.get("tree-conflicted") == "true"
+            ):
+                path = (entry.get("path") or "").strip()
+                if path:
+                    conflicts.append(path)
         return conflicts
