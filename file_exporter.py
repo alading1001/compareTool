@@ -1,11 +1,12 @@
 import json
 import os
+import re
 import shutil
 import tempfile
 import uuid
 from diff_engine import DiffResult
 from logger import warn
-from path_safety import safe_join
+from path_safety import is_link_or_junction, safe_join
 from vcs.base import ChangeType
 
 
@@ -14,21 +15,44 @@ class FileExporter:
 
     TRANSACTION_PREFIX = ".comparetool_transaction_"
     TRANSACTION_SUFFIX = ".json"
+    _ORPHAN_STAGE_PATTERNS = (
+        re.compile(r"^\.comparetool_stage_[A-Za-z0-9_-]{8,}$"),
+        re.compile(r"^\.comparetool_report_[A-Za-z0-9_-]{8,}\.html$"),
+        re.compile(r"^\.comparetool_delivery_[A-Za-z0-9_-]{8,}\.txt$"),
+    )
 
     def __init__(self, diff_result: DiffResult, vcs):
         self.diff_result = diff_result
         self.vcs = vcs
 
-    def export(self, old_dir: str, new_dir: str, project_name: str = ""):
+    def export(
+        self,
+        old_dir: str,
+        new_dir: str,
+        project_name: str = "",
+        targets_are_staging_roots: bool = False,
+    ):
         """先在同盘临时目录完整导出，全部成功后再替换目标目录。"""
-        pairs = self.prepare_export(old_dir, new_dir, project_name=project_name)
+        pairs = self.prepare_export(
+            old_dir,
+            new_dir,
+            project_name=project_name,
+            targets_are_staging_roots=targets_are_staging_roots,
+        )
         try:
             self._replace_outputs(pairs)
         finally:
             self.cleanup_stages(pairs)
 
-    def prepare_export(self, old_dir: str, new_dir: str, project_name: str = ""):
+    def prepare_export(
+        self,
+        old_dir: str,
+        new_dir: str,
+        project_name: str = "",
+        targets_are_staging_roots: bool = False,
+    ):
         """完整写入暂存目录，返回可与报告一起提交的 (stage, target) 列表。"""
+        stage_parent = ""
         if project_name:
             old_dir = self._safe_join(old_dir, project_name)
             new_dir = self._safe_join(new_dir, project_name)
@@ -38,6 +62,15 @@ class FileExporter:
         if os.path.normcase(old_dir) == os.path.normcase(new_dir):
             raise RuntimeError("新旧版本导出目录不能相同")
 
+        if project_name and not targets_are_staging_roots:
+            # 单项目的正式目标位于 oldVersion/newVersion/<项目名>，但内部
+            # 暂存目录不能也落进 oldVersion/newVersion，否则强退后既会混入
+            # 上线包，又无法在不扫描用户源码的前提下安全清理。把两侧随机
+            # 暂存根统一放到批次根，stage 本身仍与目标同盘，可原子替换。
+            stage_parent = self._transaction_root([old_dir, new_dir])
+            if not stage_parent:
+                raise RuntimeError("无法确定项目导出的同盘事务暂存目录")
+
         self._validate_export_paths(old_dir, new_dir)
         old_ver = self.diff_result.old_version
         new_ver = self.diff_result.new_version
@@ -45,8 +78,8 @@ class FileExporter:
         stage_new = ""
 
         try:
-            stage_old = self._make_stage_dir(old_dir)
-            stage_new = self._make_stage_dir(new_dir)
+            stage_old = self._make_stage_dir(old_dir, stage_parent=stage_parent)
+            stage_new = self._make_stage_dir(new_dir, stage_parent=stage_parent)
             for file_diff in self.diff_result.files:
                 if file_diff.change_type == ChangeType.DELETED:
                     self._write_file(stage_old, file_diff.file_path, old_ver, file_diff.old_content)
@@ -65,18 +98,33 @@ class FileExporter:
             ]
         except BaseException:
             for stage in (stage_old, stage_new):
-                if stage and os.path.isdir(stage):
-                    shutil.rmtree(stage, ignore_errors=True)
+                if stage:
+                    self._cleanup_stage(stage)
             raise
 
     @classmethod
     def cleanup_stages(cls, pairs):
         for stage, _target in pairs:
-            if os.path.lexists(stage):
-                try:
-                    cls._remove_path(stage)
-                except OSError as exc:
-                    warn(f"清理导出暂存目录失败: {stage}: {exc}")
+            cls._cleanup_stage(stage)
+
+    @classmethod
+    def _cleanup_stage(cls, stage: str):
+        if not stage:
+            return
+        if os.path.lexists(stage):
+            try:
+                cls._remove_path(stage)
+            except OSError as exc:
+                warn(f"清理导出暂存目录失败: {stage}: {exc}")
+                return
+        parent = os.path.dirname(os.path.abspath(stage))
+        if os.path.basename(parent).startswith(".comparetool_stage_"):
+            try:
+                os.rmdir(parent)
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                warn(f"清理导出暂存根失败: {parent}: {exc}")
 
     def _write_file(self, base_dir: str, rel_path: str, version: str, text_content: str):
         file_path = self._safe_join(base_dir, rel_path)
@@ -127,10 +175,15 @@ class FileExporter:
             raise RuntimeError(str(exc)) from exc
 
     @staticmethod
-    def _make_stage_dir(target_dir: str) -> str:
-        parent = os.path.dirname(target_dir)
+    def _make_stage_dir(target_dir: str, stage_parent: str = "") -> str:
+        parent = stage_parent or os.path.dirname(target_dir)
         os.makedirs(parent, exist_ok=True)
-        return tempfile.mkdtemp(prefix=".comparetool_stage_", dir=parent)
+        stage_root = tempfile.mkdtemp(prefix=".comparetool_stage_", dir=parent)
+        if not stage_parent:
+            return stage_root
+        stage = os.path.join(stage_root, os.path.basename(target_dir))
+        os.makedirs(stage)
+        return stage
 
     @classmethod
     def _replace_outputs(cls, pairs):
@@ -157,7 +210,11 @@ class FileExporter:
                 [target for _stage, target in normalized_pairs]
             )
             if transaction_root:
-                cls.recover_transactions(transaction_root, raise_on_error=True)
+                cls.recover_transactions(
+                    transaction_root,
+                    raise_on_error=True,
+                    protected_stages=[stage for stage, _target in normalized_pairs],
+                )
 
             for stage, target in normalized_pairs:
                 backup = f"{target}.comparetool_backup_{token}"
@@ -293,6 +350,7 @@ class FileExporter:
         output_root: str,
         include_direct_children: bool = False,
         raise_on_error: bool = False,
+        protected_stages=None,
     ):
         """恢复上次非正常中断的输出事务。"""
         if not output_root:
@@ -305,14 +363,22 @@ class FileExporter:
             try:
                 directories.extend(
                     entry.path for entry in os.scandir(root)
-                    if entry.is_dir(follow_symlinks=False)
+                    if (
+                        entry.is_dir(follow_symlinks=False)
+                        and entry.name.casefold() not in ("oldversion", "newversion")
+                    )
                 )
             except OSError as exc:
                 warn(f"扫描输出事务日志失败: {root}: {exc}")
 
         recovered = []
         failures = []
+        protected = {
+            os.path.normcase(os.path.abspath(path))
+            for path in (protected_stages or [])
+        }
         for directory in directories:
+            directory_failed = False
             try:
                 names = os.listdir(directory)
             except OSError as exc:
@@ -331,12 +397,48 @@ class FileExporter:
                 except Exception as exc:
                     warn(f"恢复输出事务失败，已保留日志: {journal_path}: {exc}")
                     failures.append(f"{journal_path}: {exc}")
+                    directory_failed = True
+            if not directory_failed:
+                cls._cleanup_orphan_stages(directory, protected)
         if failures and raise_on_error:
             raise RuntimeError(
                 "存在无法自动恢复的上次输出事务，已中止新提交：\n"
                 + "\n".join(failures)
             )
         return recovered
+
+    @classmethod
+    def _cleanup_orphan_stages(cls, directory: str, protected=None):
+        """清理尚未创建事务日志就强退留下的内部暂存物。"""
+        protected = protected or set()
+        try:
+            entries = list(os.scandir(directory))
+        except OSError as exc:
+            warn(f"扫描遗留输出暂存物失败: {directory}: {exc}")
+            return
+        for entry in entries:
+            if not any(pattern.fullmatch(entry.name) for pattern in cls._ORPHAN_STAGE_PATTERNS):
+                continue
+            entry_path = os.path.normcase(os.path.abspath(entry.path))
+            protects_current_work = entry_path in protected
+            if not protects_current_work:
+                for protected_path in protected:
+                    try:
+                        if os.path.commonpath([entry_path, protected_path]) == entry_path:
+                            protects_current_work = True
+                            break
+                    except ValueError:
+                        continue
+            if protects_current_work:
+                continue
+            if is_link_or_junction(entry.path):
+                warn(f"跳过疑似遗留但实际为链接的暂存路径: {entry.path}")
+                continue
+            try:
+                cls._remove_path(entry.path)
+                warn(f"已清理上次强退遗留的输出暂存物: {entry.path}")
+            except OSError as exc:
+                warn(f"清理遗留输出暂存物失败: {entry.path}: {exc}")
 
     @classmethod
     def _recover_transaction_journal(cls, journal_path: str, root: str):
@@ -374,7 +476,11 @@ class FileExporter:
             stage_parent_name = os.path.basename(os.path.dirname(stage))
             valid_stage_layout = (
                 os.path.dirname(stage) == os.path.dirname(target) and
-                stage_name.startswith((".comparetool_stage_", ".comparetool_report_"))
+                stage_name.startswith((
+                    ".comparetool_stage_",
+                    ".comparetool_report_",
+                    ".comparetool_delivery_",
+                ))
             ) or (
                 stage_parent_name.startswith(".comparetool_stage_") and
                 os.path.normcase(stage_name).casefold() ==

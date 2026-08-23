@@ -23,6 +23,7 @@ body { font-family: "Microsoft YaHei","Segoe UI",sans-serif; height: 100vh; over
 .card.format .num { color: #d68910; }
 .card.deleted .num { color: #e74c3c; }
 .card.renamed .num { color: #8e44ad; }
+.delivery-note { padding: 7px 24px; background: #fff8e6; border-bottom: 1px solid #f0dfb5; color: #755600; font-size: 12px; flex-shrink: 0; }
 .project-strip { padding: 8px 24px; background: #fff; border-bottom: 1px solid #e8e8e8; display: flex; gap: 8px; flex-wrap: wrap; flex-shrink: 0; }
 .project-pill { font-size: 12px; padding: 4px 8px; border: 1px solid #ddd; border-radius: 4px; background: #fafafa; color: #555; }
 .project-pill b { color: #333; margin-right: 4px; }
@@ -120,6 +121,10 @@ table.diff span { white-space: pre; }
     <div class="card format"><div class="num">{{ summary.format_changed_files }}</div><div class="lbl">格式变化</div></div>
     <div class="card deleted"><div class="num">{{ summary.deleted_files }}</div><div class="lbl">删除</div></div>
     <div class="card renamed"><div class="num">{{ summary.renamed_files }}</div><div class="lbl">重命名</div></div>
+</div>
+
+<div class="delivery-note">
+    上线说明：删除 {{ summary.deleted_files }} 个、重命名 {{ summary.renamed_files }} 个；完整旧路径清单见报告同目录《{{ delivery_instructions_name | default('上线操作说明.txt') }}》。
 </div>
 
 <div class="project-strip">

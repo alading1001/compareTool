@@ -74,6 +74,10 @@ from vcs.multi_version_vcs import GitMultiVersionVCS, SVNMultiVersionVCS, parse_
 from diff_engine import DiffEngine
 from report_generator import ReportGenerator
 from file_exporter import FileExporter
+from delivery_instructions import (
+    DELIVERY_INSTRUCTIONS_FILENAME,
+    prepare_delivery_instructions,
+)
 from logger import info, warn, error
 
 
@@ -232,8 +236,8 @@ class CompareToolApp:
         ttk.Radiobutton(vcs_buttons_frame, text="SVN", variable=self.vcs_var, value="svn").pack(side=tk.LEFT, padx=(0, 16))
         ttk.Radiobutton(vcs_buttons_frame, text="文件夹", variable=self.vcs_var, value="folder").pack(side=tk.LEFT, padx=(0, 16))
         ttk.Radiobutton(vcs_buttons_frame, text="压缩包", variable=self.vcs_var, value="archive").pack(side=tk.LEFT, padx=(0, 16))
-        ttk.Radiobutton(vcs_buttons_frame, text="Git需求包", variable=self.vcs_var, value="git_multi").pack(side=tk.LEFT, padx=(0, 16))
-        ttk.Radiobutton(vcs_buttons_frame, text="SVN需求包", variable=self.vcs_var, value="svn_multi").pack(side=tk.LEFT)
+        ttk.Radiobutton(vcs_buttons_frame, text="Git多版本", variable=self.vcs_var, value="git_multi").pack(side=tk.LEFT, padx=(0, 16))
+        ttk.Radiobutton(vcs_buttons_frame, text="SVN多版本", variable=self.vcs_var, value="svn_multi").pack(side=tk.LEFT)
         self.vcs_help_var = tk.StringVar()
         self.vcs_help_label = ttk.Label(
             vcs_frame,
@@ -513,6 +517,8 @@ class CompareToolApp:
             old_version = item.get("old_version")
             new_version = item.get("new_version")
             project_path = item.get("project_path", "")
+            if vcs_type in ("git_multi", "svn_multi"):
+                new_version = "文件级首尾端点"
             if (
                 not project_name or
                 not isinstance(old_version, str) or not old_version.strip() or
@@ -626,8 +632,8 @@ class CompareToolApp:
             "svn": "SVN",
             "folder": "文件夹",
             "archive": "压缩包",
-            "git_multi": "Git需求包",
-            "svn_multi": "SVN需求包",
+            "git_multi": "Git多版本",
+            "svn_multi": "SVN多版本",
         }.get(vcs_type, vcs_type)
 
     @staticmethod
@@ -637,8 +643,8 @@ class CompareToolApp:
             "svn": "比较同一 SVN 项目旧 revision 之后到新 revision 为止的变化（不含旧 revision，含新 revision）。",
             "folder": "选择旧文件夹和新文件夹，直接比较两个文件夹里的内容差异。",
             "archive": "选择旧压缩包和新压缩包，解压后比较压缩包里的内容差异。",
-            "git_multi": "选择一个或多个 Git 提交，报告只体现这些选中提交带来的需求改动。",
-            "svn_multi": "选择一个或多个 SVN revision，报告只体现这些选中 revision 带来的需求改动。",
+            "git_multi": "选择一个或多个当前分支第一父提交，按每个文件自己的首次/末次选中变更生成首尾差异。",
+            "svn_multi": "选择一个或多个 SVN revision，按每个文件自己的首次/末次选中变更生成首尾差异。",
         }.get(vcs_type, "")
 
     @staticmethod
@@ -939,7 +945,7 @@ class CompareToolApp:
         elif is_multi:
             self.project_label.grid()
             self.project_dir_frame.grid()
-            self.old_label.config(text="选择需求版本 (可多选):")
+            self.old_label.config(text="选择版本 (可多选):")
             self.new_label.config(text="生成结果:")
             self.old_folder_btn.pack_forget()
             self.old_archive_btn.pack_forget()
@@ -947,7 +953,7 @@ class CompareToolApp:
             self.new_folder_btn.pack_forget()
             self.new_archive_btn.pack_forget()
             self.new_vcs_btn.pack_forget()
-            self.new_version_var.set("基线 + 选中版本")
+            self.new_version_var.set("文件级首尾端点")
             self.new_entry.config(state="readonly")
             self.version_listbox.config(selectmode=tk.EXTENDED)
             self.fill_selected_btn.config(text="← 填入选中版本")
@@ -1144,7 +1150,7 @@ class CompareToolApp:
         self._set_version_list_visible(True)
         is_multi = vcs_type in ("git_multi", "svn_multi")
         self.fill_target_label.config(
-            text="将填入: " + ("需求版本列表" if is_multi else ("旧版本" if target == "old" else "新版本"))
+            text="将填入: " + ("多版本列表" if is_multi else ("旧版本" if target == "old" else "新版本"))
         )
         self.status_var.set("获取版本列表中...")
 
@@ -1368,7 +1374,7 @@ class CompareToolApp:
                 if not selected_versions:
                     raise ValueError("请选择或输入至少一个版本")
                 old_version = ", ".join(selected_versions)
-                new_version = "基线 + 选中版本"
+                new_version = "文件级首尾端点"
             elif not old_version or not new_version:
                 raise ValueError("请输入旧版本和新版本")
 
@@ -1670,7 +1676,7 @@ class CompareToolApp:
                 messagebox.showwarning("提示", "请选择或输入至少一个版本")
                 return
             old_version = ", ".join(selected_versions)
-            new_version = "基线 + 选中版本"
+            new_version = "文件级首尾端点"
         else:
             if not project_path:
                 messagebox.showwarning("提示", "请选择项目目录")
@@ -1822,6 +1828,7 @@ class CompareToolApp:
             report_gen = ReportGenerator(template_dir)
             report_stage = self._make_report_stage_path(report_path)
             export_pairs = []
+            instruction_stage = ""
             try:
                 report_gen.generate(
                     diff_result,
@@ -1837,11 +1844,24 @@ class CompareToolApp:
                     new_export,
                     project_name=project_name,
                 )
-                FileExporter._replace_outputs(export_pairs + [(report_stage, report_path)])
+                instruction_target = os.path.join(
+                    os.path.dirname(os.path.abspath(report_path)),
+                    DELIVERY_INSTRUCTIONS_FILENAME,
+                )
+                instruction_stage, instruction_target = prepare_delivery_instructions(
+                    [{"project_name": project_name, "diff_result": diff_result}],
+                    instruction_target,
+                )
+                FileExporter._replace_outputs(export_pairs + [
+                    (report_stage, report_path),
+                    (instruction_stage, instruction_target),
+                ])
             finally:
                 FileExporter.cleanup_stages(export_pairs)
                 if os.path.isfile(report_stage):
                     os.remove(report_stage)
+                if instruction_stage and os.path.isfile(instruction_stage):
+                    os.remove(instruction_stage)
 
             summary = diff_result.summary
             info(f"=== 完成: {summary} ===")
@@ -1861,6 +1881,7 @@ class CompareToolApp:
         stage_old_root = ""
         stage_new_root = ""
         report_stage = ""
+        instruction_stage = ""
         try:
             info("=== 开始生成多项目总报告 ===")
             for idx, task in enumerate(tasks, start=1):
@@ -1880,27 +1901,30 @@ class CompareToolApp:
                     stage_old_root,
                     stage_new_root,
                     project_name=task["project_name"],
+                    targets_are_staging_roots=True,
                 )
 
             template_dir = os.path.join(BASE_DIR, "templates")
             report_gen = ReportGenerator(template_dir)
             report_stage = self._make_report_stage_path(report_path)
             report_gen.generate_multi(project_results, report_stage)
+            instruction_target = os.path.join(
+                os.path.dirname(os.path.abspath(report_path)),
+                DELIVERY_INSTRUCTIONS_FILENAME,
+            )
+            instruction_stage, instruction_target = prepare_delivery_instructions(
+                project_results,
+                instruction_target,
+            )
 
-            export_pairs = []
-            for item in project_results:
-                project_name = item["task"]["project_name"]
-                export_pairs.extend([
-                    (
-                        FileExporter._safe_join(stage_old_root, project_name),
-                        FileExporter._safe_join(old_export, project_name),
-                    ),
-                    (
-                        FileExporter._safe_join(stage_new_root, project_name),
-                        FileExporter._safe_join(new_export, project_name),
-                    ),
-                ])
-            export_pairs.append((report_stage, report_path))
+            # 多项目输出必须整体替换根目录，否则删除/改名任务后会残留上次的
+            # 项目源码，与新报告和上线说明不一致。
+            export_pairs = [
+                (stage_old_root, old_export),
+                (stage_new_root, new_export),
+                (report_stage, report_path),
+                (instruction_stage, instruction_target),
+            ]
             FileExporter._replace_outputs(export_pairs)
 
             summary = ReportGenerator._multi_summary(project_results)
@@ -1918,6 +1942,11 @@ class CompareToolApp:
             if report_stage and os.path.isfile(report_stage):
                 try:
                     os.remove(report_stage)
+                except OSError:
+                    pass
+            if instruction_stage and os.path.isfile(instruction_stage):
+                try:
+                    os.remove(instruction_stage)
                 except OSError:
                     pass
             for item in project_results:

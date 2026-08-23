@@ -2,6 +2,7 @@ import os
 from datetime import datetime
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from diff_engine import DiffResult
+from delivery_instructions import DELIVERY_INSTRUCTIONS_FILENAME
 
 
 class ReportGenerator:
@@ -27,6 +28,7 @@ class ReportGenerator:
             summary=summary,
             files=diff_result.files,
             show_project_root=show_project_root,
+            delivery_instructions_name=DELIVERY_INSTRUCTIONS_FILENAME,
             generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         )
 
@@ -40,6 +42,7 @@ class ReportGenerator:
         html = template.render(
             summary=summary,
             projects=project_results,
+            delivery_instructions_name=DELIVERY_INSTRUCTIONS_FILENAME,
             generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         )
 

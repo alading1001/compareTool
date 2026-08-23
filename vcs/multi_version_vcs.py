@@ -1,13 +1,15 @@
 import os
 import re
 import shutil
-import stat
 import subprocess
-from typing import List
+import tempfile
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Set
+from urllib.parse import quote, unquote
 from xml.etree import ElementTree
 
-from path_safety import is_link_or_junction
-from .base import BaseVCS, ChangedFile
+from path_safety import safe_join
+from .base import BaseVCS, ChangedFile, ChangeType
 from .folder_vcs import FolderVCS
 from .git_vcs import GitVCS, GIT_NOT_FOUND_MESSAGE
 from .svn_vcs import SVNVCS, SVN_NOT_FOUND_MESSAGE
@@ -26,67 +28,301 @@ def parse_multi_versions(raw: str) -> List[str]:
     return result
 
 
-def _copy_snapshot(src: str, dst: str):
-    """复制工作目录快照，跳过 VCS 元数据。"""
-    def ignore(dir_path, names):
-        return {n for n in names if n in {".git", ".svn"}}
-
-    if os.path.isdir(dst):
-        shutil.rmtree(dst)
-    if is_link_or_junction(src):
-        raise RuntimeError(f"临时工作目录是符号链接或联接点，已拒绝复制: {src}")
-    for dirpath, dirnames, filenames in os.walk(src):
-        dirnames[:] = [name for name in dirnames if name not in {".git", ".svn"}]
-        for name in dirnames + filenames:
-            full_path = os.path.join(dirpath, name)
-            if is_link_or_junction(full_path):
-                raise RuntimeError(f"版本快照包含符号链接或联接点，已拒绝复制: {full_path}")
-    shutil.copytree(src, dst, ignore=ignore, symlinks=True)
-
-
 def _remove_tree(path: str):
-    """Windows 上 SVN/Git 元数据可能只读，删除失败时先恢复写权限。"""
-    def onerror(func, failed_path, exc_info):
-        try:
-            os.chmod(failed_path, stat.S_IWRITE)
-            func(failed_path)
-        except Exception:
-            pass
-
     if os.path.isdir(path):
-        shutil.rmtree(path, onerror=onerror)
+        shutil.rmtree(path, ignore_errors=True)
+
+
+@dataclass(frozen=True)
+class _HistoryChange:
+    action: str
+    path: str
+    old_path: str = ""
+
+
+@dataclass(eq=False)
+class _LogicalFile:
+    number: int
+    selected: bool = False
+    old_version: str = ""
+    old_path: Optional[str] = None
+    new_version: str = ""
+    new_path: Optional[str] = None
+    last_selected_step: int = 0
+
+
+class _EndpointPlanner:
+    """沿线性历史追踪逻辑文件，并记录每个文件自己的选中首尾端点。"""
+
+    def __init__(self):
+        self._active: Dict[str, _LogicalFile] = {}
+        self._deleted: Dict[str, _LogicalFile] = {}
+        self._entities: List[_LogicalFile] = []
+        self._step = 0
+
+    def _new_entity(self) -> _LogicalFile:
+        entity = _LogicalFile(len(self._entities) + 1)
+        self._entities.append(entity)
+        return entity
+
+    def apply(
+        self,
+        changes: List[_HistoryChange],
+        selected: bool,
+        old_version: str,
+        new_version: str,
+    ):
+        self._step += 1
+        step = self._step
+        before = {entity: path for path, entity in self._active.items()}
+        implicit_before: Dict[_LogicalFile, str] = {}
+        touched: Set[_LogicalFile] = set()
+        resolved = []
+
+        for change in changes:
+            action = change.action
+            path = self._normalize_path(change.path)
+            old_path = self._normalize_path(change.old_path) if change.old_path else ""
+
+            if action == "R":
+                entity = self._active.pop(old_path, None)
+                if entity is None:
+                    entity = self._deleted.pop(old_path, None)
+                if entity is None:
+                    entity = self._new_entity()
+                    implicit_before[entity] = old_path
+                existing = self._active.get(path)
+                if existing is not None and existing is not entity:
+                    raise RuntimeError(
+                        "多版本历史出现无法唯一追踪的重命名目标，已中止生成：\n"
+                        f"{old_path} -> {path}"
+                    )
+                self._active[path] = entity
+                self._deleted.pop(path, None)
+                touched.add(entity)
+                resolved.append((change, entity, entity.selected))
+                continue
+
+            if action == "D":
+                entity = self._active.pop(path, None)
+                if entity is None:
+                    entity = self._deleted.get(path)
+                if entity is None:
+                    entity = self._new_entity()
+                    implicit_before[entity] = path
+                self._deleted[path] = entity
+                touched.add(entity)
+                resolved.append((change, entity, entity.selected))
+                continue
+
+            if action == "A":
+                entity = self._active.get(path)
+                if entity is None:
+                    # 同一路径删除后重建仍视为同一逻辑文件，以便计算最终净结果。
+                    entity = self._deleted.pop(path, None) or self._new_entity()
+                self._active[path] = entity
+                touched.add(entity)
+                resolved.append((change, entity, entity.selected))
+                continue
+
+            if action == "M":
+                entity = self._active.get(path)
+                if entity is None:
+                    entity = self._deleted.pop(path, None)
+                if entity is None:
+                    entity = self._new_entity()
+                    implicit_before[entity] = path
+                self._active[path] = entity
+                touched.add(entity)
+                resolved.append((change, entity, entity.selected))
+                continue
+
+            raise RuntimeError(f"暂不支持的多版本历史变更类型 {action}: {path}")
+
+        if not selected:
+            return resolved
+
+        after = {entity: path for path, entity in self._active.items()}
+        for entity in touched:
+            if not entity.selected:
+                entity.selected = True
+                entity.old_version = old_version
+                entity.old_path = before.get(entity, implicit_before.get(entity))
+            entity.new_version = new_version
+            entity.new_path = after.get(entity)
+            entity.last_selected_step = step
+        return resolved
+
+    @property
+    def selected_entities(self) -> List[_LogicalFile]:
+        return [entity for entity in self._entities if entity.selected]
+
+    def is_deleted(self, path: str) -> bool:
+        return self._normalize_path(path) in self._deleted
+
+    def is_active(self, path: str) -> bool:
+        return self._normalize_path(path) in self._active
+
+    def has_deleted_under(self, directory: str) -> bool:
+        prefix = self._normalize_path(directory).rstrip("/") + "/"
+        return any(path.startswith(prefix) for path in self._deleted)
+
+    @property
+    def current_step(self) -> int:
+        return self._step
+
+    @staticmethod
+    def _normalize_path(path: str) -> str:
+        value = (path or "").replace("\\", "/").strip("/")
+        if not value or value in (".", "..") or value.startswith("../"):
+            raise RuntimeError(f"版本历史包含无效文件路径: {path}")
+        return value
 
 
 class _MultiVersionFolderDelegate(BaseVCS):
-    """多版本比对公共委托：最终仍复用 FolderVCS。"""
+    """多版本文件端点公共实现，报告与导出统一读取端点快照。"""
+
+    # 文件身份已经由历史规划器判定，不能再按内容启发式合并删除和新增。
+    merge_exact_renames = False
 
     def __init__(self, source_project_path: str, selected_versions: List[str], prefix: str):
         if not selected_versions:
             raise ValueError("请选择至少一个版本")
         self.source_project_path = source_project_path
         self.selected_versions = selected_versions
-        self.old_version_label = ", ".join(selected_versions)
+        self.selected_versions_label = ", ".join(selected_versions)
+        self.old_version_label = self.selected_versions_label
+        self.new_version_label = "文件级首尾端点"
         self._tmp_root = create_temp_dir(prefix=prefix)
         self._old_dir = os.path.join(self._tmp_root, "old")
         self._new_dir = os.path.join(self._tmp_root, "new")
-        self._folder = None
+        self._old_raw_dir = os.path.join(self._tmp_root, "old_raw")
+        self._new_raw_dir = os.path.join(self._tmp_root, "new_raw")
+        self._folder: Optional[FolderVCS] = None
+        self._raw_folder: Optional[FolderVCS] = None
+        self._planned_files: List[ChangedFile] = []
         super().__init__(self._new_dir)
 
-    def _init_folder_delegate(self):
+    def _finish_plan(self, entities: List[_LogicalFile], content_getter, raw_content_getter):
+        os.makedirs(self._old_dir, exist_ok=True)
+        os.makedirs(self._new_dir, exist_ok=True)
+        os.makedirs(self._old_raw_dir, exist_ok=True)
+        os.makedirs(self._new_raw_dir, exist_ok=True)
+        old_targets: Dict[str, str] = {}
+        new_targets: Dict[str, str] = {}
+        old_raw_targets: Dict[str, str] = {}
+        new_raw_targets: Dict[str, str] = {}
+
+        ordered = sorted(
+            entities,
+            key=lambda item: ((item.new_path or item.old_path or "").casefold(), item.number),
+        )
+        for entity in ordered:
+            old_data = self._read_endpoint(
+                content_getter, entity.old_version, entity.old_path, "旧版本"
+            )
+            new_data = self._read_endpoint(
+                content_getter, entity.new_version, entity.new_path, "新版本"
+            )
+            old_raw = self._read_endpoint(
+                raw_content_getter, entity.old_version, entity.old_path, "旧版本原始字节"
+            )
+            new_raw = self._read_endpoint(
+                raw_content_getter, entity.new_version, entity.new_path, "新版本原始字节"
+            )
+
+            if entity.old_path is None and entity.new_path is None:
+                continue
+            if (
+                entity.old_path is not None
+                and entity.new_path is not None
+                and entity.old_path == entity.new_path
+                and old_data == new_data
+                and old_raw == new_raw
+            ):
+                continue
+
+            if entity.old_path is None:
+                self._write_endpoint(self._new_dir, entity.new_path, new_data, new_targets)
+                self._write_endpoint(
+                    self._new_raw_dir, entity.new_path, new_raw, new_raw_targets
+                )
+                self._planned_files.append(ChangedFile(entity.new_path, ChangeType.ADDED))
+            elif entity.new_path is None:
+                self._write_endpoint(self._old_dir, entity.old_path, old_data, old_targets)
+                self._write_endpoint(
+                    self._old_raw_dir, entity.old_path, old_raw, old_raw_targets
+                )
+                self._planned_files.append(ChangedFile(entity.old_path, ChangeType.DELETED))
+            elif entity.old_path != entity.new_path:
+                self._write_endpoint(self._old_dir, entity.old_path, old_data, old_targets)
+                self._write_endpoint(self._new_dir, entity.new_path, new_data, new_targets)
+                self._write_endpoint(
+                    self._old_raw_dir, entity.old_path, old_raw, old_raw_targets
+                )
+                self._write_endpoint(
+                    self._new_raw_dir, entity.new_path, new_raw, new_raw_targets
+                )
+                self._planned_files.append(ChangedFile(
+                    entity.new_path, ChangeType.RENAMED, old_path=entity.old_path
+                ))
+            else:
+                self._write_endpoint(self._old_dir, entity.old_path, old_data, old_targets)
+                self._write_endpoint(self._new_dir, entity.new_path, new_data, new_targets)
+                self._write_endpoint(
+                    self._old_raw_dir, entity.old_path, old_raw, old_raw_targets
+                )
+                self._write_endpoint(
+                    self._new_raw_dir, entity.new_path, new_raw, new_raw_targets
+                )
+                self._planned_files.append(ChangedFile(entity.new_path, ChangeType.MODIFIED))
+
         self._folder = FolderVCS(self._old_dir, self._new_dir)
+        self._raw_folder = FolderVCS(self._old_raw_dir, self._new_raw_dir)
+
+    @staticmethod
+    def _read_endpoint(content_getter, version: str, path: Optional[str], label: str):
+        if path is None:
+            return None
+        data = content_getter(version, path)
+        if data is None:
+            raise RuntimeError(f"无法读取{label}文件端点，已中止生成: {path}@{version}")
+        return data
+
+    @staticmethod
+    def _write_endpoint(base_dir: str, path: str, data: bytes, targets: Dict[str, str]):
+        key = os.path.normcase(path.replace("\\", "/")).casefold()
+        if key in targets:
+            raise RuntimeError(
+                "不同文件端点会写入同一 Windows 路径，已中止生成：\n"
+                f"{targets[key]}\n{path}"
+            )
+        targets[key] = path
+        try:
+            target = safe_join(base_dir, path, label="多版本端点路径")
+        except ValueError as exc:
+            raise RuntimeError(str(exc)) from exc
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with open(target, "wb") as handle:
+            handle.write(data)
 
     def set_exclude_patterns(self, patterns: List[str]):
         super().set_exclude_patterns(patterns)
         if self._folder:
             self._folder.set_exclude_patterns(patterns)
+        if self._raw_folder:
+            self._raw_folder.set_exclude_patterns(patterns)
 
     def _to_folder_ver(self, version: str) -> str:
-        if version in ("old", self.old_version_label):
-            return "old"
-        return "new"
+        # GUI/旧配置中的多选版本可能用换行、逗号或分号保存，不能依赖
+        # selected_versions_label 的格式来识别 old。多版本模式的新端点标签是固定的，
+        # 因此只显式识别 new，其余调用方传入的选中版本表达式都应读取 old。
+        if version in ("new", self.new_version_label):
+            return "new"
+        return "old"
 
     def get_changed_files(self, old_version: str = "", new_version: str = "") -> List[ChangedFile]:
-        return self._folder.get_changed_files("old", "new")
+        return self._filter_files(list(self._planned_files))
 
     def get_file_content(self, version: str, file_path: str) -> str:
         return self._folder.get_file_content(self._to_folder_ver(version), file_path)
@@ -95,7 +331,9 @@ class _MultiVersionFolderDelegate(BaseVCS):
         return self._folder.get_file_content_bytes(self._to_folder_ver(version), file_path)
 
     def get_file_content_raw_bytes(self, version: str, file_path: str) -> bytes:
-        return self._folder.get_file_content_raw_bytes(self._to_folder_ver(version), file_path)
+        return self._raw_folder.get_file_content_raw_bytes(
+            self._to_folder_ver(version), file_path
+        )
 
     def get_file_content_working(self, file_path: str) -> str:
         return self._folder.get_file_content_working(file_path)
@@ -110,10 +348,7 @@ class _MultiVersionFolderDelegate(BaseVCS):
         return True
 
     def cleanup(self):
-        try:
-            _remove_tree(self._tmp_root)
-        except Exception:
-            pass
+        _remove_tree(self._tmp_root)
 
     def __del__(self):
         try:
@@ -123,37 +358,36 @@ class _MultiVersionFolderDelegate(BaseVCS):
 
 
 class GitMultiVersionVCS(_MultiVersionFolderDelegate):
-    """Git 需求包比对：从最早选中提交的第一父提交开始，只应用选中提交。"""
+    """Git 多版本：按当前分支第一父历史生成每个文件自己的首尾端点。"""
 
     def __init__(self, project_path: str, selected_versions: List[str]):
         self._git_exe = GitVCS._find_git()
+        self._content_vcs = GitVCS(project_path)
+        self._content_vcs._git = self._git_exe
         super().__init__(project_path, selected_versions, "comparetool_git_multi_")
         try:
             self._prepare()
-            self._init_folder_delegate()
         except Exception:
             self.cleanup()
             raise
 
     @staticmethod
-    def _run(args: list, cwd: str, input_bytes: bytes = None) -> bytes:
+    def _run(args: list, cwd: str) -> bytes:
         try:
-            result = subprocess.run(
-                args,
-                cwd=cwd,
-                input=input_bytes,
-                capture_output=True,
-                timeout=600
-            )
+            result = subprocess.run(args, cwd=cwd, capture_output=True, timeout=600)
         except FileNotFoundError:
-            if args and os.path.basename(args[0]).lower() in ("git", "git.exe"):
-                raise RuntimeError(GIT_NOT_FOUND_MESSAGE)
-            raise
+            raise RuntimeError(GIT_NOT_FOUND_MESSAGE)
         if result.returncode != 0:
             stderr = result.stderr.decode("utf-8", errors="replace")
             stdout = result.stdout.decode("utf-8", errors="replace")
             raise RuntimeError(f"Git命令失败: {' '.join(args)}\n{stderr or stdout}")
         return result.stdout
+
+    def _git_bytes(self, *args: str) -> bytes:
+        return self._run([self._git_exe] + list(args), self.source_project_path)
+
+    def _git(self, *args: str) -> str:
+        return self._git_bytes(*args).decode("utf-8", errors="replace").strip()
 
     @staticmethod
     def get_recent_versions(project_path: str, limit: int = 100) -> List[str]:
@@ -166,7 +400,7 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                timeout=30
+                timeout=30,
             )
         except FileNotFoundError:
             raise RuntimeError(GIT_NOT_FOUND_MESSAGE)
@@ -184,110 +418,387 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
             versions.append(f"{short_hash}{marker} {subject}".strip())
         return versions
 
-    def _git(self, *args: str, cwd: str = None) -> str:
-        out = self._run([self._git_exe] + list(args), cwd or self.source_project_path)
-        return out.decode("utf-8", errors="replace").strip()
-
     def _prepare(self):
-        resolved = self._resolve_commits()
-        ordered = self._sort_oldest_first(resolved)
-        base_commit = self._parent_commit(ordered[0])
-        if not base_commit:
-            raise RuntimeError("暂不支持选择 Git 根提交作为多版本比对起点")
+        history = self._git("rev-list", "--first-parent", "HEAD").splitlines()
+        if not history:
+            raise RuntimeError("当前 Git 分支没有可用提交")
+        history_index = {commit: index for index, commit in enumerate(history)}
 
-        work_dir = os.path.join(self._tmp_root, "work")
-        self._run(
-            [self._git_exe, "clone", "--local", "--no-hardlinks", self.source_project_path, work_dir],
-            cwd=self.source_project_path
-        )
-        self._run([self._git_exe, "checkout", "--detach", base_commit], cwd=work_dir)
-
-        _copy_snapshot(work_dir, self._old_dir)
-
-        for commit in ordered:
-            result = subprocess.run(
-                self._cherry_pick_args(commit),
-                cwd=work_dir,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=600
-            )
-            if result.returncode != 0:
-                conflicts = self._conflict_files(work_dir)
-                detail = "\n".join(conflicts) if conflicts else (result.stderr or result.stdout)
-                subprocess.run(
-                    [self._git_exe, "cherry-pick", "--abort"],
-                    cwd=work_dir,
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace"
-                )
-                raise RuntimeError(
-                    "应用选中提交时发生冲突或失败，已取消生成。\n"
-                    f"提交: {commit}\n"
-                    f"{detail}"
-                )
-
-        _copy_snapshot(work_dir, self._new_dir)
-
-    def _resolve_commits(self) -> List[str]:
-        commits = []
+        resolved = []
+        seen = set()
         for raw in self.selected_versions:
             commit = self._git("rev-parse", "--verify", f"{raw}^{{commit}}")
-            if not commit:
-                raise RuntimeError(f"提交不存在: {raw}")
+            if commit not in history_index:
+                raise RuntimeError(f"提交不在当前分支第一父历史中: {raw}")
+            if commit not in seen:
+                resolved.append(commit)
+                seen.add(commit)
 
-            is_ancestor = subprocess.run(
-                [self._git_exe, "merge-base", "--is-ancestor", commit, "HEAD"],
-                cwd=self.source_project_path,
-                capture_output=True
+        earliest_index = max(history_index[commit] for commit in resolved)
+        latest_index = min(history_index[commit] for commit in resolved)
+        linear_history = list(reversed(history[latest_index:earliest_index + 1]))
+        selected = set(resolved)
+        planner = _EndpointPlanner()
+        ambiguous_candidate_sets = []
+        pending_deletes = []
+        self._git_rename_candidate_cache = {}
+        for commit in linear_history:
+            parent = self._first_parent(commit)
+            changes, ambiguous_path_pairs = self._changes_for_commit(commit, parent)
+            resolved_changes = planner.apply(
+                changes, commit in selected, parent, commit
             )
-            if is_ancestor.returncode != 0:
-                raise RuntimeError(f"提交不在当前分支 HEAD 历史中: {raw}")
+            if ambiguous_path_pairs:
+                sources = {}
+                targets = {}
+                for change, entity, was_selected in resolved_changes:
+                    if change.action == "D":
+                        sources[change.path] = (entity, was_selected)
+                    elif change.action == "A":
+                        targets[change.path] = entity
+                    elif change.action == "R":
+                        sources[change.old_path] = (entity, was_selected)
+                        targets[change.path] = entity
+                    elif change.action == "M":
+                        targets[change.path] = entity
+                candidates = []
+                for source_path, target_path in ambiguous_path_pairs:
+                    if source_path in sources and target_path in targets:
+                        source_entity, was_selected = sources[source_path]
+                        candidates.append((
+                            source_path,
+                            source_entity,
+                            was_selected,
+                            target_path,
+                            targets[target_path],
+                        ))
+                if candidates:
+                    ambiguous_candidate_sets.append(
+                        (commit, planner.current_step, False, candidates)
+                    )
 
-            commits.append(commit)
-        return commits
+            resolved_deletes = []
+            resolved_targets = []
+            resolved_add_paths = set()
+            for change, entity, was_selected in resolved_changes:
+                if change.action == "D":
+                    resolved_deletes.append(
+                        (change.path, entity, was_selected, parent)
+                    )
+                elif change.action == "A":
+                    resolved_targets.append((change.path, entity))
+                    resolved_add_paths.add(change.path)
+                elif change.action in ("R", "M"):
+                    resolved_targets.append((change.path, entity))
 
-    def _sort_oldest_first(self, commits: List[str]) -> List[str]:
-        history = self._git("rev-list", "--topo-order", "HEAD").splitlines()
-        order = {commit: idx for idx, commit in enumerate(history)}
-        return sorted(commits, key=lambda c: order.get(c, -1), reverse=True)
+            # Git 不保存“跨提交移动”元数据。若文件先在一个未选提交删除、
+            # 后在另一个提交以相同或高相似内容新增，直接当两个实体会让
+            # newVersion 留下旧路径。这里保留竞争候选，只有候选两侧后来都
+            # 关联选中变更时才 fail closed，普通无关删除/新增不受影响。
+            for target_path, target_entity in resolved_targets:
+                candidates = []
+                for (
+                    source_path,
+                    source_entity,
+                    source_was_selected,
+                    source_version,
+                ) in pending_deletes:
+                    if self._git_rename_candidate(
+                        source_version, source_path, commit, target_path
+                    ):
+                        candidates.append((
+                            source_path,
+                            source_entity,
+                            source_was_selected,
+                            target_path,
+                            target_entity,
+                        ))
+                if candidates:
+                    ambiguous_candidate_sets.append(
+                        (commit, planner.current_step, True, candidates)
+                    )
 
-    def _parent_commit(self, commit: str) -> str:
-        parents = self._parents(commit)
-        return parents[0] if parents else ""
+            if resolved_add_paths:
+                pending_deletes = [
+                    item
+                    for item in pending_deletes
+                    if item[0] not in resolved_add_paths
+                ]
+            pending_deletes.extend(resolved_deletes)
 
-    def _parents(self, commit: str) -> List[str]:
-        parts = self._git("rev-list", "--parents", "-n", "1", commit).split()
-        return parts[1:]
+        suspicious = []
+        for commit, event_step, include_same_step, candidates in ambiguous_candidate_sets:
+            ambiguous_pairs = [
+                (source_path, target_path)
+                for (
+                    source_path,
+                    source_entity,
+                    was_selected,
+                    target_path,
+                    target_entity,
+                ) in candidates
+                if (
+                    was_selected
+                    and (
+                        target_entity.last_selected_step > event_step
+                        or (
+                            include_same_step
+                            and target_entity.last_selected_step == event_step
+                        )
+                    )
+                    and source_entity is not target_entity
+                )
+            ]
+            if ambiguous_pairs:
+                pair_lines = "\n".join(
+                    f"  {source_path} -> {target_path}"
+                    for source_path, target_path in ambiguous_pairs
+                )
+                suspicious.append(
+                    f"提交 {commit}\n{pair_lines}"
+                )
+        if suspicious:
+            raise RuntimeError(
+                "Git 检测到无法唯一确认的删除/新增/重命名候选，且候选两侧都"
+                "关联选中变更，无法排除彻底改写或同内容文件造成的错误配对。"
+                "本次未生成报告和源码包。\n"
+                + "\n".join(suspicious)
+            )
 
-    def _is_merge_commit(self, commit: str) -> bool:
-        return len(self._parents(commit)) > 1
-
-    def _cherry_pick_args(self, commit: str) -> List[str]:
-        args = [self._git_exe, "cherry-pick", "--no-commit"]
-        if self._is_merge_commit(commit):
-            args.extend(["-m", "1"])
-        args.append(commit)
-        return args
-
-    def _conflict_files(self, work_dir: str) -> List[str]:
-        result = subprocess.run(
-            [self._git_exe, "diff", "--name-only", "--diff-filter=U"],
-            cwd=work_dir,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace"
+        self._finish_plan(
+            planner.selected_entities,
+            self._read_git_endpoint,
+            self._read_git_raw_endpoint,
         )
-        return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+    def _first_parent(self, commit: str) -> str:
+        # rev-list 会把浅克隆边界伪装成根提交；直接读取 commit 对象才能看到
+        # 真实 parent。父对象缺失时必须失败，不能把整棵树误报为新增。
+        payload = self._git_bytes("cat-file", "-p", commit).decode(
+            "utf-8", errors="replace"
+        )
+        parent = ""
+        for line in payload.splitlines():
+            if line.startswith("parent "):
+                parent = line.split(" ", 1)[1].strip()
+                break
+            if not line:
+                break
+        if not parent:
+            return ""
+        try:
+            self._git("cat-file", "-e", f"{parent}^{{commit}}")
+        except RuntimeError as exc:
+            raise RuntimeError(
+                f"Git 仓库缺少提交 {commit} 的第一父对象 {parent}，"
+                "可能是浅克隆边界；请补全历史后重试。"
+            ) from exc
+        return parent
+
+    def _changes_for_commit(self, commit: str, parent: str):
+        reliable = self._diff_changes(commit, parent, "50%")
+        permissive = self._diff_changes(commit, parent, "1%")
+        reliable_renames = {(item.old_path, item.path) for item in reliable if item.action == "R"}
+        suspicious = [
+            item for item in permissive
+            if item.action == "R" and (item.old_path, item.path) not in reliable_renames
+        ]
+        if suspicious:
+            details = "\n".join(f"{item.old_path} -> {item.path}" for item in suspicious)
+            raise RuntimeError(
+                "Git 检测到低相似度疑似重命名，无法可靠确认文件身份，"
+                "本次未生成报告和源码包。\n"
+                f"提交: {commit}\n{details}"
+            )
+        deletes = [item for item in reliable if item.action == "D"]
+        adds = [item for item in reliable if item.action == "A"]
+        renames = [item for item in reliable if item.action == "R"]
+        modifications = [item for item in reliable if item.action == "M"]
+        ambiguous_pairs = {
+            (deleted.path, added.path)
+            for deleted in deletes
+            for added in adds
+        }
+
+        # Git 的 rename 是快照相似度推断，不保存真实移动元数据。额外
+        # source/target 若被 Git 自己判为 rename，也可能是全局匹配选错的
+        # 竞争候选。必须复用 Git 原生 score，不能用另一套文本相似算法。
+        for deleted in deletes:
+            for renamed in renames:
+                if self._git_rename_candidate(
+                    parent, deleted.path, commit, renamed.path
+                ):
+                    ambiguous_pairs.add((deleted.path, renamed.path))
+        for renamed in renames:
+            for added in adds:
+                if self._git_rename_candidate(
+                    parent, renamed.old_path, commit, added.path
+                ):
+                    ambiguous_pairs.add((renamed.old_path, added.path))
+        for deleted in deletes:
+            for modified in modifications:
+                if self._git_rename_candidate(
+                    parent, deleted.path, commit, modified.path
+                ):
+                    ambiguous_pairs.add((deleted.path, modified.path))
+        for renamed in renames:
+            for modified in modifications:
+                if self._git_rename_candidate(
+                    parent, renamed.old_path, commit, modified.path
+                ):
+                    ambiguous_pairs.add((renamed.old_path, modified.path))
+        for source in renames:
+            for target in renames:
+                if source is target:
+                    continue
+                # 多个 rename 的匹配是 Git 根据相似度全局分配的；Git 不保存真实
+                # 移动元数据。只要身份需要跨该 commit 延续，就必须把所有交叉
+                # 配对视为候选，避免同内容或高相似文件按 basename 错配。
+                ambiguous_pairs.add((source.old_path, target.path))
+        return reliable, sorted(ambiguous_pairs)
+
+    def _git_rename_candidate(
+        self,
+        old_version: str,
+        old_path: str,
+        new_version: str,
+        new_path: str,
+    ) -> bool:
+        """让 Git 在只含 source/target blob 的临时目录上重算原生 score。"""
+        key = (old_version, old_path, new_version, new_path)
+        cached = self._git_rename_candidate_cache.get(key)
+        if cached is not None:
+            return cached
+        old_blob = self._content_vcs.get_file_content_raw_bytes(
+            old_version, old_path
+        )
+        new_blob = self._content_vcs.get_file_content_raw_bytes(
+            new_version, new_path
+        )
+        if old_blob is None or new_blob is None:
+            raise RuntimeError(
+                "无法读取 Git 重命名候选 blob："
+                f"{old_path}@{old_version} -> {new_path}@{new_version}"
+            )
+
+        candidate_root = tempfile.mkdtemp(
+            prefix="rename_candidate_", dir=self._tmp_root
+        )
+        try:
+            old_dir = os.path.join(candidate_root, "old")
+            new_dir = os.path.join(candidate_root, "new")
+            os.makedirs(old_dir)
+            os.makedirs(new_dir)
+            with open(os.path.join(old_dir, "source"), "wb") as stream:
+                stream.write(old_blob)
+            with open(os.path.join(new_dir, "target"), "wb") as stream:
+                stream.write(new_blob)
+            result = subprocess.run(
+                [
+                    self._git_exe,
+                    "diff",
+                    "--no-index",
+                    "--name-status",
+                    "-z",
+                    "--find-renames=50%",
+                    "--",
+                    old_dir,
+                    new_dir,
+                ],
+                cwd=self.source_project_path,
+                capture_output=True,
+                timeout=600,
+            )
+            if result.returncode not in (0, 1):
+                raise RuntimeError(
+                    "Git 重命名候选评分失败:\n"
+                    + result.stderr.decode("utf-8", errors="replace")
+                )
+            fields = result.stdout.split(b"\x00")
+            matched = bool(fields and fields[0].startswith(b"R"))
+        finally:
+            shutil.rmtree(candidate_root, ignore_errors=True)
+        self._git_rename_candidate_cache[key] = matched
+        return matched
+
+    def _diff_changes(self, commit: str, parent: str, threshold: str) -> List[_HistoryChange]:
+        if parent:
+            args = (
+                "diff", "--name-status", "-z", f"--find-renames={threshold}",
+                parent, commit, "--",
+            )
+        else:
+            args = (
+                "diff-tree", "--root", "--no-commit-id", "--name-status", "-z",
+                "-r", f"--find-renames={threshold}", commit, "--",
+            )
+        return self._parse_git_changes(self._git_bytes(*args))
+
+    @staticmethod
+    def _parse_git_changes(data: bytes) -> List[_HistoryChange]:
+        fields = data.split(b"\x00")
+        if fields and fields[-1] == b"":
+            fields.pop()
+        changes = []
+        index = 0
+        while index < len(fields):
+            status = fields[index].decode("ascii", errors="replace")
+            index += 1
+            if index >= len(fields):
+                raise RuntimeError("无法解析 Git 多版本变更记录")
+            if status.startswith(("R", "C")):
+                if index + 1 >= len(fields):
+                    raise RuntimeError("无法解析 Git 多版本重命名/复制记录")
+                old_path = fields[index].decode("utf-8", errors="surrogateescape")
+                new_path = fields[index + 1].decode("utf-8", errors="surrogateescape")
+                index += 2
+                if status.startswith("R"):
+                    changes.append(_HistoryChange("R", new_path, old_path))
+                else:
+                    changes.append(_HistoryChange("A", new_path))
+                continue
+
+            path = fields[index].decode("utf-8", errors="surrogateescape")
+            index += 1
+            if status == "T":
+                raise RuntimeError("Git 文件类型发生变化，已中止生成以避免导出错误文件: " + path)
+            if status not in ("A", "M", "D"):
+                raise RuntimeError(f"暂不支持的 Git 多版本变更类型 {status}: {path}")
+            changes.append(_HistoryChange(status, path))
+        return changes
+
+    def _read_git_endpoint(self, version: str, path: str) -> Optional[bytes]:
+        self._validate_git_endpoint_mode(version, path)
+        return self._content_vcs.get_file_content_bytes(version, path)
+
+    def _read_git_raw_endpoint(self, version: str, path: str) -> Optional[bytes]:
+        self._validate_git_endpoint_mode(version, path)
+        return self._content_vcs.get_file_content_raw_bytes(version, path)
+
+    def _validate_git_endpoint_mode(self, version: str, path: str):
+        mode_line = self._git_bytes("ls-tree", "-z", version, "--", path)
+        if not mode_line:
+            return
+        header = mode_line.split(b"\t", 1)[0].decode("ascii", errors="replace")
+        mode = header.split(" ", 1)[0]
+        if mode not in ("100644", "100755"):
+            raise RuntimeError(
+                f"Git 多版本端点不是普通文件，已中止生成: {path}@{version} (mode={mode})"
+            )
+
+
+@dataclass(frozen=True)
+class _SVNPathChange:
+    action: str
+    kind: str
+    path: str
+    copyfrom_path: str = ""
+    copyfrom_rev: int = 0
+    copyfrom_historical: bool = False
 
 
 class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
-    """SVN 多版本比对：从最早选中 revision 的前一版开始，只应用选中 revision。"""
+    """SVN 多版本：沿 revision 历史生成每个文件自己的首尾端点。"""
 
     @staticmethod
     def get_recent_versions(project_path: str, svn_path: str = "", limit: int = 100) -> List[str]:
@@ -297,27 +808,27 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                 [svn, "info", "--non-interactive", "--show-item", "url"],
                 cwd=project_path,
                 capture_output=True,
-                timeout=60
+                timeout=60,
             )
         except FileNotFoundError:
             raise RuntimeError(SVN_NOT_FOUND_MESSAGE)
         if info.returncode != 0:
-            stderr = SVNMultiVersionVCS._decode(info.stderr) if info.stderr else ""
-            stdout = SVNMultiVersionVCS._decode(info.stdout) if info.stdout else ""
-            raise RuntimeError(f"SVN命令失败: info\n{stderr or stdout}")
+            raise RuntimeError(
+                "SVN命令失败: info\n" + SVNMultiVersionVCS._decode(info.stderr or info.stdout)
+            )
         url = SVNMultiVersionVCS._decode(info.stdout).strip()
         try:
             result = subprocess.run(
                 [svn, "log", "-r", "HEAD:1", "-l", str(limit), "--non-interactive", f"{url}@HEAD"],
                 capture_output=True,
-                timeout=60
+                timeout=60,
             )
         except FileNotFoundError:
             raise RuntimeError(SVN_NOT_FOUND_MESSAGE)
         if result.returncode != 0:
-            stderr = SVNMultiVersionVCS._decode(result.stderr) if result.stderr else ""
-            stdout = SVNMultiVersionVCS._decode(result.stdout) if result.stdout else ""
-            raise RuntimeError(f"SVN命令失败: log\n{stderr or stdout}")
+            raise RuntimeError(
+                "SVN命令失败: log\n" + SVNMultiVersionVCS._decode(result.stderr or result.stdout)
+            )
         return SVNMultiVersionVCS._parse_log_versions(SVNMultiVersionVCS._decode(result.stdout))
 
     @staticmethod
@@ -329,26 +840,25 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
             if not entry:
                 continue
             lines = entry.split("\n")
-            first = lines[0].strip()
-            m = re.match(r'^r(\d+) \|', first)
-            if not m:
+            match = re.match(r"^r(\d+) \|", lines[0].strip())
+            if not match:
                 continue
-            rev = f"r{m.group(1)}"
+            rev = f"r{match.group(1)}"
             msg_parts = []
             in_paths = False
             for line in lines[1:]:
-                s = line.strip()
-                if not s:
+                value = line.strip()
+                if not value:
                     in_paths = False
                     continue
-                if s.startswith("Changed paths:"):
+                if value.startswith("Changed paths:"):
                     in_paths = True
                     continue
-                if in_paths:
-                    continue
-                msg_parts.append(s)
-            msg = " ".join(msg_parts)
-            revisions.append(f"{rev} {msg[:60]}{'...' if len(msg) > 60 else ''}" if msg else rev)
+                if not in_paths:
+                    msg_parts.append(value)
+            message = " ".join(msg_parts)
+            suffix = "..." if len(message) > 60 else ""
+            revisions.append(f"{rev} {message[:60]}{suffix}".strip())
         return revisions
 
     def __init__(self, project_path: str, selected_versions: List[str], svn_path: str = ""):
@@ -356,122 +866,558 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         super().__init__(project_path, selected_versions, "comparetool_svn_multi_")
         try:
             self._prepare()
-            self._init_folder_delegate()
         except Exception:
             self.cleanup()
             raise
 
-    def _run(self, args: list, cwd: str = None) -> str:
-        full_cmd = [self._svn] + args
+    @staticmethod
+    def _decode(data: bytes) -> str:
+        for encoding in ("utf-8", "gbk"):
+            try:
+                return data.decode(encoding)
+            except UnicodeDecodeError:
+                pass
+        return data.decode("utf-8", errors="replace")
+
+    def _run(self, args: List[str]) -> str:
         try:
             result = subprocess.run(
-                full_cmd,
-                cwd=cwd or self.source_project_path,
+                [self._svn] + args,
+                cwd=self.source_project_path,
                 capture_output=True,
-                timeout=600
+                timeout=600,
             )
         except FileNotFoundError:
             raise RuntimeError(SVN_NOT_FOUND_MESSAGE)
         if result.returncode != 0:
-            stderr = result.stderr.decode("utf-8", errors="replace") if result.stderr else ""
-            stdout = result.stdout.decode("utf-8", errors="replace") if result.stdout else ""
-            raise RuntimeError(f"SVN命令失败: {' '.join(args)}\n{stderr or stdout}")
+            raise RuntimeError(
+                f"SVN命令失败: {' '.join(args)}\n" + self._decode(result.stderr or result.stdout)
+            )
         return self._decode(result.stdout)
 
-    @staticmethod
-    def _decode(data: bytes) -> str:
-        for enc in ("utf-8", "gbk"):
-            try:
-                return data.decode(enc)
-            except UnicodeDecodeError:
-                continue
-        return data.decode("utf-8", errors="replace")
-
-    def _prepare(self):
-        revisions = self._parse_revisions()
-        revisions.sort()
-
-        url = self._run(["info", "--non-interactive", "--show-item", "url"]).strip()
-        if not url:
-            raise RuntimeError("无法获取 SVN 仓库 URL")
-
-        base_rev = revisions[0] - 1
-        work_dir = os.path.join(self._tmp_root, "work")
-
-        if self._url_exists(url, base_rev):
-            self._run(["export", "--non-interactive", "-r", str(base_rev), url, self._old_dir])
-            self._run(["checkout", "--non-interactive", "-r", str(base_rev), url, work_dir])
-            apply_revisions = revisions
-        else:
-            os.makedirs(self._old_dir, exist_ok=True)
-            if not self._url_exists(url, revisions[0]):
-                raise RuntimeError(f"SVN 路径在基线版本 r{base_rev} 和首个选中版本 r{revisions[0]} 均不存在")
-            self._run(["checkout", "--non-interactive", "-r", str(revisions[0]), url, work_dir])
-            apply_revisions = revisions[1:]
-
-        for rev in apply_revisions:
-            try:
-                result = subprocess.run(
-                    [self._svn, "merge", "--non-interactive", "--accept", "postpone",
-                     "-c", str(rev), f"{url}@HEAD", work_dir],
-                    cwd=work_dir,
-                    capture_output=True,
-                    timeout=600
-                )
-            except FileNotFoundError:
-                raise RuntimeError(SVN_NOT_FOUND_MESSAGE)
-            conflicts = self._conflict_files(work_dir)
-            if result.returncode != 0 or conflicts:
-                stderr = self._decode(result.stderr) if result.stderr else ""
-                stdout = self._decode(result.stdout) if result.stdout else ""
-                detail = "\n".join(conflicts) if conflicts else (stderr or stdout)
-                raise RuntimeError(
-                    "应用选中 SVN 修订时发生冲突或失败，已取消生成。\n"
-                    f"Revision: r{rev}\n"
-                    f"{detail}"
-                )
-
-        _copy_snapshot(work_dir, self._new_dir)
-
-    def _url_exists(self, url: str, rev: int) -> bool:
+    def _run_bytes(self, args: List[str]) -> bytes:
         try:
             result = subprocess.run(
-                [self._svn, "info", "--non-interactive", "--show-item", "kind", f"{url}@{rev}"],
+                [self._svn] + args,
                 cwd=self.source_project_path,
                 capture_output=True,
-                timeout=60
+                timeout=600,
             )
         except FileNotFoundError:
             raise RuntimeError(SVN_NOT_FOUND_MESSAGE)
-        return result.returncode == 0
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"SVN命令失败: {' '.join(args)}\n"
+                + self._decode(result.stderr or result.stdout)
+            )
+        return result.stdout
+
+    def _prepare(self):
+        revisions = self._parse_revisions()
+        selected = set(revisions)
+        first_revision = min(revisions)
+        last_revision = max(revisions)
+
+        self._project_url = self._run(
+            ["info", "--non-interactive", "--show-item", "url"]
+        ).strip()
+        self._repo_root_url = self._run(
+            ["info", "--non-interactive", "--show-item", "repos-root-url"]
+        ).strip()
+        relative_url = self._run(
+            ["info", "--non-interactive", "--show-item", "relative-url"]
+        ).strip()
+        if not self._project_url or not self._repo_root_url or not relative_url.startswith("^"):
+            raise RuntimeError("无法获取 SVN 项目 URL、仓库根 URL 或仓库相对路径")
+        self._project_repo_path = "/" + unquote(relative_url[1:]).strip("/")
+        self._project_root_transitions = []
+        self._svn_raw_cache = {}
+        self._svn_eol_cache = {}
+        self._svn_regular_endpoint_cache = set()
+
+        self._content_vcs = SVNVCS(self.source_project_path, self._svn)
+        self._content_vcs._cached_repo_url = self._project_url
+        self._content_vcs._eol_cache = {}
+
+        output = self._run([
+            "log", "--xml", "-v", "--non-interactive",
+            # 需要看到最后选中版之后的项目根移动，才能把 HEAD URL 映射回
+            # 选中 revision；这些后续记录只用于路径映射，不参与端点规划。
+            "-r", f"{first_revision}:HEAD", f"{self._project_url}@HEAD",
+        ])
+        history = self._parse_svn_history(output)
+        planner = _EndpointPlanner()
+        for revision in sorted(history):
+            if revision > last_revision:
+                continue
+            changes = self._expand_svn_changes(history[revision], revision, planner)
+            planner.apply(changes, revision in selected, str(revision - 1), str(revision))
+
+        self._finish_plan(
+            planner.selected_entities,
+            self._read_svn_endpoint,
+            self._read_svn_raw_endpoint,
+        )
 
     def _parse_revisions(self) -> List[int]:
         revisions = []
+        seen = set()
         for raw in self.selected_versions:
             token = raw.strip().split()[0].lstrip("rR")
-            if not token.isdigit():
+            if not token.isdigit() or int(token) <= 0:
                 raise RuntimeError(f"SVN revision 格式不正确: {raw}")
-            revisions.append(int(token))
+            value = int(token)
+            if value not in seen:
+                revisions.append(value)
+                seen.add(value)
         return revisions
 
-    def _conflict_files(self, work_dir: str) -> List[str]:
-        output = self._run(["status", "--xml"], cwd=work_dir)
+    def _parse_svn_history(self, output: str) -> Dict[int, List[_SVNPathChange]]:
         try:
             root = ElementTree.fromstring(output)
         except ElementTree.ParseError as exc:
-            raise RuntimeError(f"无法解析 SVN 冲突状态: {exc}") from exc
-
-        conflicts = []
-        for entry in root.findall(".//entry"):
-            status = entry.find("wc-status")
-            if status is None:
+            raise RuntimeError(f"无法解析 SVN 多版本历史: {exc}") from exc
+        history: Dict[int, List[_SVNPathChange]] = {}
+        entries = []
+        for entry in root.findall("logentry"):
+            revision_text = entry.get("revision", "")
+            if not revision_text.isdigit():
                 continue
-            if (
-                status.get("item") == "conflicted" or
-                status.get("props") == "conflicted" or
-                status.get("tree-conflicted") == "true"
+            entries.append((int(revision_text), entry))
+
+        current_prefix = self._project_repo_path.rstrip("/")
+        transitions = []
+        for revision, entry in sorted(entries, key=lambda item: item[0], reverse=True):
+            root_copy_candidates = []
+            entry_nodes = list(entry.findall("./paths/path"))
+            for node in entry_nodes:
+                absolute_path = self._normalize_repo_path((node.text or "").strip())
+                copyfrom_absolute = self._normalize_repo_path(
+                    node.get("copyfrom-path", "")
+                )
+                if (
+                    (node.get("action") or "").upper() == "A"
+                    and (node.get("kind") or "").lower() == "dir"
+                    and copyfrom_absolute
+                    and (
+                        absolute_path == current_prefix
+                        or current_prefix.startswith(absolute_path.rstrip("/") + "/")
+                    )
+                ):
+                    suffix = current_prefix[len(absolute_path.rstrip("/")):]
+                    historical_prefix = copyfrom_absolute.rstrip("/") + suffix
+                    root_copy_candidates.append(
+                        (
+                            len(absolute_path),
+                            historical_prefix,
+                            copyfrom_absolute.rstrip("/"),
+                        )
+                    )
+            root_candidate = max(root_copy_candidates, default=(0, "", ""))
+            root_copyfrom = root_candidate[1]
+            root_source = root_candidate[2]
+            root_transition_is_move = bool(root_source) and any(
+                (node.get("action") or "").upper() == "D"
+                and (node.get("kind") or "").lower() == "dir"
+                and self._normalize_repo_path((node.text or "").strip()).rstrip("/")
+                == root_source
+                for node in entry_nodes
+            )
+
+            items = []
+            for node in entry_nodes:
+                absolute_path = self._normalize_repo_path((node.text or "").strip())
+                rel_path = self._repo_to_project_path(absolute_path, current_prefix)
+                if rel_path is None:
+                    continue
+                action = (node.get("action") or "").upper()
+                kind = (node.get("kind") or "").lower()
+                if rel_path == "" and root_copyfrom and action == "A" and kind == "dir":
+                    # 项目根自身移动不应把所有内部文件误报为新增；它只改变
+                    # 更早 revision 的项目仓库前缀。
+                    continue
+                copyfrom_absolute = self._normalize_repo_path(
+                    node.get("copyfrom-path", "")
+                )
+                copyfrom = self._repo_to_project_path(
+                    copyfrom_absolute, current_prefix
+                )
+                copyfrom_historical = False
+                if copyfrom is None and root_copyfrom:
+                    copyfrom = self._repo_to_project_path(
+                        copyfrom_absolute, root_copyfrom
+                    )
+                    copyfrom_historical = (
+                        copyfrom is not None and root_transition_is_move
+                    )
+                copyfrom_rev_text = node.get("copyfrom-rev", "")
+                items.append(_SVNPathChange(
+                    action=action,
+                    kind=kind,
+                    path=rel_path,
+                    copyfrom_path=copyfrom or "",
+                    copyfrom_rev=(
+                        int(copyfrom_rev_text) if copyfrom_rev_text.isdigit() else 0
+                    ),
+                    copyfrom_historical=copyfrom_historical,
+                ))
+            history[revision] = items
+            if root_copyfrom:
+                transitions.append((revision, current_prefix, root_copyfrom))
+                current_prefix = root_copyfrom
+        self._project_root_transitions = transitions
+        return history
+
+    @staticmethod
+    def _normalize_repo_path(repo_path: str) -> str:
+        if not repo_path:
+            return ""
+        return "/" + unquote(repo_path).replace("\\", "/").strip("/")
+
+    def _repo_to_project_path(
+        self, repo_path: str, project_prefix: str = ""
+    ) -> Optional[str]:
+        if not repo_path:
+            return None
+        normalized = self._normalize_repo_path(repo_path).rstrip("/")
+        prefix = (project_prefix or self._project_repo_path).rstrip("/")
+        if normalized == prefix:
+            return ""
+        if not normalized.startswith(prefix + "/"):
+            return None
+        return normalized[len(prefix) + 1:]
+
+    def _expand_svn_changes(
+        self,
+        raw_changes: List[_SVNPathChange],
+        revision: int,
+        planner: _EndpointPlanner,
+    ) -> List[_HistoryChange]:
+        files = [item for item in raw_changes if item.kind != "dir"]
+        directories = [item for item in raw_changes if item.kind == "dir"]
+        changes: List[_HistoryChange] = []
+
+        deleted_files = {item.path: item for item in files if item.action == "D"}
+        deleted_dirs = {item.path: item for item in directories if item.action == "D"}
+
+        def covered_by_deleted_dir(path: str) -> bool:
+            return any(
+                path == directory
+                or path.startswith(directory.rstrip("/") + "/")
+                for directory in deleted_dirs
+            )
+
+        directory_moves = []
+        for item in directories:
+            if item.action != "A" or not item.copyfrom_path:
+                continue
+            source_missing_before_copy = (
+                planner.has_deleted_under(item.copyfrom_path)
+                and not self._svn_node_exists(item.copyfrom_path, revision - 1)
+            )
+            if covered_by_deleted_dir(item.copyfrom_path) or source_missing_before_copy:
+                directory_moves.append(item)
+
+        explicit_directory_moves = {}
+        for directory_move in directory_moves:
+            old_prefix = directory_move.copyfrom_path.rstrip("/") + "/"
+            new_prefix = directory_move.path.rstrip("/") + "/"
+            for item in files:
+                if (
+                    item.action == "A"
+                    and item.copyfrom_path.startswith(old_prefix)
+                    and item.path.startswith(new_prefix)
+                ):
+                    explicit_directory_moves[item.copyfrom_path] = item.path
+
+        explicit_sources = set(explicit_directory_moves)
+        explicit_targets = set(explicit_directory_moves.values())
+        consumed_deleted_files = set()
+        moved_file_sources = set()
+        for item in files:
+            if item.path in explicit_targets or (
+                item.action == "D" and item.path in explicit_sources
             ):
-                path = (entry.get("path") or "").strip()
-                if path:
-                    conflicts.append(path)
-        return conflicts
+                continue
+            if item.action == "A" and item.copyfrom_path and (
+                item.copyfrom_path in deleted_files
+                or covered_by_deleted_dir(item.copyfrom_path)
+                or planner.is_deleted(item.copyfrom_path)
+                or (
+                    item.copyfrom_historical
+                    and planner.is_active(item.copyfrom_path)
+                )
+            ):
+                changes.append(_HistoryChange("R", item.path, item.copyfrom_path))
+                consumed_deleted_files.add(item.copyfrom_path)
+                moved_file_sources.add(item.copyfrom_path)
+            elif item.action == "A":
+                changes.append(_HistoryChange("A", item.path))
+            elif item.action == "D":
+                changes.append(_HistoryChange("D", item.path))
+            elif item.action in ("M", "R"):
+                changes.append(_HistoryChange("M", item.path))
+            else:
+                raise RuntimeError(
+                    f"暂不支持的 SVN 多版本变更类型 {item.action}: {item.path}"
+                )
+        if consumed_deleted_files:
+            changes = [
+                item for item in changes
+                if not (item.action == "D" and item.path in consumed_deleted_files)
+            ]
+
+        for item in directories:
+            if item.action != "A":
+                continue
+            if item in directory_moves:
+                explicit = {
+                    old_path: new_path
+                    for old_path, new_path in explicit_directory_moves.items()
+                    if old_path.startswith(item.copyfrom_path.rstrip("/") + "/")
+                    and new_path.startswith(item.path.rstrip("/") + "/")
+                }
+                changes.extend(self._expand_directory_move(
+                    item.copyfrom_path,
+                    item.path,
+                    item.copyfrom_rev or revision - 1,
+                    revision,
+                    explicit,
+                ))
+            else:
+                changes.extend(
+                    _HistoryChange("A", path)
+                    for path in self._list_svn_files(item.path, revision)
+                )
+
+        moved_source_prefixes = {
+            item.copyfrom_path.rstrip("/") for item in directory_moves
+        } | moved_file_sources
+        for item in directories:
+            if item.action == "D":
+                # 删除祖先目录可能只是一次或多次 copy+delete move 的外壳；
+                # 已移动的源文件/子树不能再次展开为独立删除，但祖先下其它
+                # 实际被删文件仍必须保留。
+                changes.extend(
+                    _HistoryChange("D", path)
+                    for path in self._list_svn_files(item.path, revision - 1)
+                    if not any(
+                        path == source
+                        or path.startswith(source.rstrip("/") + "/")
+                        for source in moved_source_prefixes
+                    )
+                )
+            elif item.action == "R":
+                changes.extend(self._expand_directory_replacement(item.path, revision))
+            elif item.action not in ("A", "D", "M", "R"):
+                raise RuntimeError(
+                    f"暂不支持的 SVN 目录变更类型 {item.action}: {item.path}"
+                )
+
+        unique = []
+        seen = set()
+        priority = {"R": 0, "D": 1, "A": 2, "M": 3}
+        for item in sorted(changes, key=lambda value: (priority[value.action], value.path, value.old_path)):
+            key = (item.action, item.path, item.old_path)
+            if key not in seen:
+                unique.append(item)
+                seen.add(key)
+        return unique
+
+    def _expand_directory_move(
+        self,
+        old_dir: str,
+        new_dir: str,
+        source_revision: int,
+        target_revision: int,
+        explicit_moves: Dict[str, str],
+    ) -> List[_HistoryChange]:
+        old_files = self._directory_suffix_map(old_dir, source_revision)
+        new_files = self._directory_suffix_map(new_dir, target_revision)
+        result = []
+        used_old = set()
+        used_new = set()
+        old_path_set = set(old_files.values())
+        new_path_set = set(new_files.values())
+        for old_path, new_path in sorted(explicit_moves.items()):
+            if old_path not in old_path_set or new_path not in new_path_set:
+                raise RuntimeError(
+                    "SVN 目录移动中的显式文件 copyfrom 无法在端点确认：\n"
+                    f"{old_path} -> {new_path}"
+                )
+            result.append(_HistoryChange("R", new_path, old_path))
+            used_old.add(old_path)
+            used_new.add(new_path)
+        for suffix in sorted(set(old_files) | set(new_files)):
+            old_path = old_files.get(suffix)
+            new_path = new_files.get(suffix)
+            if old_path in used_old or new_path in used_new:
+                continue
+            if old_path and new_path:
+                result.append(_HistoryChange("R", new_path, old_path))
+            elif old_path:
+                result.append(_HistoryChange("D", old_path))
+            else:
+                result.append(_HistoryChange("A", new_path))
+        return result
+
+    def _expand_directory_replacement(
+        self, directory: str, revision: int
+    ) -> List[_HistoryChange]:
+        old_files = set(self._list_svn_files(directory, revision - 1))
+        new_files = set(self._list_svn_files(directory, revision))
+        result = [_HistoryChange("M", path) for path in sorted(old_files & new_files)]
+        result.extend(_HistoryChange("D", path) for path in sorted(old_files - new_files))
+        result.extend(_HistoryChange("A", path) for path in sorted(new_files - old_files))
+        return result
+
+    def _directory_suffix_map(self, directory: str, revision: int) -> Dict[str, str]:
+        prefix = directory.rstrip("/")
+        result = {}
+        for path in self._list_svn_files(directory, revision):
+            suffix = path[len(prefix):].lstrip("/") if prefix else path
+            result[suffix] = path
+        return result
+
+    def _list_svn_files(self, directory: str, revision: int) -> List[str]:
+        relative = directory.replace("\\", "/").strip("/")
+        url = self._svn_file_url(str(revision), relative)
+        output = self._run([
+            "list", "--xml", "-R", "--non-interactive", "-r", str(revision),
+            url,
+        ])
+        try:
+            root = ElementTree.fromstring(output)
+        except ElementTree.ParseError as exc:
+            raise RuntimeError(f"无法解析 SVN 目录文件列表: {exc}") from exc
+        files = []
+        for entry in root.findall(".//entry"):
+            if entry.get("kind") != "file":
+                continue
+            name = (entry.findtext("name") or "").replace("\\", "/").strip("/")
+            if not name:
+                continue
+            files.append(f"{relative}/{name}" if relative else name)
+        return files
+
+    def _svn_node_exists(self, path: str, revision: int) -> bool:
+        result = subprocess.run(
+            [
+                self._svn,
+                "info",
+                "--non-interactive",
+                "-r",
+                str(revision),
+                self._svn_file_url(str(revision), path),
+            ],
+            cwd=self.source_project_path,
+            capture_output=True,
+            timeout=30,
+        )
+        return result.returncode == 0
+
+    def _read_svn_endpoint(self, version: str, path: str) -> Optional[bytes]:
+        data = self._read_svn_raw_endpoint(version, path)
+        if data is None or not self._content_vcs._is_text_bytes(data):
+            return data
+        style = self._get_svn_eol_style(version, path).strip().lower()
+        if style == "crlf" or (style == "native" and os.linesep == "\r\n"):
+            data = self._content_vcs._apply_crlf(self._content_vcs._normalize_lf(data))
+        elif style == "cr" or (style == "native" and os.linesep == "\r"):
+            data = self._content_vcs._normalize_lf(data).replace(b"\n", b"\r")
+        elif style == "lf":
+            data = self._content_vcs._normalize_lf(data)
+        return data
+
+    def _read_svn_raw_endpoint(self, version: str, path: str) -> Optional[bytes]:
+        cache_key = (str(version), path)
+        if cache_key in self._svn_raw_cache:
+            return self._svn_raw_cache[cache_key]
+        self._validate_svn_regular_endpoint(version, path)
+        try:
+            data = self._run_bytes(["cat", self._svn_file_url(version, path)])
+        except RuntimeError:
+            data = None
+        self._svn_raw_cache[cache_key] = data
+        return data
+
+    def _get_svn_eol_style(self, version: str, path: str) -> str:
+        cache_key = (str(version), path)
+        if cache_key in self._svn_eol_cache:
+            return self._svn_eol_cache[cache_key]
+        rev = str(version).lstrip("rR")
+        try:
+            result = subprocess.run(
+                [
+                    self._svn,
+                    "propget",
+                    "svn:eol-style",
+                    "--strict",
+                    "-r",
+                    rev,
+                    self._svn_file_url(version, path),
+                ],
+                cwd=self.source_project_path,
+                capture_output=True,
+                timeout=30,
+            )
+            style = self._decode(result.stdout).strip() if result.returncode == 0 else ""
+        except Exception:
+            style = ""
+        self._svn_eol_cache[cache_key] = style
+        return style
+
+    def _validate_svn_regular_endpoint(self, version: str, path: str):
+        cache_key = (str(version), path)
+        if cache_key in self._svn_regular_endpoint_cache:
+            return
+        rev = str(version).lstrip("rR")
+        result = subprocess.run(
+            [
+                self._svn,
+                "proplist",
+                "--xml",
+                "-r",
+                rev,
+                self._svn_file_url(version, path),
+            ],
+            cwd=self.source_project_path,
+            capture_output=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"无法检查 SVN 多版本端点属性: {path}@{version}\n"
+                + self._decode(result.stderr or result.stdout)
+            )
+        try:
+            root = ElementTree.fromstring(self._decode(result.stdout))
+        except ElementTree.ParseError as exc:
+            raise RuntimeError(f"无法解析 SVN 端点属性: {path}@{version}") from exc
+        properties = {
+            node.get("name", "") for node in root.findall(".//property")
+        }
+        if "svn:special" in properties:
+            raise RuntimeError(
+                f"SVN 多版本端点是 svn:special（符号链接等特殊节点），"
+                f"已中止生成: {path}@{version}"
+            )
+        self._svn_regular_endpoint_cache.add(cache_key)
+
+    def _svn_file_url(self, version: str, path: str) -> str:
+        revision = int(str(version).lstrip("rR"))
+        project_prefix = self._project_repo_path_at(revision).rstrip("/")
+        relative = path.replace("\\", "/").strip("/")
+        repo_path = project_prefix + ("/" + relative if relative else "")
+        return f"{self._repo_root_url.rstrip('/')}{quote(repo_path, safe='/')}@{revision}"
+
+    def _project_repo_path_at(self, revision: int) -> str:
+        prefix = self._project_repo_path.rstrip("/")
+        for transition_revision, new_prefix, old_prefix in sorted(
+            self._project_root_transitions, reverse=True
+        ):
+            if prefix != new_prefix and revision >= transition_revision:
+                continue
+            if revision < transition_revision:
+                prefix = old_prefix
+        return prefix

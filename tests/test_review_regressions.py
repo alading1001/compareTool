@@ -54,17 +54,19 @@ class ExportTransactionRegressionTests(unittest.TestCase):
             self.assertTrue(os.path.isfile(os.path.join(old_target, "old.txt")))
             self.assertTrue(os.path.isfile(os.path.join(new_target, "new.txt")))
 
-    def test_report_and_both_exports_roll_back_as_one_group(self):
+    def test_report_instructions_and_both_exports_roll_back_as_one_group(self):
         with project_temp_dir() as root:
             targets = [
                 os.path.join(root, "oldVersion"),
                 os.path.join(root, "newVersion"),
                 os.path.join(root, "report.html"),
+                os.path.join(root, "上线操作说明.txt"),
             ]
             stages = [
                 os.path.join(root, "old-stage"),
                 os.path.join(root, "new-stage"),
                 os.path.join(root, "report-stage.html"),
+                os.path.join(root, "instructions-stage.txt"),
             ]
             os.makedirs(targets[0])
             os.makedirs(targets[1])
@@ -76,6 +78,8 @@ class ExportTransactionRegressionTests(unittest.TestCase):
             write_text(os.path.join(stages[1], "value.txt"), "new-staged")
             write_text(targets[2], "report-original")
             write_text(stages[2], "report-staged")
+            write_text(targets[3], "instructions-original")
+            write_text(stages[3], "instructions-staged")
 
             real_replace = os.replace
             replace_count = 0
@@ -83,12 +87,12 @@ class ExportTransactionRegressionTests(unittest.TestCase):
             def fail_report_install(src, dst):
                 nonlocal replace_count
                 replace_count += 1
-                if replace_count == 6:
-                    raise OSError("report locked")
+                if replace_count == 8:
+                    raise OSError("instructions locked")
                 return real_replace(src, dst)
 
             with mock.patch("file_exporter.os.replace", side_effect=fail_report_install):
-                with self.assertRaisesRegex(OSError, "report locked"):
+                with self.assertRaisesRegex(OSError, "instructions locked"):
                     FileExporter._replace_outputs(list(zip(stages, targets)))
 
             with open(os.path.join(targets[0], "value.txt"), encoding="utf-8") as stream:
@@ -97,6 +101,8 @@ class ExportTransactionRegressionTests(unittest.TestCase):
                 self.assertEqual("new-original", stream.read())
             with open(targets[2], encoding="utf-8") as stream:
                 self.assertEqual("report-original", stream.read())
+            with open(targets[3], encoding="utf-8") as stream:
+                self.assertEqual("instructions-original", stream.read())
 
     def test_single_generation_keeps_report_and_exports_in_same_transaction(self):
         with project_temp_dir() as root:
@@ -105,9 +111,11 @@ class ExportTransactionRegressionTests(unittest.TestCase):
             write_text(os.path.join(source_old, "value.txt"), "source-old")
             write_text(os.path.join(source_new, "value.txt"), "source-new")
             report = os.path.join(root, "Demo_diff.html")
+            instructions = os.path.join(root, "上线操作说明.txt")
             old_target = os.path.join(root, "oldVersion", "Demo")
             new_target = os.path.join(root, "newVersion", "Demo")
             write_text(report, "report-original")
+            write_text(instructions, "instructions-original")
             write_text(os.path.join(old_target, "value.txt"), "old-original")
             write_text(os.path.join(new_target, "value.txt"), "new-original")
 
@@ -120,8 +128,8 @@ class ExportTransactionRegressionTests(unittest.TestCase):
             def fail_report_install(src, dst):
                 nonlocal replace_count
                 replace_count += 1
-                if replace_count == 6:
-                    raise OSError("report install failed")
+                if replace_count == 8:
+                    raise OSError("instructions install failed")
                 return real_replace(src, dst)
 
             with mock.patch("file_exporter.os.replace", side_effect=fail_report_install):
@@ -141,10 +149,84 @@ class ExportTransactionRegressionTests(unittest.TestCase):
 
             with open(report, encoding="utf-8") as stream:
                 self.assertEqual("report-original", stream.read())
+            with open(instructions, encoding="utf-8") as stream:
+                self.assertEqual("instructions-original", stream.read())
             with open(os.path.join(old_target, "value.txt"), encoding="utf-8") as stream:
                 self.assertEqual("old-original", stream.read())
             with open(os.path.join(new_target, "value.txt"), encoding="utf-8") as stream:
                 self.assertEqual("new-original", stream.read())
+
+    def test_single_generation_creates_delivery_instructions_with_outputs(self):
+        with project_temp_dir() as root:
+            source_old = os.path.join(root, "source-old")
+            source_new = os.path.join(root, "source-new")
+            write_text(os.path.join(source_old, "Old.java"), "old")
+            os.makedirs(source_new)
+            report = os.path.join(root, "Demo_diff.html")
+
+            app = CompareToolApp.__new__(CompareToolApp)
+            app.root = mock.Mock()
+            app.root.after.return_value = None
+            app._do_generate(
+                source_new,
+                "folder",
+                source_old,
+                source_new,
+                "Demo",
+                [],
+                True,
+                True,
+                report,
+                os.path.join(root, "oldVersion"),
+                os.path.join(root, "newVersion"),
+            )
+
+            instructions = os.path.join(root, "上线操作说明.txt")
+            self.assertTrue(os.path.isfile(report))
+            self.assertTrue(os.path.isfile(instructions))
+            with open(instructions, encoding="utf-8-sig") as stream:
+                text = stream.read()
+            self.assertIn("[删除文件] Demo/Old.java", text)
+
+    def test_multi_generation_replaces_roots_and_removes_stale_projects(self):
+        with project_temp_dir() as root:
+            def task(name):
+                old_dir = os.path.join(root, f"{name}-old")
+                new_dir = os.path.join(root, f"{name}-new")
+                write_text(os.path.join(old_dir, "value.txt"), f"{name}-old")
+                write_text(os.path.join(new_dir, "value.txt"), f"{name}-new")
+                return {
+                    "project_name": name,
+                    "vcs_type": "folder",
+                    "project_path": "",
+                    "old_version": old_dir,
+                    "new_version": new_dir,
+                    "exclude_rules": "",
+                    "show_project_root": True,
+                    "show_full_context": True,
+                }
+
+            task_a = task("A")
+            task_b = task("B")
+            app = CompareToolApp.__new__(CompareToolApp)
+            app.root = mock.Mock()
+            app.root.after.return_value = None
+            old_target = os.path.join(root, "oldVersion")
+            new_target = os.path.join(root, "newVersion")
+            report = os.path.join(root, "multi.html")
+
+            app._do_generate_multi(
+                [task_a, task_b], report, old_target, new_target
+            )
+            self.assertTrue(os.path.isdir(os.path.join(old_target, "B")))
+            self.assertTrue(os.path.isdir(os.path.join(new_target, "B")))
+
+            app._do_generate_multi([task_a], report, old_target, new_target)
+
+            self.assertTrue(os.path.isdir(os.path.join(old_target, "A")))
+            self.assertTrue(os.path.isdir(os.path.join(new_target, "A")))
+            self.assertFalse(os.path.exists(os.path.join(old_target, "B")))
+            self.assertFalse(os.path.exists(os.path.join(new_target, "B")))
 
     def test_second_stage_creation_failure_cleans_first_stage(self):
         with project_temp_dir() as root:
@@ -240,6 +322,78 @@ class ExportTransactionRegressionTests(unittest.TestCase):
                     self.assertEqual("committed", stream.read())
                 self.assertFalse(os.path.lexists(state["backup"]))
             self.assertFalse(os.path.exists(journal))
+
+    def test_interrupted_delivery_instruction_is_accepted_by_recovery_validator(self):
+        with project_temp_dir() as root:
+            target = os.path.join(root, "上线操作说明.txt")
+            fd, stage = tempfile.mkstemp(
+                prefix=".comparetool_delivery_", suffix=".txt", dir=root
+            )
+            os.close(fd)
+            write_text(target, "original")
+            write_text(stage, "staged")
+            token = "c" * 32
+            state = {
+                "stage": stage,
+                "target": target,
+                "backup": f"{target}.comparetool_backup_{token}",
+                "had_target": True,
+                "installed": False,
+            }
+            journal = FileExporter._create_transaction_journal([state], token)
+            os.replace(target, state["backup"])
+
+            recovered = FileExporter.recover_transactions(root)
+
+            self.assertEqual([journal], recovered)
+            with open(target, encoding="utf-8") as stream:
+                self.assertEqual("original", stream.read())
+            self.assertFalse(os.path.exists(stage))
+            self.assertFalse(os.path.exists(state["backup"]))
+
+    def test_orphan_pretransaction_stages_are_cleaned_but_exports_are_not_scanned(self):
+        with project_temp_dir() as root:
+            batch = os.path.join(root, "20260824")
+            os.makedirs(batch)
+            orphan_dir = tempfile.mkdtemp(prefix=".comparetool_stage_", dir=batch)
+            report_fd, orphan_report = tempfile.mkstemp(
+                prefix=".comparetool_report_", suffix=".html", dir=batch
+            )
+            os.close(report_fd)
+            delivery_fd, orphan_delivery = tempfile.mkstemp(
+                prefix=".comparetool_delivery_", suffix=".txt", dir=batch
+            )
+            os.close(delivery_fd)
+            write_text(os.path.join(orphan_dir, "source.java"), "source")
+
+            export_like_name = os.path.join(
+                root, "oldVersion", ".comparetool_stage_abcdefgh", "source.java"
+            )
+            write_text(export_like_name, "real exported source")
+
+            project_pairs = self._empty_exporter().prepare_export(
+                os.path.join(batch, "oldVersion"),
+                os.path.join(batch, "newVersion"),
+                project_name="Demo",
+            )
+            project_stage_roots = {
+                os.path.dirname(stage) for stage, _target in project_pairs
+            }
+            self.assertEqual(2, len(project_stage_roots))
+            for stage_root in project_stage_roots:
+                self.assertEqual(batch, os.path.dirname(stage_root))
+                self.assertTrue(
+                    os.path.basename(stage_root).startswith(".comparetool_stage_")
+                )
+
+            FileExporter.recover_transactions(root, include_direct_children=True)
+
+            self.assertFalse(os.path.exists(orphan_dir))
+            self.assertFalse(os.path.exists(orphan_report))
+            self.assertFalse(os.path.exists(orphan_delivery))
+            for stage_root in project_stage_roots:
+                self.assertFalse(os.path.exists(stage_root))
+            self.assertTrue(os.path.isfile(export_like_name))
 
     def test_multi_project_nested_stages_are_recoverable(self):
         with project_temp_dir() as root:
@@ -403,20 +557,20 @@ class VCSRegressionTests(unittest.TestCase):
                 vcs._get_eol_style = lambda version, path, value=style: value
                 self.assertEqual(expected, vcs.get_file_content_bytes("12", "file.txt"))
 
-    def test_svn_status_xml_detects_text_property_and_tree_conflicts(self):
+    def test_svn_multi_history_xml_keeps_file_identity_and_ignores_other_projects(self):
         vcs = SVNMultiVersionVCS.__new__(SVNMultiVersionVCS)
-        vcs._run = lambda args, cwd=None: """<?xml version="1.0"?>
-<status><target path=".">
-  <entry path="text.txt"><wc-status item="conflicted" props="none"/></entry>
-  <entry path="props.txt"><wc-status item="modified" props="conflicted"/></entry>
-  <entry path="tree.txt"><wc-status item="normal" props="none" tree-conflicted="true"/></entry>
-  <entry path="clean.txt"><wc-status item="normal" props="none"/></entry>
-</target></status>"""
+        vcs._project_repo_path = "/trunk/Demo"
+        history = vcs._parse_svn_history("""<?xml version="1.0"?>
+<log><logentry revision="12"><paths>
+  <path action="D" kind="file">/trunk/Demo/old.txt</path>
+  <path action="A" kind="file" copyfrom-path="/trunk/Demo/old.txt" copyfrom-rev="11">/trunk/Demo/new.txt</path>
+  <path action="M" kind="file">/trunk/Other/ignored.txt</path>
+</paths></logentry></log>""")
 
-        self.assertEqual(
-            ["text.txt", "props.txt", "tree.txt"],
-            vcs._conflict_files("work"),
-        )
+        self.assertEqual(2, len(history[12]))
+        self.assertEqual("old.txt", history[12][0].path)
+        self.assertEqual("new.txt", history[12][1].path)
+        self.assertEqual("old.txt", history[12][1].copyfrom_path)
 
 
 class DiffAndConfigRegressionTests(unittest.TestCase):
@@ -467,6 +621,19 @@ class DiffAndConfigRegressionTests(unittest.TestCase):
         self.assertEqual("Demo", tasks[0]["project_name"])
         self.assertEqual("git", tasks[0]["vcs_type"])
         self.assertEqual("C:/repo", tasks[0]["project_path"])
+
+    def test_legacy_multi_version_task_is_migrated_to_file_endpoints(self):
+        app = CompareToolApp.__new__(CompareToolApp)
+        tasks = app._normalize_loaded_multi_tasks([{
+            "project_name": "Demo",
+            "vcs_type": "git_multi",
+            "project_path": "C:/repo",
+            "old_version": "abc123, def456",
+            "new_version": "基线 + 选中版本",
+        }])
+
+        self.assertEqual(1, len(tasks))
+        self.assertEqual("文件级首尾端点", tasks[0]["new_version"])
 
     def test_unknown_task_vcs_is_not_silently_treated_as_svn(self):
         app = CompareToolApp.__new__(CompareToolApp)

@@ -100,7 +100,8 @@ class DiffEngine:
     def generate_diff(self, old_version: str, new_version: str) -> DiffResult:
         """生成两个版本之间的完整差异"""
         changed_files = self.vcs.get_changed_files(old_version, new_version)
-        changed_files = self._merge_exact_renames(changed_files, old_version, new_version)
+        if getattr(self.vcs, "merge_exact_renames", True):
+            changed_files = self._merge_exact_renames(changed_files, old_version, new_version)
 
         result = DiffResult(
             project_path=self.vcs.project_path,

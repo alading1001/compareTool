@@ -29,10 +29,11 @@ main.py                  # tkinter GUI 入口，线程管理，配置持久化�
 │   ├── svn_vcs.py       # SVNVCS：svn diff --summarize / svn cat (URL+@peg) / svn log
 │   ├── folder_vcs.py    # FolderVCS：两个文件夹直接比对，filecmp.cmp 判断差异
 │   ├── archive_vcs.py   # ArchiveVCS：解压 zip/tar 到临时目录，委托 FolderVCS 比对
-│   └── multi_version_vcs.py # Git/SVN 需求包比对：临时基线 + cherry-pick / svn merge 后委托 FolderVCS
+│   └── multi_version_vcs.py # Git/SVN 多版本：历史身份追踪 + 文件级端点快照
 ├── diff_engine.py       # DiffEngine：遍历变更文件，difflib.HtmlDiff.make_table()
 ├── report_generator.py  # Jinja2 渲染 templates/report.html → 单文件 HTML
 ├── file_exporter.py     # 变更文件按目录结构导出到 old/ 和 new/ 目录
+├── delivery_instructions.py # 生成上线删除/重命名操作说明
 ├── logger.py            # 简易日志，仅 warn/error 写文件（info 为空操作），512KB 轮转
 ├── templates/report.html # 单项目 HTML 报告模板（文件树 + 左右对比 + 变更清单弹窗）
 └── templates/multi_report.html # 多项目总报告模板（项目分组文件树 + 左右对比 + 变更清单弹窗）
@@ -40,13 +41,13 @@ main.py                  # tkinter GUI 入口，线程管理，配置持久化�
 
 ### 数据流
 
-1. `main.py` 收集输入：项目路径、VCS 类型（Git/SVN/文件夹/压缩包/Git需求包/SVN需求包）、旧/新版本号或需求版本列表、排除规则、输出目录
+1. `main.py` 收集输入：项目路径、VCS 类型（Git/SVN/文件夹/压缩包/Git多版本/SVN多版本）、旧/新版本号或多版本列表、排除规则、输出目录
 2. 根据 VCS 类型创建 `GitVCS` / `SVNVCS` / `FolderVCS` / `ArchiveVCS` / `GitMultiVersionVCS` / `SVNMultiVersionVCS` → `get_changed_files()` 获取变更文件列表
 3. `DiffEngine.generate_diff()` 遍历文件，对文本文件用 `difflib.HtmlDiff.make_table()` 生成 side-by-side HTML；二进制文件跳过内容只设占位标记；内容完全一致且唯一匹配的删除+新增会合并为重命名
 4. `ReportGenerator` 用 Jinja2 渲染模板 → 单文件 HTML
-5. `FileExporter` 导出变更文件：统一通过 `vcs.get_file_content_bytes()` 读取原始字节（失败返回 `None`，空文件返回 `b""`），以 `wb` 模式写入保留原始编码。`None` 必须使本次导出失败，不能静默漏文件或用不可靠的空文本兜底。单项目的报告和 old/new 目录在各自同盘暂存后一次成组提交；多项目则在全部项目和报告均成功后一次提交，任一步失败都恢复原有输出。提交前写 `.comparetool_transaction_*.json` 恢复日志和 commit/rollback 决策标记；启动时扫描配置输出目录及其一级批次目录，新提交前再严格恢复当前目录，防止强退/断电后遗留半包。重命名文件导出时 oldVersion 使用 `old_path`，newVersion 使用 `file_path`。
+5. `FileExporter` 导出变更文件：统一通过 `vcs.get_file_content_bytes()` 读取原始字节（失败返回 `None`，空文件返回 `b""`），以 `wb` 模式写入保留原始编码。`None` 必须使本次导出失败，不能静默漏文件或用不可靠的空文本兜底。单项目的报告、`上线操作说明.txt` 和 old/new 目录在各自同盘暂存后一次成组提交；正式单项目源码 stage 必须放在批次根内部随机 wrapper，不得混进 `oldVersion/newVersion`，多项目内层导出则显式标记目标已是外层 stage。多项目全部成功后整体替换 old/new 根及另外两类产物，任一步失败都恢复原有输出。提交前写 `.comparetool_transaction_*.json` 恢复日志和 commit/rollback 决策标记；启动时扫描配置输出目录及其一级批次目录，并只清理批次根下严格匹配的内部孤儿暂存物，不扫描用户源码树。重命名文件导出时 oldVersion 使用 `old_path`，newVersion 使用 `file_path`。
 
-项目名只在能从有效项目目录、新版本文件夹或新版本压缩包推断出真实名称时自动填充。推断不到且用户未手工填写时，生成报告或添加多项目任务应直接提示失败，不使用 `project` 之类的假兜底名称。Git/SVN/Git需求包/SVN需求包模式下，项目名输入框是可编辑下拉框，会按 Git/SVN 家族记忆最近 10 个有效项目；选择最近项目时必须同步回填项目目录和项目名，并触发项目路径变化逻辑清空旧/新版本和版本列表，避免跨项目复用版本号。
+项目名只在能从有效项目目录、新版本文件夹或新版本压缩包推断出真实名称时自动填充。推断不到且用户未手工填写时，生成报告或添加多项目任务应直接提示失败，不使用 `project` 之类的假兜底名称。Git/SVN/Git多版本/SVN多版本模式下，项目名输入框是可编辑下拉框，会按 Git/SVN 家族记忆最近 10 个有效项目；选择最近项目时必须同步回填项目目录和项目名，并触发项目路径变化逻辑清空旧/新版本和版本列表，避免跨项目复用版本号。
 
 ### 多项目总报告
 
@@ -59,7 +60,7 @@ newVersion/项目名/...
 
 若填写了输出批次名称，实际导出根目录会变成 `输出目录/输出批次名称/`，报告、`oldVersion` 和 `newVersion` 都生成在这一层下。生成单项目或多项目报告前会提示当前批次名称和实际输出目录，用户确认后才继续。
 
-多项目任务允许混用 Git/SVN/文件夹/压缩包/Git需求包/SVN需求包。任一任务失败时本次生成失败，不跳过项目，也不提交任何项目的新导出目录或新报告。总报告文件名格式为 `multi_compare_report_yyyyMMdd_HHmmss_SSS.html`。任务列表保存到 `compareTool_config.json`。多项目项目名按 Windows 大小写不敏感规则判重，避免 `Demo` / `demo` 写入同一目录。多项目变更清单是纯文本页面，按新增/修改/格式变化/删除/重命名汇总；每条路径是否带项目名由该任务自己的 `show_project_root` 决定。生成总报告前会检测最终展示路径冲突，若同一展示路径来自多个项目，则失败并提示开启相关任务的项目名展示。
+多项目任务允许混用 Git/SVN/文件夹/压缩包/Git多版本/SVN多版本。任一任务失败时本次生成失败，不跳过项目，也不提交任何项目的新导出目录、新说明文件或新报告。总报告文件名格式为 `multi_compare_report_yyyyMMdd_HHmmss_SSS.html`。任务列表保存到 `compareTool_config.json`。多项目项目名按 Windows 大小写不敏感规则判重，避免 `Demo` / `demo` 写入同一目录。多项目变更清单是纯文本页面，按新增/修改/格式变化/删除/重命名汇总；每条路径是否带项目名由该任务自己的 `show_project_root` 决定。生成总报告前会检测最终展示路径冲突，若同一展示路径来自多个项目，则失败并提示开启相关任务的项目名展示。`上线操作说明.txt` 中的路径始终带项目名。
 
 ### VCS 类型与版本标识
 
@@ -69,36 +70,28 @@ newVersion/项目名/...
 | SVN | `rNNNNN` 或 `NNNNN` | 同左 | `get_file_content` 使用仓库 URL + peg revision |
 | 文件夹 | 旧文件夹路径 | 新文件夹路径 | 版本标识即为文件夹路径，`_resolve_version_dir()` 同时兼容 `"old"`/`"new"` 和实际路径 |
 | 压缩包 | 旧压缩包路径 | 新压缩包路径 | 解压到临时目录后委托 `FolderVCS` 比对；支持 `.zip` / `.jar` / `.war` / `.ear` / `.aar` / `.tar` / `.tar.gz` / `.tgz` / `.tar.bz2` / `.tbz2` |
-| Git需求包 | 多个 commit hash | `基线 + 选中版本` | `old = 最早选中提交的父提交`，`new = old + 按时间顺序 cherry-pick 选中提交` |
-| SVN需求包 | 多个 `rNNNNN` 或 `NNNNN` | `基线 + 选中版本` | `old = 最早选中 revision - 1`，`new = old + 按 revision 顺序 svn merge 选中修订` |
+| Git多版本 | 多个 commit hash | `文件级首尾端点` | 每个文件 old 取首次选中变更的第一父提交，new 取末次选中提交 |
+| SVN多版本 | 多个 `rNNNNN` 或 `NNNNN` | `文件级首尾端点` | 每个文件 old 取首次选中 revision 前状态，new 取末次选中 revision 后状态 |
 
 ### 版本列表交互
 
-Git/SVN/Git需求包/SVN需求包的版本列表只搜索当前已经展示的列表内容，不额外查询仓库。普通 Git/SVN 模式仍由 `GitVCS.get_versions()` / `SVNVCS.get_versions()` 获取 tags/分支/最近 100 条日志或最近 100 条 revision；需求包模式仍由 `get_recent_versions()` 获取当前项目最近 100 条主线提交或相关 revision。
+Git/SVN/Git多版本/SVN多版本的版本列表只搜索当前已经展示的列表内容，不额外查询仓库。普通 Git/SVN 模式仍由 `GitVCS.get_versions()` / `SVNVCS.get_versions()` 获取 tags/分支/最近 100 条日志或最近 100 条 revision；多版本模式仍由 `get_recent_versions()` 获取当前项目最近 100 条主线提交或相关 revision。
 
-版本列表工具条包含搜索框、清空按钮、填入按钮，以及「隐藏版本列表 / 显示版本列表」切换按钮。隐藏只收起 `Listbox`，不清空 `_version_items`、搜索词或需求包多选状态；重新获取版本列表、切换项目路径或切换 VCS 类型时应重置版本列表状态并自动展开。Git需求包/SVN需求包多选要通过 `_selected_multi_versions` 保留跨搜索过滤、隐藏/显示后的选择，填入时按原始版本列表顺序输出。
+版本列表工具条包含搜索框、清空按钮、填入按钮，以及「隐藏版本列表 / 显示版本列表」切换按钮。隐藏只收起 `Listbox`，不清空 `_version_items`、搜索词或多版本选择状态；重新获取版本列表、切换项目路径或切换 VCS 类型时应重置版本列表状态并自动展开。Git多版本/SVN多版本多选要通过 `_selected_multi_versions` 保留跨搜索过滤、隐藏/显示后的选择，填入时按原始版本列表顺序输出。
 
 ### 重命名处理
 
-`ChangeType.RENAMED` 中 `file_path` 表示新路径，`old_path` 表示旧路径。`GitVCS` 使用 `git diff --name-status --find-renames` 获取 Git 明确识别的重命名。`DiffEngine._merge_exact_renames()` 会把内容字节完全一致且唯一匹配的 `DELETED + ADDED` 合并成 `RENAMED`，用于文件夹、压缩包、Git需求包、SVN需求包，以及 SVN 普通比对输出为删除+新增的纯重命名场景。工具不做相似度猜测：如果重命名同时修改内容且 VCS 没有明确返回重命名，就保持删除+新增。重命名只发生编码/BOM/换行变化时要显示明确说明；排除规则只命中新旧一侧时必须转换为删除或新增。Git `T` 类型变化必须中止而不能冒充普通修改。报告模板必须把 `R` 纳入汇总卡片、文件树标签、过滤器和纯文本变更清单。
+`ChangeType.RENAMED` 中 `file_path` 表示新路径，`old_path` 表示旧路径。`GitVCS` 使用 `git diff --name-status --find-renames` 获取 Git 明确识别的重命名。普通 SVN、文件夹和压缩包可由 `DiffEngine._merge_exact_renames()` 把内容字节完全一致且唯一匹配的 `DELETED + ADDED` 合并成 `RENAMED`。Git多版本/SVN多版本由端点规划器沿历史追踪文件身份，禁止再对最终删除/新增做内容二次配对。重命名只发生编码/BOM/换行变化时要显示明确说明；排除规则只命中新旧一侧时必须转换为删除或新增。Git `T` 类型变化及多版本非普通文件端点必须中止。报告模板必须把 `R` 纳入汇总卡片、文件树标签、过滤器和纯文本变更清单。
 
-### 需求包比对
+### Git/SVN 多版本文件端点
 
-Git需求包/SVN需求包用于按需求拆分上线包，而不是从当前 HEAD 中扣除未选版本。语义固定为：
+Git多版本/SVN多版本使用“文件级首尾端点”语义：选中版本只决定候选文件集合及每个文件的首次/末次选中变更；old 取该文件首次选中变更之前的真实状态，new 取末次选中变更之后的真实状态，只比较最终净结果。不同文件允许来自不同 commit/revision；报告和 oldVersion/newVersion 使用同一端点；newVersion 导出完整文件，但不是某个单一版本的完整项目快照。
 
-```
-old = 最早选中版本的前一个版本
-new = old + 按时间顺序应用所有选中版本
-报告 = old 与 new 的差异
-```
-
-例：提交顺序为 `C提交 → A需求1 → B需求1 → A需求2 → B需求2`，只选择 `A需求1` 和 `A需求2` 时，报告体现 A 需求相对于 `C提交` 的改动。若选中版本依赖未选版本（例如 A 修改了 B 新增的文件），临时应用提交/修订会冲突，工具应失败并提示冲突文件，不生成假报告。
-
-实现要点：
-- `GitMultiVersionVCS`：解析选中 commit，按历史顺序排序；取最早选中 commit 的第一父提交作为 base；临时 clone 后 checkout base；普通提交依次 `git cherry-pick --no-commit`，合并提交依次 `git cherry-pick --no-commit -m 1`，成功后复制为 `new`，base 快照为 `old`。版本列表用 `git log --first-parent -100` 展示当前分支主线提交，并用 `[merge]` 标记 merge commit。
-- `SVNMultiVersionVCS`：解析 revision，升序排序；取最小 revision - 1 作为 base；若当前 URL 在 base 存在，则 export/checkout base；若当前 URL 在 base 不存在但在首个选中 revision 存在，则 old 为空、checkout 首个选中 revision，并从第二个 revision 开始 merge。之后依次 `svn merge -c REV URL@HEAD workdir`。版本列表用当前项目 `URL@HEAD` 查询最近 100 条相关 revision，不查询全仓库。
-- 两种需求包模式都通过 `vcs.temp_storage.create_temp_dir()` 创建临时目录，归档解压也使用同一策略。`COMPARETOOL_TEMP_DIR` 可显式覆盖；默认优先源码/exe 所在非系统盘的 `.tmp/comparetool_runtime`，若运行位置在 C 盘且 D 盘可用则使用 `D:\applications\_cache\CompareTool\tmp`，最后才回退系统临时目录。成功、失败、冲突都必须在 `finally` 中清理；Windows 只读元数据通过 `_remove_tree()` 恢复写权限后删除。
-- 用户切换 Git/SVN/Git需求包/SVN需求包的项目目录时，若路径实际变化，必须清空旧/新版本输入和版本列表，避免跨项目复用版本号；异步获取版本列表返回时也要校验项目路径和 VCS 类型仍一致。
+- `GitMultiVersionVCS` 只接受当前分支第一父历史的选中提交，合并提交相对第一父提交计算；浅克隆缺少父对象时失败。历史按正常阈值追踪重命名、低阈值检测疑似重命名；同提交 `D/R → A/R/M` 竞争矩阵和跨提交待定删除源到后续 `A/R/M` 目标，必须用隔离 source/target blob 的 Git 原生 rename score 复核，候选身份跨选中端点且不唯一时 fail closed。
+- `SVNMultiVersionVCS` 解析当前项目 URL 的 `svn log --xml -v`，按 revision 映射项目根/祖先移动前缀，用 `copyfrom-path` 和删除覆盖关系追踪文件身份；同 revision 根移动加子文件改名、延迟 copyfrom、移动后删除源祖先都必须保持身份，普通 copy 源仍存在时不得误当 move。
+- 两种模式均不执行 cherry-pick 或 SVN merge；导出快照与仓库原始字节快照分离，后者用于格式净差异。Git 非普通 mode、`svn:special` 或其它非普通文件端点必须在净零过滤前中止；成功或失败后必须清理临时目录。
+- 用户切换 Git/SVN/Git多版本/SVN多版本的项目目录时，若路径实际变化，必须清空旧/新版本输入和版本列表；异步获取版本列表返回时也要校验项目路径和 VCS 类型仍一致。
+- 唯一语义规格和验收场景见 [`docs/multi-version-file-endpoints.md`](docs/multi-version-file-endpoints.md)。
 
 ### SVN 文件内容获取（重要）
 
@@ -123,7 +116,7 @@ Git/SVN 可执行文件路径均自动探测：先查 `shutil.which`，再查 Wi
 
 **ZIP 文件名编码修正**：Windows 中文环境创建的 zip 文件名通常用 GBK 编码而不设 UTF-8 标志位（`flag_bits & 0x800 == 0`）。`_fix_zip_filename()` 将 `ZipInfo.filename` 反向编码为 CP437 原始字节，再按 GBK 解码为正确的中文文件名。
 
-**安全解压与临时目录清理**：ZIP/TAR 每个成员都必须先通过临时目录边界和 Windows 文件名校验，拒绝父目录穿越、绝对/盘符路径、ADS、符号链接、硬链接和设备等特殊成员；不得直接使用无过滤的 `extractall()`。默认限制 100,000 个成员、单成员 2 GiB、累计展开 10 GiB 和 1000:1 压缩比，在写文件前统一校验。`ArchiveVCS.cleanup()` 通过 `shutil.rmtree` 删除临时目录，构造中途失败、`__del__` 和 `_do_generate` 的 `finally` 块均会调用。文件夹/需求包快照也必须拒绝符号链接和联接点，避免解引用读取根外内容。
+**安全解压与临时目录清理**：ZIP/TAR 每个成员都必须先通过临时目录边界和 Windows 文件名校验，拒绝父目录穿越、绝对/盘符路径、ADS、符号链接、硬链接和设备等特殊成员；不得直接使用无过滤的 `extractall()`。默认限制 100,000 个成员、单成员 2 GiB、累计展开 10 GiB 和 1000:1 压缩比，在写文件前统一校验。`ArchiveVCS.cleanup()` 通过 `shutil.rmtree` 删除临时目录，构造中途失败、`__del__` 和 `_do_generate` 的 `finally` 块均会调用。文件夹/多版本端点快照也必须拒绝符号链接和联接点，避免解引用读取根外内容。
 
 **排除规则转发**：`ArchiveVCS` 覆写 `set_exclude_patterns()`，将规则同步传给内部 `FolderVCS`，否则排除规则不会生效。
 
@@ -174,4 +167,4 @@ Windows 上 `core.autocrlf=true`（Git）或 `svn:eol-style=native`（SVN）会�
 
 ### 配置持久化
 
-`compareTool_config.json` 保存项目路径、VCS 类型、输出路径、多项目任务列表、`recent_projects`、`project_exclude_rules` 和 `project_display_options`。配置必须先写同目录临时文件并 `os.replace()` 原子替换，避免进程中断破坏已有任务；序列化、写入或替换失败必须向用户报错，不得显示假成功。启动时会规范化 `multi_tasks` schema，损坏、缺字段、VCS 类型未知或同名的任务记录应记录警告并忽略，不能阻止窗口启动。项目级配置按规范化绝对路径保存：Git/SVN/Git需求包/SVN需求包用项目目录，文件夹用新版本文件夹，压缩包用新版本压缩包完整文件路径。最近项目列表按 Git/SVN 家族分组，每组最多保留最近 10 个有效项目，旧配置没有 `recent_projects` 时应兼容为空并可由当前有效项目回填。新路径没有专属排除规则时，使用 `main.py` 内置默认模板；旧版全局 `exclude_rules` 不再作为默认模板来源。多项目任务添加/更新时保存排除规则和显示选项快照，后续项目默认配置变化不会偷偷影响已添加任务。输出批次名称不持久化，每次启动默认当天日期。
+`compareTool_config.json` 保存项目路径、VCS 类型、输出路径、多项目任务列表、`recent_projects`、`project_exclude_rules` 和 `project_display_options`。配置必须先写同目录临时文件并 `os.replace()` 原子替换，避免进程中断破坏已有任务；序列化、写入或替换失败必须向用户报错，不得显示假成功。启动时会规范化 `multi_tasks` schema，损坏、缺字段、VCS 类型未知或同名的任务记录应记录警告并忽略，不能阻止窗口启动；旧多版本任务的 `new_version` 会迁移为“文件级首尾端点”。项目级配置按规范化绝对路径保存：Git/SVN/Git多版本/SVN多版本用项目目录，文件夹用新版本文件夹，压缩包用新版本压缩包完整文件路径。最近项目列表按 Git/SVN 家族分组，每组最多保留最近 10 个有效项目，旧配置没有 `recent_projects` 时应兼容为空并可由当前有效项目回填。新路径没有专属排除规则时，使用 `main.py` 内置默认模板；旧版全局 `exclude_rules` 不再作为默认模板来源。多项目任务添加/更新时保存排除规则和显示选项快照，后续项目默认配置变化不会偷偷影响已添加任务。输出批次名称不持久化，每次启动默认当天日期。
