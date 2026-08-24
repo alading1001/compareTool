@@ -114,8 +114,8 @@ newVersion/<new_path> = new_f 的完整文件内容
 端点规划保留每个文件自己的 `old_version`、`new_version`、`old_path` 和 `new_path`。重命名并修改内容不会退化为两个互不相关的删除/新增记录。
 
 - Git：只分析当前分支第一父历史，合并提交相对第一父提交计算；父对象在浅克隆边界缺失时中止。以正常重命名阈值追踪身份、低阈值检查疑似重命名；同提交覆盖 `D/R → A/R/M` 竞争矩阵，跨提交保留待定删除源并检查后续 `A/R/M` 目标。任意版本的 source/target blob 放入隔离临时目录，用 `git diff --no-index --find-renames=50%` 重算 Git 原生分数；候选身份跨越选中端点且不能唯一确认时整体失败，不生成猜测结果。
-- SVN：解析当前项目 URL 的 `svn log --xml -v` 历史，用 `copyfrom-path`、revision 对应的项目仓库前缀和删除覆盖关系追踪身份。项目根或祖先目录移动、同 revision 子文件改名、延迟 copyfrom、移动后删除源祖先都要保持同一逻辑文件；普通 copy 的源仍存在时保持两个独立文件。
-- 两种模式：导出字节与仓库原始字节分别快照；前者供 oldVersion/newVersion，后者用于识别 BOM、编码和换行符净差异。Git 非普通 mode、`svn:special` 或其它非普通文件端点必须在净零过滤前中止。成功或失败后都清理临时目录。
+- SVN：解析当前项目 URL 的 `svn log --xml -v` 历史，用 `copyfrom-path`、revision 对应的项目仓库前缀和删除覆盖关系追踪身份。项目根、祖先或嵌套目录移动，同 revision 子文件改名、移出目录、覆盖已有目标，延迟 copyfrom 和移动后删除源祖先都要保持同一逻辑文件；普通 copy 的源仍存在时保持两个独立文件，同源多目标且自然后缀消失时降级为删除源和新增各目标。
+- 两种模式：导出字节与仓库原始字节分别快照；前者供 oldVersion/newVersion，后者用于识别 BOM、编码和换行符净差异。Git 历史中的类型变化只延续同路径身份，不因无关中间文件全局失败；最终选中端点出现非普通 mode、`svn:special` 或其它非普通文件时，必须在净零过滤前中止。成功或失败后都清理临时目录。
 - 交付事务：正式单项目源码 stage 位于批次根的内部随机 wrapper，不写入 `oldVersion/newVersion`；无日志强退遗留可安全清理，同时不扫描用户源码树。多项目在外层 stage 内逐项目生成，最终整体替换 old/new 根，避免上次项目残留。报告、说明和两侧源码始终同组提交或回滚。
 
 ## 验收底线
@@ -132,9 +132,10 @@ newVersion/<new_path> = new_f 的完整文件内容
 8. SVN 文件和目录移动；
 9. 空文件、二进制、编码、BOM 和换行符；
 10. 报告左右内容与 oldVersion/newVersion 导出字节完全一致；
-11. Git 浅克隆、低相似重命名、重复/高相似竞争来源、跨提交移动和同路径重建噪声均 fail closed；
-12. SVN 项目根/祖先移动、同修订子文件改名、延迟 copyfrom、源祖先删除和普通 copy；
+11. Git 浅克隆、跨越选中端点的低相似重命名、重复/高相似竞争来源、跨提交移动和同路径重建噪声均 fail closed；无关中间低相似重命名和类型变化不阻断；
+12. SVN 项目根/祖先/嵌套目录移动、同修订子文件改名、移出目录、覆盖已有目标、延迟 copyfrom、源祖先删除、普通 copy、同源多目标，以及目录移动同 revision 的普通子文件 copy；
 13. 多项目任务旧配置迁移，不能继续保存假的“基线 + 选中版本”；
-14. 单/多项目四类产物事务回滚、强退孤儿暂存清理和多项目旧目录移除。
+14. 单/多项目四类产物事务回滚、强退孤儿暂存清理和多项目旧目录移除；
+15. 多版本界面与单项目报告使用“选中版本 / 生成结果”，不得伪装成统一“旧版本 / 新版本”。
 
-主要回归用例位于 `tests/test_multi_version_file_endpoints.py` 和 `tests/test_review_regressions.py`。
+主要回归用例位于 `tests/test_multi_version_file_endpoints.py`、`tests/test_review_regressions.py` 和 `tests/test_adversarial_regressions.py`。

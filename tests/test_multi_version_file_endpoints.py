@@ -74,6 +74,17 @@ class GitFileEndpointTests(unittest.TestCase):
         run([self.git, "commit", "-m", message], self.repo)
         return run([self.git, "rev-parse", "HEAD"], self.repo).stdout.strip()
 
+    def stage_symlink(self, path, target):
+        payload = os.path.join(self.repo, ".comparetool-symlink-payload")
+        with open(payload, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(target)
+        blob = run([self.git, "hash-object", "-w", payload], self.repo).stdout.strip()
+        os.remove(payload)
+        run(
+            [self.git, "update-index", "--cacheinfo", f"120000,{blob},{path}"],
+            self.repo,
+        )
+
     def test_each_file_uses_its_own_selected_endpoints_not_head(self):
         self.write("A.java", "A-base\n")
         self.write("B.java", "B-base\n")
@@ -262,8 +273,70 @@ class GitFileEndpointTests(unittest.TestCase):
         self.write("B.java", retained + replacement + "selected-after\n")
         last = self.commit("selected B")
 
-        with self.assertRaisesRegex(RuntimeError, "低相似度疑似重命名"):
+        with self.assertRaisesRegex(RuntimeError, "无法唯一确认"):
             GitMultiVersionVCS(self.repo, [first, last])
+
+    def test_unrelated_low_similarity_rename_between_selected_commits_is_ignored(self):
+        original = "".join(f"original-{index:03d}\n" for index in range(200))
+        self.write("A.java", "A-base\n")
+        self.write("B.java", "B-base\n")
+        self.write("unrelated/Old.java", original)
+        self.commit("baseline unrelated low similarity rename")
+
+        self.write("A.java", "A-selected\n")
+        first = self.commit("selected A")
+        run([self.git, "mv", "unrelated/Old.java", "unrelated/New.java"], self.repo)
+        retained = "".join(f"original-{index:03d}\n" for index in range(20))
+        replacement = "".join(f"replacement-{index:03d}\n" for index in range(180))
+        self.write("unrelated/New.java", retained + replacement)
+        self.commit("unselected unrelated low similarity rename")
+        self.write("B.java", "B-selected\n")
+        last = self.commit("selected B")
+
+        vcs = GitMultiVersionVCS(self.repo, [first, last])
+        try:
+            files = {item.path: item.change_type for item in vcs.get_changed_files()}
+            self.assertEqual(
+                {"A.java": ChangeType.MODIFIED, "B.java": ChangeType.MODIFIED},
+                files,
+            )
+        finally:
+            vcs.cleanup()
+
+    def test_unrelated_intermediate_type_change_does_not_block_selected_files(self):
+        self.write("A.java", "A-base\n")
+        self.write("B.java", "B-base\n")
+        self.write("Unrelated.java", "regular\n")
+        self.commit("baseline unrelated type change")
+
+        self.write("A.java", "A-selected\n")
+        first = self.commit("selected A before unrelated type change")
+        self.stage_symlink("Unrelated.java", "target.txt")
+        run([self.git, "commit", "-m", "unselected unrelated type change"], self.repo)
+        self.write("B.java", "B-selected\n")
+        run([self.git, "add", "B.java"], self.repo)
+        run([self.git, "commit", "-m", "selected B after unrelated type change"], self.repo)
+        last = run([self.git, "rev-parse", "HEAD"], self.repo).stdout.strip()
+
+        vcs = GitMultiVersionVCS(self.repo, [first, last])
+        try:
+            files = {item.path: item.change_type for item in vcs.get_changed_files()}
+            self.assertEqual(
+                {"A.java": ChangeType.MODIFIED, "B.java": ChangeType.MODIFIED},
+                files,
+            )
+        finally:
+            vcs.cleanup()
+
+    def test_selected_non_regular_type_change_still_fails_closed(self):
+        self.write("Link.java", "regular\n")
+        self.commit("baseline selected type change")
+        self.stage_symlink("Link.java", "target.txt")
+        run([self.git, "commit", "-m", "selected symlink endpoint"], self.repo)
+        selected = run([self.git, "rev-parse", "HEAD"], self.repo).stdout.strip()
+
+        with self.assertRaisesRegex(RuntimeError, "不是普通文件"):
+            GitMultiVersionVCS(self.repo, [selected])
 
     def test_zero_similarity_possible_rename_fails_closed(self):
         original = "".join(f"old-{index:03d}\n" for index in range(80))
@@ -832,6 +905,191 @@ class SVNFileEndpointTests(unittest.TestCase):
             self.assertEqual(ChangeType.RENAMED, files[0].change_type)
             self.assertEqual("old/A.java", files[0].old_path)
             self.assertEqual("new/B.java", files[0].path)
+        finally:
+            vcs.cleanup()
+
+    def test_svn_directory_move_with_ordinary_child_copy_keeps_inherited_identity(self):
+        self.write("old/A.java", "base\n")
+        self.commit("baseline directory move with child copy")
+        self.write("old/A.java", "selected-before-move\n")
+        first = self.commit("selected old A before child copy")
+        run([self.svn, "update"], self.wc)
+        run([self.svn, "move", "old", "new"], self.wc)
+        run([self.svn, "copy", "new/A.java", "new/B.java"], self.wc)
+        self.commit("move directory and ordinarily copy inherited child")
+        self.write("new/A.java", "selected-after-move\n")
+        last = self.commit("selected inherited new A")
+
+        vcs = SVNMultiVersionVCS(
+            self.wc, [f"r{first}", f"r{last}"], svn_path=self.svn
+        )
+        try:
+            files = vcs.get_changed_files()
+            self.assertEqual(1, len(files))
+            self.assertEqual(ChangeType.RENAMED, files[0].change_type)
+            self.assertEqual("old/A.java", files[0].old_path)
+            self.assertEqual("new/A.java", files[0].path)
+            self.assertEqual(
+                "base\n",
+                normalized(vcs.get_file_content_bytes(vcs.old_version_label, "old/A.java")),
+            )
+            self.assertEqual(
+                "selected-after-move\n",
+                normalized(vcs.get_file_content_bytes(vcs.new_version_label, "new/A.java")),
+            )
+        finally:
+            vcs.cleanup()
+
+    def test_svn_nested_directory_move_uses_most_specific_copy_context(self):
+        self.write("old/sub/A.java", "base\n")
+        self.commit("baseline nested directory move with child copy")
+        self.write("old/sub/A.java", "selected-before-nested-move\n")
+        first = self.commit("selected nested old A")
+        run([self.svn, "update"], self.wc)
+        run([self.svn, "move", "old", "new"], self.wc)
+        run([self.svn, "move", "new/sub", "new/other"], self.wc)
+        run([self.svn, "copy", "new/other/A.java", "new/other/B.java"], self.wc)
+        self.commit("nested directory moves and ordinary child copy")
+        self.write("new/other/A.java", "selected-after-nested-move\n")
+        last = self.commit("selected nested new A")
+
+        vcs = SVNMultiVersionVCS(
+            self.wc, [f"r{first}", f"r{last}"], svn_path=self.svn
+        )
+        try:
+            files = vcs.get_changed_files()
+            self.assertEqual(1, len(files))
+            self.assertEqual(ChangeType.RENAMED, files[0].change_type)
+            self.assertEqual("old/sub/A.java", files[0].old_path)
+            self.assertEqual("new/other/A.java", files[0].path)
+        finally:
+            vcs.cleanup()
+
+    def test_svn_selected_nested_directory_move_has_one_identity_chain(self):
+        self.write("old/sub/A.java", "base\n")
+        self.commit("baseline selected nested directory move")
+        run([self.svn, "update"], self.wc)
+        run([self.svn, "move", "old", "new"], self.wc)
+        run([self.svn, "move", "new/sub", "new/renamed"], self.wc)
+        selected = self.commit("selected nested directory move")
+
+        vcs = SVNMultiVersionVCS(
+            self.wc, [f"r{selected}"], svn_path=self.svn
+        )
+        try:
+            files = vcs.get_changed_files()
+            self.assertEqual(1, len(files))
+            self.assertEqual(ChangeType.RENAMED, files[0].change_type)
+            self.assertEqual("old/sub/A.java", files[0].old_path)
+            self.assertEqual("new/renamed/A.java", files[0].path)
+        finally:
+            vcs.cleanup()
+
+    def test_svn_selected_directory_move_child_moved_out_is_not_deleted_twice(self):
+        self.write("old/A.java", "base\n")
+        self.commit("baseline selected child moved out")
+        run([self.svn, "update"], self.wc)
+        run([self.svn, "move", "old", "new"], self.wc)
+        run([self.svn, "move", "new/A.java", "Top.java"], self.wc)
+        selected = self.commit("selected directory move child moved out")
+
+        vcs = SVNMultiVersionVCS(
+            self.wc, [f"r{selected}"], svn_path=self.svn
+        )
+        try:
+            files = vcs.get_changed_files()
+            self.assertEqual(1, len(files))
+            self.assertEqual(ChangeType.RENAMED, files[0].change_type)
+            self.assertEqual("old/A.java", files[0].old_path)
+            self.assertEqual("Top.java", files[0].path)
+        finally:
+            vcs.cleanup()
+
+    def test_svn_unselected_directory_move_child_replaces_external_target(self):
+        self.write("old/A.java", "A-base\n")
+        self.write("Top.java", "Top-base\n")
+        self.commit("baseline external target replacement")
+        self.write("old/A.java", "A-selected-before\n")
+        first = self.commit("selected A before external replacement")
+        run([self.svn, "update"], self.wc)
+        run([self.svn, "move", "old", "new"], self.wc)
+        run([self.svn, "delete", "Top.java"], self.wc)
+        run([self.svn, "move", "new/A.java", "Top.java"], self.wc)
+        self.commit("unselected child replaces external target")
+        self.write("Top.java", "Top-selected-after\n")
+        last = self.commit("selected Top after external replacement")
+
+        vcs = SVNMultiVersionVCS(
+            self.wc, [f"r{first}", f"r{last}"], svn_path=self.svn
+        )
+        try:
+            files = vcs.get_changed_files()
+            self.assertEqual(1, len(files))
+            self.assertEqual(ChangeType.RENAMED, files[0].change_type)
+            self.assertEqual("old/A.java", files[0].old_path)
+            self.assertEqual("Top.java", files[0].path)
+            self.assertEqual(
+                "A-base\n",
+                normalized(vcs.get_file_content_bytes(vcs.old_version_label, "old/A.java")),
+            )
+            self.assertEqual(
+                "Top-selected-after\n",
+                normalized(vcs.get_file_content_bytes(vcs.new_version_label, "Top.java")),
+            )
+        finally:
+            vcs.cleanup()
+
+    def test_svn_directory_move_child_replace_keeps_rename_and_replaced_delete(self):
+        self.write("old/A.java", "old-A\n")
+        self.write("old/B.java", "old-B\n")
+        self.commit("baseline directory move child replace")
+        run([self.svn, "update"], self.wc)
+        run([self.svn, "move", "old", "new"], self.wc)
+        run([self.svn, "delete", "new/B.java"], self.wc)
+        run([self.svn, "move", "new/A.java", "new/B.java"], self.wc)
+        selected = self.commit("selected directory move child replace")
+
+        vcs = SVNMultiVersionVCS(
+            self.wc, [f"r{selected}"], svn_path=self.svn
+        )
+        try:
+            files = {
+                (item.old_path, item.path): item.change_type
+                for item in vcs.get_changed_files()
+            }
+            self.assertEqual(
+                {
+                    ("old/A.java", "new/B.java"): ChangeType.RENAMED,
+                    ("", "old/B.java"): ChangeType.DELETED,
+                },
+                files,
+            )
+        finally:
+            vcs.cleanup()
+
+    def test_svn_directory_move_one_source_multiple_targets_degrades_to_delete_adds(self):
+        self.write("old/A.java", "source\n")
+        self.commit("baseline directory move split copy")
+        run([self.svn, "update"], self.wc)
+        run([self.svn, "move", "old", "new"], self.wc)
+        run([self.svn, "copy", "new/A.java", "new/B.java"], self.wc)
+        run([self.svn, "copy", "new/A.java", "new/C.java"], self.wc)
+        run([self.svn, "delete", "new/A.java"], self.wc)
+        selected = self.commit("selected directory move split copy")
+
+        vcs = SVNMultiVersionVCS(
+            self.wc, [f"r{selected}"], svn_path=self.svn
+        )
+        try:
+            files = {item.path: item.change_type for item in vcs.get_changed_files()}
+            self.assertEqual(
+                {
+                    "old/A.java": ChangeType.DELETED,
+                    "new/B.java": ChangeType.ADDED,
+                    "new/C.java": ChangeType.ADDED,
+                },
+                files,
+            )
         finally:
             vcs.cleanup()
 

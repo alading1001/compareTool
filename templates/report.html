@@ -114,7 +114,11 @@ table.diff span { white-space: pre; }
     <h2>项目: {{ project_name }}</h2>
     <div class="meta" style="display:flex;align-items:center;gap:16px;">
         <span>{{ project_path }} &nbsp;|&nbsp; {{ vcs_type }} &nbsp;|&nbsp;
+{% if vcs_type in ('GitMultiVersionVCS', 'SVNMultiVersionVCS') %}
+        选中版本: {{ old_version }} &nbsp;|&nbsp; 生成结果: {{ new_version }} &nbsp;|&nbsp;
+{% else %}
         旧版本: {{ old_version }} → 新版本: {{ new_version }} &nbsp;|&nbsp;
+{% endif %}
         {{ generated_at }}</span>
         <button onclick="openSummary()" style="padding:6px 14px;background:#27ae60;color:white;border:none;border-radius:4px;cursor:pointer;font-size:13px;white-space:nowrap;">📋 查看变更清单</button>
     </div>
@@ -468,10 +472,15 @@ function openSummary() {
     var newVersion = {{ new_version | tojson }};
     var title = {% if show_project_root %}'变更清单 - ' + projectName{% else %}'变更清单'{% endif %};
     var lines = ['变更清单', ''];
-{% if show_project_root %}
-    lines.push(projectName + ' | ' + oldVersion + ' -> ' + newVersion);
+{% if vcs_type in ('GitMultiVersionVCS', 'SVNMultiVersionVCS') %}
+    var versionSummary = '选中版本: ' + oldVersion + ' | 生成结果: ' + newVersion;
 {% else %}
-    lines.push(oldVersion + ' -> ' + newVersion);
+    var versionSummary = oldVersion + ' -> ' + newVersion;
+{% endif %}
+{% if show_project_root %}
+    lines.push(projectName + ' | ' + versionSummary);
+{% else %}
+    lines.push(versionSummary);
 {% endif %}
 
     function summaryPath(f) {

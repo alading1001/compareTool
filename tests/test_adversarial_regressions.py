@@ -379,6 +379,62 @@ class ReportAndTaskSafetyTests(unittest.TestCase):
         self.assertNotIn('<span>demo &nbsp;|&nbsp; Fake &nbsp;|&nbsp;\n        旧版本: <img', rendered)
         self.assertIn("<div>trusted diff</div>", rendered)
 
+    def test_multi_version_report_uses_selected_versions_and_result_labels(self):
+        result = DiffResult(
+            project_path="demo",
+            project_name="demo",
+            vcs_type="GitMultiVersionVCS",
+            old_version="r3, r6",
+            new_version="文件级首尾端点",
+            files=[],
+        )
+        generator = ReportGenerator()
+        rendered = generator.env.get_template("report.html").render(
+            project_name=result.project_name,
+            project_path=result.project_path,
+            vcs_type=result.vcs_type,
+            old_version=result.old_version,
+            new_version=result.new_version,
+            summary=result.summary,
+            files=result.files,
+            show_project_root=True,
+            generated_at="2026-08-24 00:00:00",
+        )
+
+        self.assertIn("选中版本: r3, r6", rendered)
+        self.assertIn("生成结果: 文件级首尾端点", rendered)
+        self.assertNotIn("旧版本: r3, r6", rendered)
+        self.assertIn(
+            "var versionSummary = '选中版本: ' + oldVersion + ' | 生成结果: ' + newVersion;",
+            rendered,
+        )
+
+    def test_multi_version_project_change_restores_readonly_result_label(self):
+        app = CompareToolApp.__new__(CompareToolApp)
+        app.dir_entry = mock.Mock()
+        app.dir_entry.get.return_value = os.path.join("D:\\", "new-project")
+        app._last_project_path = app._normalize_project_path(
+            os.path.join("D:\\", "old-project")
+        )
+        app._version_request_id = 7
+        app._project_name_manual = True
+        app.vcs_var = mock.Mock()
+        app.vcs_var.get.return_value = "git_multi"
+        app.old_version_var = mock.Mock()
+        app.new_version_var = mock.Mock()
+        app._reset_version_list_state = mock.Mock()
+        app.version_listbox = mock.Mock()
+        app.fill_btn_frame = mock.Mock()
+        app.status_var = mock.Mock()
+        app._refresh_project_name_default = mock.Mock()
+        app._switch_exclude_rules_for_current_source = mock.Mock()
+        app._update_output_paths = mock.Mock()
+
+        app._on_project_path_changed()
+
+        app.old_version_var.set.assert_called_once_with("")
+        app.new_version_var.set.assert_called_once_with("文件级首尾端点")
+
     def test_project_names_are_compared_case_insensitively(self):
         app = CompareToolApp.__new__(CompareToolApp)
         app._multi_tasks = [{"project_name": "Demo"}]

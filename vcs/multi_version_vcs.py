@@ -599,17 +599,12 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
         reliable = self._diff_changes(commit, parent, "50%")
         permissive = self._diff_changes(commit, parent, "1%")
         reliable_renames = {(item.old_path, item.path) for item in reliable if item.action == "R"}
-        suspicious = [
-            item for item in permissive
-            if item.action == "R" and (item.old_path, item.path) not in reliable_renames
-        ]
-        if suspicious:
-            details = "\n".join(f"{item.old_path} -> {item.path}" for item in suspicious)
-            raise RuntimeError(
-                "Git 检测到低相似度疑似重命名，无法可靠确认文件身份，"
-                "本次未生成报告和源码包。\n"
-                f"提交: {commit}\n{details}"
-            )
+        low_similarity_pairs = {
+            (item.old_path, item.path)
+            for item in permissive
+            if item.action == "R"
+            and (item.old_path, item.path) not in reliable_renames
+        }
         deletes = [item for item in reliable if item.action == "D"]
         adds = [item for item in reliable if item.action == "A"]
         renames = [item for item in reliable if item.action == "R"]
@@ -618,7 +613,11 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
             (deleted.path, added.path)
             for deleted in deletes
             for added in adds
-        }
+        } | low_similarity_pairs
+
+        # 低阈值只负责补充“可能是同一身份”的候选，不能在这里全局失败。
+        # 下面的规划器会继续解析 source/target 对应的逻辑文件，只有候选身份
+        # 真正跨越选中端点时才 fail closed；完全无关的中间文件不得阻断生成。
 
         # Git 的 rename 是快照相似度推断，不保存真实移动元数据。额外
         # source/target 若被 Git 自己判为 rename，也可能是全局匹配选错的
@@ -761,7 +760,11 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
             path = fields[index].decode("utf-8", errors="surrogateescape")
             index += 1
             if status == "T":
-                raise RuntimeError("Git 文件类型发生变化，已中止生成以避免导出错误文件: " + path)
+                # 同一路径的类型变化仍属于同一文件身份。这里只追踪历史，最终
+                # 是否可导出由 _validate_git_endpoint_mode 对选中端点判定；这样
+                # 无关文件在中间发生类型变化不会阻断整个需求包。
+                changes.append(_HistoryChange("M", path))
+                continue
             if status not in ("A", "M", "D"):
                 raise RuntimeError(f"暂不支持的 Git 多版本变更类型 {status}: {path}")
             changes.append(_HistoryChange(status, path))
@@ -1099,6 +1102,13 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
 
         deleted_files = {item.path: item for item in files if item.action == "D"}
         deleted_dirs = {item.path: item for item in directories if item.action == "D"}
+        node_exists_cache = {}
+
+        def node_exists(path: str, at_revision: int) -> bool:
+            key = (path, at_revision)
+            if key not in node_exists_cache:
+                node_exists_cache[key] = self._svn_node_exists(path, at_revision)
+            return node_exists_cache[key]
 
         def covered_by_deleted_dir(path: str) -> bool:
             return any(
@@ -1113,33 +1123,110 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                 continue
             source_missing_before_copy = (
                 planner.has_deleted_under(item.copyfrom_path)
-                and not self._svn_node_exists(item.copyfrom_path, revision - 1)
+                and not node_exists(item.copyfrom_path, revision - 1)
             )
             if covered_by_deleted_dir(item.copyfrom_path) or source_missing_before_copy:
                 directory_moves.append(item)
 
-        explicit_directory_moves = {}
-        for directory_move in directory_moves:
-            old_prefix = directory_move.copyfrom_path.rstrip("/") + "/"
-            new_prefix = directory_move.path.rstrip("/") + "/"
-            for item in files:
-                if (
-                    item.action == "A"
-                    and item.copyfrom_path.startswith(old_prefix)
-                    and item.path.startswith(new_prefix)
-                ):
-                    explicit_directory_moves[item.copyfrom_path] = item.path
+        explicit_move_candidates = {}
+        explicit_move_contexts = {}
+        copy_pair_actions = {}
+        inherited_directory_targets = set()
+        ordinary_directory_copy_targets = set()
+        file_changes_by_path = {}
+        for file_change in files:
+            file_changes_by_path.setdefault(file_change.path, []).append(file_change)
+        for item in files:
+            if item.action not in ("A", "R") or not item.copyfrom_path:
+                continue
+            matching_moves = []
+            for directory_move in directory_moves:
+                old_prefix = directory_move.copyfrom_path.rstrip("/") + "/"
+                new_prefix = directory_move.path.rstrip("/") + "/"
+                if item.copyfrom_path.startswith(old_prefix):
+                    matching_moves.append((
+                        len(old_prefix), old_prefix, new_prefix
+                    ))
+            if not matching_moves:
+                continue
 
-        explicit_sources = set(explicit_directory_moves)
-        explicit_targets = set(explicit_directory_moves.values())
+            # 嵌套目录在同一 revision 连续移动时，一个子文件 copyfrom 可能
+            # 同时落入外层和内层映射。必须用最具体的目录移动解释它，否则
+            # 外层已消失的自然后缀会把内层普通 copy 误判成显式改名。
+            _, old_prefix, new_prefix = max(matching_moves)
+            suffix = item.copyfrom_path[len(old_prefix):]
+            inherited_target = new_prefix + suffix
+            if item.path == inherited_target:
+                # 目录 copy 本身已经继承了这个后缀，交给目录展开统一生成
+                # 身份链，避免重复追加 A/R。
+                inherited_directory_targets.add(item.path)
+            elif node_exists(inherited_target, revision) and not any(
+                candidate is not item
+                and candidate.action in ("A", "R")
+                and candidate.copyfrom_path != item.copyfrom_path
+                for candidate in file_changes_by_path.get(inherited_target, [])
+            ):
+                # 原后缀在目标目录仍然存在，当前记录只是从它复制出一个新
+                # 文件，不是把原文件重命名到 item.path。
+                ordinary_directory_copy_targets.add(item.path)
+            else:
+                explicit_move_candidates.setdefault(item.copyfrom_path, set()).add(
+                    item.path
+                )
+                explicit_move_contexts[item.copyfrom_path] = (old_prefix, new_prefix)
+                copy_pair_actions[(item.copyfrom_path, item.path)] = item.action
+
+        explicit_directory_moves = {}
+        external_explicit_moves = {}
+        resolved_explicit_moves = {}
+        for source_path, target_paths in explicit_move_candidates.items():
+            if len(target_paths) == 1:
+                target_path = next(iter(target_paths))
+                resolved_explicit_moves[source_path] = target_path
+                _, new_prefix = explicit_move_contexts[source_path]
+                if target_path.startswith(new_prefix):
+                    explicit_directory_moves[source_path] = target_path
+                else:
+                    external_explicit_moves[source_path] = (
+                        target_path,
+                        copy_pair_actions[(source_path, target_path)],
+                    )
+            else:
+                # SVN copyfrom 允许一个源分叉到多个目标，但没有“哪一个才是
+                # rename”的元数据。部署净结果可以无猜测地表达为 D + 多个 A，
+                # 因而降级为独立复制，不应为无关历史或当前选中 revision 失败。
+                ordinary_directory_copy_targets.update(target_paths)
+
+        explicit_sources = set(resolved_explicit_moves)
+        explicit_targets = set(resolved_explicit_moves.values())
         consumed_deleted_files = set()
         moved_file_sources = set()
+        moved_file_targets = set()
+        moved_target_prefixes = {
+            item.path.rstrip("/") for item in directory_moves
+        }
         for item in files:
+            if item.path in inherited_directory_targets:
+                continue
             if item.path in explicit_targets or (
                 item.action == "D" and item.path in explicit_sources
             ):
                 continue
-            if item.action == "A" and item.copyfrom_path and (
+            if (
+                item.action == "D"
+                and any(
+                    item.path == prefix
+                    or item.path.startswith(prefix.rstrip("/") + "/")
+                    for prefix in moved_target_prefixes
+                )
+                and not node_exists(item.path, revision - 1)
+            ):
+                # 同 revision 内由目录 copy 临时产生、随后又被子 move 删除的
+                # 路径没有真实 revision-1 端点，其身份由 copyfrom 展开负责。
+                continue
+            if item.action == "A" and item.path in ordinary_directory_copy_targets:
+                changes.append(_HistoryChange("A", item.path))
+            elif item.action in ("A", "R") and item.copyfrom_path and (
                 item.copyfrom_path in deleted_files
                 or covered_by_deleted_dir(item.copyfrom_path)
                 or planner.is_deleted(item.copyfrom_path)
@@ -1148,9 +1235,12 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                     and planner.is_active(item.copyfrom_path)
                 )
             ):
+                if item.action == "R":
+                    changes.append(_HistoryChange("D", item.path))
                 changes.append(_HistoryChange("R", item.path, item.copyfrom_path))
                 consumed_deleted_files.add(item.copyfrom_path)
                 moved_file_sources.add(item.copyfrom_path)
+                moved_file_targets.add(item.path)
             elif item.action == "A":
                 changes.append(_HistoryChange("A", item.path))
             elif item.action == "D":
@@ -1161,6 +1251,13 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                 raise RuntimeError(
                     f"暂不支持的 SVN 多版本变更类型 {item.action}: {item.path}"
                 )
+        for source_path, (target_path, action) in external_explicit_moves.items():
+            if action == "R":
+                changes.append(_HistoryChange("D", target_path))
+            changes.append(_HistoryChange("R", target_path, source_path))
+            consumed_deleted_files.add(source_path)
+            moved_file_sources.add(source_path)
+            moved_file_targets.add(target_path)
         if consumed_deleted_files:
             changes = [
                 item for item in changes
@@ -1171,11 +1268,45 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
             if item.action != "A":
                 continue
             if item in directory_moves:
+                nested_source_prefixes = [
+                    other.copyfrom_path.rstrip("/")
+                    for other in directory_moves
+                    if other is not item
+                    and other.copyfrom_path.startswith(
+                        item.copyfrom_path.rstrip("/") + "/"
+                    )
+                ]
+                nested_target_prefixes = [
+                    other.path.rstrip("/")
+                    for other in directory_moves
+                    if other is not item
+                    and other.path.startswith(item.path.rstrip("/") + "/")
+                ]
+                consumed_old_prefixes = nested_source_prefixes + [
+                    source
+                    for source in moved_file_sources
+                    if source.startswith(item.copyfrom_path.rstrip("/") + "/")
+                ]
+                consumed_new_prefixes = nested_target_prefixes + [
+                    target
+                    for target in moved_file_targets
+                    if target.startswith(item.path.rstrip("/") + "/")
+                ]
                 explicit = {
                     old_path: new_path
                     for old_path, new_path in explicit_directory_moves.items()
                     if old_path.startswith(item.copyfrom_path.rstrip("/") + "/")
                     and new_path.startswith(item.path.rstrip("/") + "/")
+                    and not any(
+                        old_path == prefix
+                        or old_path.startswith(prefix.rstrip("/") + "/")
+                        for prefix in consumed_old_prefixes
+                    )
+                    and not any(
+                        new_path == prefix
+                        or new_path.startswith(prefix.rstrip("/") + "/")
+                        for prefix in consumed_new_prefixes
+                    )
                 }
                 changes.extend(self._expand_directory_move(
                     item.copyfrom_path,
@@ -1183,6 +1314,8 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                     item.copyfrom_rev or revision - 1,
                     revision,
                     explicit,
+                    consumed_old_prefixes,
+                    consumed_new_prefixes,
                 ))
             else:
                 changes.extend(
@@ -1195,6 +1328,10 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         } | moved_file_sources
         for item in directories:
             if item.action == "D":
+                if not node_exists(item.path, revision - 1):
+                    # 与文件级临时 D 相同，本 revision 才出现的中间目录不能
+                    # 再按 revision-1 的真实仓库路径展开。
+                    continue
                 # 删除祖先目录可能只是一次或多次 copy+delete move 的外壳；
                 # 已移动的源文件/子树不能再次展开为独立删除，但祖先下其它
                 # 实际被删文件仍必须保留。
@@ -1216,7 +1353,9 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
 
         unique = []
         seen = set()
-        priority = {"R": 0, "D": 1, "A": 2, "M": 3}
+        # 替换目标必须先移除旧身份，再把 copyfrom 源连接到该路径；普通
+        # source D 先发生也没关系，R 会从 planner._deleted 中恢复同一实体。
+        priority = {"D": 0, "R": 1, "A": 2, "M": 3}
         for item in sorted(changes, key=lambda value: (priority[value.action], value.path, value.old_path)):
             key = (item.action, item.path, item.old_path)
             if key not in seen:
@@ -1231,9 +1370,31 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         source_revision: int,
         target_revision: int,
         explicit_moves: Dict[str, str],
+        excluded_old_prefixes=(),
+        excluded_new_prefixes=(),
     ) -> List[_HistoryChange]:
         old_files = self._directory_suffix_map(old_dir, source_revision)
         new_files = self._directory_suffix_map(new_dir, target_revision)
+        if excluded_old_prefixes:
+            old_files = {
+                suffix: path
+                for suffix, path in old_files.items()
+                if not any(
+                    path == prefix
+                    or path.startswith(prefix.rstrip("/") + "/")
+                    for prefix in excluded_old_prefixes
+                )
+            }
+        if excluded_new_prefixes:
+            new_files = {
+                suffix: path
+                for suffix, path in new_files.items()
+                if not any(
+                    path == prefix
+                    or path.startswith(prefix.rstrip("/") + "/")
+                    for prefix in excluded_new_prefixes
+                )
+            }
         result = []
         used_old = set()
         used_new = set()
@@ -1251,7 +1412,13 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         for suffix in sorted(set(old_files) | set(new_files)):
             old_path = old_files.get(suffix)
             new_path = new_files.get(suffix)
-            if old_path in used_old or new_path in used_new:
+            if old_path in used_old:
+                if new_path and new_path not in used_new:
+                    result.append(_HistoryChange("A", new_path))
+                continue
+            if new_path in used_new:
+                if old_path:
+                    result.append(_HistoryChange("D", old_path))
                 continue
             if old_path and new_path:
                 result.append(_HistoryChange("R", new_path, old_path))

@@ -816,7 +816,10 @@ class CompareToolApp:
             self._project_name_manual = False
             if self._is_project_vcs_mode():
                 self.old_version_var.set("")
-                self.new_version_var.set("")
+                if self.vcs_var.get() in ("git_multi", "svn_multi"):
+                    self.new_version_var.set("文件级首尾端点")
+                else:
+                    self.new_version_var.set("")
                 self._reset_version_list_state()
                 self.version_listbox.delete(0, tk.END)
                 self.version_listbox.grid_remove()
