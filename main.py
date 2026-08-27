@@ -18,6 +18,7 @@ else:
     CONFIG_DIR = BASE_DIR
 
 CONFIG_FILE = os.path.join(CONFIG_DIR, "compareTool_config.json")
+_CONFIG_LOAD_FAILURE = None
 RECENT_PROJECT_LIMIT = 10
 SUPPORTED_VCS_TYPES = {"git", "svn", "folder", "archive", "git_multi", "svn_multi"}
 
@@ -77,17 +78,28 @@ from file_exporter import FileExporter
 from delivery_instructions import (
     DELIVERY_INSTRUCTIONS_FILENAME,
     prepare_delivery_instructions,
+    single_delivery_instructions_filename,
 )
 from logger import info, warn, error
 from path_safety import sanitize_windows_component
+from stage_ownership import mark_owned, remove_ownership_marker
 
 
 def _load_config():
+    global _CONFIG_LOAD_FAILURE
     try:
         with open(CONFIG_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-            return data if isinstance(data, dict) else {}
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        if not isinstance(data, dict):
+            raise ValueError("配置文件顶层必须是 JSON 对象")
+        _CONFIG_LOAD_FAILURE = None
+        return data
+    except FileNotFoundError:
+        _CONFIG_LOAD_FAILURE = None
+        return {}
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        _CONFIG_LOAD_FAILURE = (os.path.abspath(CONFIG_FILE), str(exc))
+        warn(f"配置文件读取失败，已保留原文件并禁用覆盖保存: {CONFIG_FILE}: {exc}")
         return {}
 
 
@@ -96,6 +108,15 @@ class ConfigSaveError(RuntimeError):
 
 
 def _save_config(data):
+    if (
+        _CONFIG_LOAD_FAILURE
+        and _CONFIG_LOAD_FAILURE[0] == os.path.abspath(CONFIG_FILE)
+        and os.path.exists(CONFIG_FILE)
+    ):
+        raise ConfigSaveError(
+            "现有配置文件读取失败，为避免覆盖损坏现场，本次未保存。\n"
+            f"请先备份或修复配置文件: {CONFIG_FILE}\n{_CONFIG_LOAD_FAILURE[1]}"
+        )
     temp_path = ""
     try:
         fd, temp_path = tempfile.mkstemp(
@@ -143,6 +164,13 @@ class CompareToolApp:
         self._default_output = os.path.join(os.path.expanduser("~"), "Desktop")
         self._update_after_id = None
         self._config = _load_config()
+        if _CONFIG_LOAD_FAILURE:
+            self.root.after(0, lambda: messagebox.showwarning(
+                "配置文件读取失败",
+                "现有配置文件无法读取，程序已使用默认配置启动，"
+                "并会阻止覆盖原文件。\n\n"
+                f"请先备份或修复：\n{CONFIG_FILE}\n\n{_CONFIG_LOAD_FAILURE[1]}",
+            ))
         if self._config.get("vcs_type", "git") not in SUPPORTED_VCS_TYPES:
             warn(f"配置中的 VCS 类型无效，已回退到 Git: {self._config.get('vcs_type')}")
             self._config["vcs_type"] = "git"
@@ -659,7 +687,15 @@ class CompareToolApp:
 
     @staticmethod
     def _sanitize_output_batch_name(name: str) -> str:
-        return sanitize_windows_component(name)
+        cleaned = sanitize_windows_component(name)
+        if not cleaned:
+            return ""
+        if (
+            cleaned.casefold() in ("oldversion", "newversion")
+            or cleaned.casefold().startswith(".comparetool_")
+        ):
+            cleaned = "_" + cleaned
+        return cleaned
 
     @staticmethod
     def _validate_source_output_separation(
@@ -707,7 +743,7 @@ class CompareToolApp:
         if vcs_type == "folder":
             return [task.get("old_version", ""), task.get("new_version", "")]
         if vcs_type == "archive":
-            return []
+            return [task.get("old_version", ""), task.get("new_version", "")]
         return [task.get("project_path", "")]
 
     @staticmethod
@@ -1588,14 +1624,23 @@ class CompareToolApp:
             dir=parent,
         )
         os.close(fd)
-        return stage_path
+        try:
+            mark_owned(stage_path)
+            return stage_path
+        except BaseException:
+            try:
+                os.remove(stage_path)
+            except OSError:
+                pass
+            remove_ownership_marker(stage_path)
+            raise
 
     def _create_vcs_for_task(self, task: dict):
         vcs_type = task["vcs_type"]
         if vcs_type == "archive":
             return ArchiveVCS(task["old_version"], task["new_version"]), True
         if vcs_type == "folder":
-            return FolderVCS(task["old_version"], task["new_version"]), False
+            return FolderVCS(task["old_version"], task["new_version"]), True
         if vcs_type == "git_multi":
             return GitMultiVersionVCS(task["project_path"], parse_multi_versions(task["old_version"])), True
         if vcs_type == "svn_multi":
@@ -1752,11 +1797,11 @@ class CompareToolApp:
 
         source_paths = (
             [old_version, new_version]
-            if is_folder else ([] if is_archive else [project_path])
+            if (is_folder or is_archive) else [project_path]
         )
         instruction_path = os.path.join(
             os.path.dirname(os.path.abspath(report_path)),
-            DELIVERY_INSTRUCTIONS_FILENAME,
+            single_delivery_instructions_filename(project_name),
         )
         try:
             self._validate_source_output_separation(
@@ -1865,12 +1910,12 @@ class CompareToolApp:
         try:
             source_paths = (
                 [old_version, new_version]
-                if vcs_type == "folder"
-                else ([] if vcs_type == "archive" else [project_path])
+                if vcs_type in ("folder", "archive")
+                else [project_path]
             )
             instruction_target = os.path.join(
                 os.path.dirname(os.path.abspath(report_path)),
-                DELIVERY_INSTRUCTIONS_FILENAME,
+                single_delivery_instructions_filename(project_name),
             )
             self._validate_source_output_separation(
                 source_paths,
@@ -1885,6 +1930,7 @@ class CompareToolApp:
                 cleanup_vcs = vcs
             elif vcs_type == "folder":
                 vcs = FolderVCS(old_version, new_version)
+                cleanup_vcs = vcs
             elif vcs_type == "git_multi":
                 vcs = GitMultiVersionVCS(project_path, parse_multi_versions(old_version))
                 cleanup_vcs = vcs
@@ -1930,6 +1976,7 @@ class CompareToolApp:
                     diff_result,
                     report_stage,
                     show_project_root=show_project_root,
+                    delivery_instructions_name=os.path.basename(instruction_target),
                 )
 
                 info(f"导出文件: old={old_export}, new={new_export}")
@@ -1950,10 +1997,8 @@ class CompareToolApp:
                 ])
             finally:
                 FileExporter.cleanup_stages(export_pairs)
-                if os.path.isfile(report_stage):
-                    os.remove(report_stage)
-                if instruction_stage and os.path.isfile(instruction_stage):
-                    os.remove(instruction_stage)
+                FileExporter._cleanup_stage(report_stage)
+                FileExporter._cleanup_stage(instruction_stage)
 
             summary = diff_result.summary
             info(f"=== 完成: {summary} ===")
@@ -2038,18 +2083,9 @@ class CompareToolApp:
             self.root.after(0, lambda msg=msg: self._show_error(msg))
         finally:
             for stage_root in (stage_old_root, stage_new_root):
-                if stage_root and os.path.isdir(stage_root):
-                    shutil.rmtree(stage_root, ignore_errors=True)
-            if report_stage and os.path.isfile(report_stage):
-                try:
-                    os.remove(report_stage)
-                except OSError:
-                    pass
-            if instruction_stage and os.path.isfile(instruction_stage):
-                try:
-                    os.remove(instruction_stage)
-                except OSError:
-                    pass
+                FileExporter._cleanup_stage(stage_root)
+            FileExporter._cleanup_stage(report_stage)
+            FileExporter._cleanup_stage(instruction_stage)
             for item in project_results:
                 if item.get("cleanup_needed"):
                     try:

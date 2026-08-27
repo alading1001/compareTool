@@ -1,5 +1,6 @@
 import ntpath
 import os
+import re
 import stat
 
 
@@ -8,7 +9,13 @@ WINDOWS_RESERVED_NAMES = {
     "CON", "PRN", "AUX", "NUL",
     *(f"COM{index}" for index in range(1, 10)),
     *(f"LPT{index}" for index in range(1, 10)),
+    "COM¹", "COM²", "COM³",
+    "LPT¹", "LPT²", "LPT³",
 }
+WINDOWS_SHORT_ALIAS_RE = re.compile(
+    r"^[^ .]{1,6}~[0-9]+(?:\.[^ .]{0,3})?$",
+    re.IGNORECASE,
+)
 
 
 def sanitize_windows_component(value: str) -> str:
@@ -21,7 +28,7 @@ def sanitize_windows_component(value: str) -> str:
     if not cleaned or not cleaned.strip("._"):
         return ""
     stem = cleaned.split(".", 1)[0].upper()
-    if stem in WINDOWS_RESERVED_NAMES:
+    if stem in WINDOWS_RESERVED_NAMES or WINDOWS_SHORT_ALIAS_RE.fullmatch(cleaned):
         cleaned = "_" + cleaned
     return cleaned
 
@@ -49,6 +56,10 @@ def split_safe_relative_path(path: str, label: str = "路径"):
         stem = part.split(".", 1)[0].upper()
         if stem in WINDOWS_RESERVED_NAMES:
             raise ValueError(f"{label}包含 Windows 保留名称: {path}")
+        if WINDOWS_SHORT_ALIAS_RE.fullmatch(part):
+            raise ValueError(
+                f"{label}疑似 Windows 8.3 短名称，可能覆盖同目录长文件名: {path}"
+            )
     return parts
 
 

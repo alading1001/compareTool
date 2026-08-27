@@ -16,7 +16,13 @@ class ReportGenerator:
             autoescape=select_autoescape(enabled_extensions=("html", "xml")),
         )
 
-    def generate(self, diff_result: DiffResult, output_path: str, show_project_root: bool = True):
+    def generate(
+        self,
+        diff_result: DiffResult,
+        output_path: str,
+        show_project_root: bool = True,
+        delivery_instructions_name: str = DELIVERY_INSTRUCTIONS_FILENAME,
+    ):
         summary = diff_result.summary
         template = self.env.get_template("report.html")
         html = template.render(
@@ -28,7 +34,7 @@ class ReportGenerator:
             summary=summary,
             files=diff_result.files,
             show_project_root=show_project_root,
-            delivery_instructions_name=DELIVERY_INSTRUCTIONS_FILENAME,
+            delivery_instructions_name=delivery_instructions_name,
             generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         )
 

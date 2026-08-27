@@ -384,6 +384,7 @@ class VCSParsingTests(unittest.TestCase):
     def test_git_mode_only_change_is_preserved_as_metadata(self):
         vcs = GitVCS.__new__(GitVCS)
         vcs.exclude_patterns = []
+        vcs._version_pins = {"old": "a" * 40, "new": "b" * 40}
         vcs._run_bytes = lambda args: (
             b":100644 100755 aaaaaaa aaaaaaa M\x00script.sh\x00"
         )
@@ -399,6 +400,7 @@ class VCSParsingTests(unittest.TestCase):
     def test_git_type_change_fails_closed(self):
         vcs = GitVCS.__new__(GitVCS)
         vcs.exclude_patterns = []
+        vcs._version_pins = {"old": "a" * 40, "new": "b" * 40}
         vcs._run_bytes = lambda args: (
             b":100644 120000 aaaaaaa bbbbbbb T\x00changed.txt\x00"
         )
@@ -409,6 +411,7 @@ class VCSParsingTests(unittest.TestCase):
     def test_unknown_git_change_type_fails_instead_of_being_omitted(self):
         vcs = GitVCS.__new__(GitVCS)
         vcs.exclude_patterns = []
+        vcs._version_pins = {"old": "a" * 40, "new": "b" * 40}
         vcs._run_bytes = lambda args: (
             b":100644 100644 aaaaaaa bbbbbbb X\x00mystery.txt\x00"
         )
@@ -430,6 +433,12 @@ class VCSParsingTests(unittest.TestCase):
 </paths></diff>"""
 
             def _compare_endpoint_metadata(self, *args):
+                return {}
+
+            def _get_node_kind(self, *args):
+                return "file"
+
+            def _get_properties(self, *args):
                 return {}
 
         with project_temp_dir() as root:
@@ -660,6 +669,10 @@ class ConfigPersistenceTests(unittest.TestCase):
                 with open(config_path, "w", encoding="utf-8") as f:
                     f.write("[]")
                 self.assertEqual({}, main._load_config())
+                with self.assertRaisesRegex(main.ConfigSaveError, "避免覆盖"):
+                    main._save_config({"would": "overwrite"})
+                with open(config_path, encoding="utf-8") as f:
+                    self.assertEqual("[]", f.read())
 
     def test_failed_config_serialization_preserves_previous_file(self):
         with project_temp_dir() as root:

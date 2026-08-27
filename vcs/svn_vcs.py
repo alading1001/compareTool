@@ -32,6 +32,7 @@ class SVNVCS(BaseVCS):
     def __init__(self, project_path: str, svn_path: str = ""):
         super().__init__(project_path)
         self._svn = svn_path or self._find_svn()
+        self._version_pins = {}
 
     @staticmethod
     def _find_svn() -> str:
@@ -134,8 +135,47 @@ class SVNVCS(BaseVCS):
             raise RuntimeError(f"无法解析 SVN 变更摘要: {exc}") from exc
 
         files = []
+        deleted_directories = set()
+        new_file_paths = set()
         for node in root.findall(".//path"):
             if node.get("kind") == "dir":
+                path = node.text or ""
+                item = node.get("item", "")
+                if path.strip():
+                    abs_dir = os.path.normpath(os.path.join(self.project_path, path))
+                    rel_dir = os.path.relpath(abs_dir, self.project_path).replace("\\", "/")
+                    old_props = (
+                        self._get_properties(old_rev, rel_dir)
+                        if item in ("deleted", "replaced", "modified") else {}
+                    )
+                    new_props = (
+                        self._get_properties(new_rev, rel_dir)
+                        if item in ("added", "replaced", "modified") else {}
+                    )
+                    if "svn:externals" in old_props or "svn:externals" in new_props:
+                        raise RuntimeError(
+                            "SVN 目录启用了 svn:externals，文件级交付无法保真，"
+                            f"已中止生成: {rel_dir}"
+                        )
+                if node.get("props") == "modified":
+                    raise RuntimeError(
+                        "SVN 目录属性发生变化，当前文件级交付无法保真，已中止生成: "
+                        + path
+                    )
+                if item in ("deleted", "replaced") and path.strip():
+                    abs_path = os.path.normpath(os.path.join(self.project_path, path))
+                    rel_dir = os.path.relpath(abs_path, self.project_path).replace("\\", "/")
+                    if item == "replaced" and self._get_node_kind(old_rev, rel_dir) == "file":
+                        metadata = self._compare_endpoint_metadata(
+                            old_rev, rel_dir, new_rev, None
+                        )
+                        files.append(ChangedFile(
+                            path=rel_dir,
+                            change_type=ChangeType.DELETED,
+                            **metadata,
+                        ))
+                    else:
+                        deleted_directories.add(rel_dir)
                 continue
             path = node.text or ""
             if not path.strip():
@@ -158,9 +198,14 @@ class SVNVCS(BaseVCS):
             }
             item = node.get("item", "")
             change_type = change_map.get(item)
+            if item == "replaced" and self._get_node_kind(old_rev, rel_path) == "dir":
+                deleted_directories.add(rel_path)
+                change_type = ChangeType.ADDED
             if change_type is None and item in ("none", "normal") and node.get("props") == "modified":
                 change_type = ChangeType.MODIFIED
             if change_type is not None:
+                if change_type in (ChangeType.ADDED, ChangeType.RENAMED):
+                    new_file_paths.add(rel_path)
                 metadata = self._compare_endpoint_metadata(
                     old_rev,
                     None if change_type == ChangeType.ADDED else rel_path,
@@ -174,11 +219,80 @@ class SVNVCS(BaseVCS):
                 ))
             elif item not in ("none", "normal"):
                 raise RuntimeError(f"暂不支持的 SVN 变更类型 {item}: {path}")
+        self.required_directory_deletions = sorted(
+            directory for directory in deleted_directories
+            if any(
+                new_path == directory or directory.startswith(new_path.rstrip("/") + "/")
+                for new_path in new_file_paths
+            )
+        )
         return files
 
+    def _get_node_kind(self, version: str, path: str) -> str:
+        cache = getattr(self, "_node_kind_cache", None)
+        if cache is None:
+            self._node_kind_cache = {}
+            cache = self._node_kind_cache
+        key = (self._resolve_version(version), path)
+        if key in cache:
+            return cache[key]
+        try:
+            result = subprocess.run(
+                [
+                    self._svn, "info", "--non-interactive", "--show-item", "kind",
+                    "-r", key[0], self._file_url(key[0], path),
+                ],
+                cwd=self.project_path,
+                capture_output=True,
+                timeout=30,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
+            raise RuntimeError(
+                f"无法确认 SVN 替换前节点类型，已中止生成: {path}@{version}\n{exc}"
+            ) from exc
+        kind = _decode_bytes(result.stdout).strip().lower() if result.returncode == 0 else ""
+        if kind not in ("file", "dir"):
+            raise RuntimeError(
+                f"无法确认 SVN 替换前节点类型，已中止生成: {path}@{version}\n"
+                + _decode_bytes(result.stderr or result.stdout)
+            )
+        cache[key] = kind
+        return kind
+
     def get_changed_files(self, old_version: str, new_version: str) -> List[ChangedFile]:
-        files = self._parse_svn_diff_summarize(old_version, new_version)
+        old_endpoint = self._pin_version(old_version)
+        new_endpoint = self._pin_version(new_version)
+        files = self._parse_svn_diff_summarize(old_endpoint, new_endpoint)
         return self._filter_files(files)
+
+    def _pin_version(self, version: str) -> str:
+        """把 HEAD 等可变标识固定为本次任务开始时的数字 revision。"""
+        key = str(version)
+        pins = getattr(self, "_version_pins", None)
+        if pins is None:
+            self._version_pins = {}
+            pins = self._version_pins
+        if key in pins:
+            return pins[key]
+        raw = key.lstrip("rR")
+        if raw.isdigit():
+            pins[key] = raw
+            return raw
+        if not self._repo_url:
+            raise RuntimeError(f"无法确定 SVN 仓库 URL，不能固定版本端点: {version}")
+        resolved = self._run([
+            "info", "--non-interactive", "--show-item", "revision",
+            "-r", raw, self._repo_url,
+        ]).strip()
+        if not resolved.isdigit():
+            raise RuntimeError(f"SVN 版本端点解析结果无效: {version} -> {resolved}")
+        pins[key] = resolved
+        return resolved
+
+    def _resolve_version(self, version: str) -> str:
+        return getattr(self, "_version_pins", {}).get(
+            str(version), str(version).lstrip("rR")
+        )
 
     def get_file_content(self, version: str, file_path: str) -> str:
         try:
@@ -225,7 +339,7 @@ class SVNVCS(BaseVCS):
         return style
 
     def _file_url(self, version: str, file_path: str) -> str:
-        rev = str(version).lstrip("rR")
+        rev = self._resolve_version(version)
         relative = quote(file_path.replace("\\", "/").strip("/"), safe="/")
         return f"{self._repo_url.rstrip('/')}/{relative}@{rev}"
 
@@ -234,10 +348,11 @@ class SVNVCS(BaseVCS):
         if cache is None:
             self._property_cache = {}
             cache = self._property_cache
-        cache_key = (str(version), file_path)
+        resolved_version = self._resolve_version(version)
+        cache_key = (resolved_version, file_path)
         if cache_key in cache:
             return cache[cache_key]
-        rev = str(version).lstrip("rR")
+        rev = resolved_version
         try:
             result = subprocess.run(
                 [
@@ -290,6 +405,11 @@ class SVNVCS(BaseVCS):
             raise RuntimeError(
                 "SVN 端点是 svn:special（符号链接等特殊节点），普通文件导出无法保真，"
                 f"已中止生成: {special_path}"
+            )
+        if "svn:keywords" in old_props or "svn:keywords" in new_props:
+            raise RuntimeError(
+                "SVN 文件启用了 svn:keywords，svn cat 不能可靠复现工作副本展开字节，"
+                f"已中止生成: {new_path or old_path}"
             )
         changed = {
             name for name in set(old_props) | set(new_props)

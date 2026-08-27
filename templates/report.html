@@ -217,7 +217,7 @@ function esc(s) {
 // ===== 构建文件树 =====
 function buildTree(files) {
 {% if show_project_root %}
-    var root = {name: "{{ project_name | e }}", children: {}, files: []};
+    var root = {name: {{ project_name | tojson }}, children: {}, files: []};
 {% else %}
     var root = {name: "", children: {}, files: []};
 {% endif %}

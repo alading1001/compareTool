@@ -55,6 +55,7 @@ class DiffResult:
     old_version: str
     new_version: str
     files: List[FileDiff] = field(default_factory=list)
+    required_directory_deletions: List[str] = field(default_factory=list)
 
     @property
     def summary(self) -> Dict:
@@ -94,6 +95,8 @@ class DiffEngine:
         ".mp3", ".mp4", ".avi", ".mov",
     }
     MAX_TEXT_DIFF_BYTES = 5 * 1024 * 1024
+    MAX_TEXT_DIFF_LINES = 10_000
+    MAX_TEXT_DIFF_LINE_BYTES = 256 * 1024
 
     def __init__(self, vcs, show_full_context: bool = True):
         self.vcs = vcs
@@ -109,12 +112,30 @@ class DiffEngine:
         if getattr(self.vcs, "merge_exact_renames", True):
             changed_files = self._merge_exact_renames(changed_files, old_version, new_version)
 
+        required_directories = set(
+            getattr(self.vcs, "required_directory_deletions", []) or []
+        )
+        old_removed_paths = [
+            item.old_path or item.path
+            for item in changed_files
+            if item.change_type in (ChangeType.DELETED, ChangeType.RENAMED)
+        ]
+        new_file_paths = [
+            item.path for item in changed_files
+            if item.change_type in (ChangeType.ADDED, ChangeType.RENAMED)
+        ]
+        for new_path in new_file_paths:
+            prefix = new_path.rstrip("/") + "/"
+            if any(old_path.startswith(prefix) for old_path in old_removed_paths):
+                required_directories.add(new_path)
+
         result = DiffResult(
             project_path=self.vcs.project_path,
             project_name=os.path.basename(os.path.normpath(self.vcs.project_path)),
             vcs_type=type(self.vcs).__name__,
             old_version=old_version,
             new_version=new_version,
+            required_directory_deletions=sorted(required_directories),
         )
 
         for cf in changed_files:
@@ -158,17 +179,38 @@ class DiffEngine:
             file_diff.side_by_side_html = self._binary_placeholder(cf)
             self._prepend_metadata(file_diff)
             return file_diff
+        complexity_reason = next(
+            (
+                reason for data in raw_values
+                if (reason := self._text_diff_complexity_reason(data))
+            ),
+            "",
+        )
+        if complexity_reason:
+            file_diff.side_by_side_html = self._complexity_placeholder(
+                cf, complexity_reason
+            )
+            self._prepend_metadata(file_diff)
+            return file_diff
 
         if cf.change_type == ChangeType.ADDED:
             file_diff.old_content = ""
-            file_diff.new_content = self.vcs.get_file_content(new_version, cf.path)
+            decoded = self._decode_text_strict(new_raw)
+            file_diff.new_content = (
+                decoded.text if decoded is not None
+                else self.vcs.get_file_content(new_version, cf.path)
+            )
             file_diff.deleted_lines = 0
             file_diff.added_lines = len(file_diff.new_content.splitlines()) if file_diff.new_content else 0
             file_diff.side_by_side_html = self._side_by_side_empty_vs_new(
                 file_diff.new_content, cf.path)
 
         elif cf.change_type == ChangeType.DELETED:
-            file_diff.old_content = self.vcs.get_file_content(old_version, cf.path)
+            decoded = self._decode_text_strict(old_raw)
+            file_diff.old_content = (
+                decoded.text if decoded is not None
+                else self.vcs.get_file_content(old_version, cf.path)
+            )
             file_diff.new_content = ""
             file_diff.deleted_lines = len(file_diff.old_content.splitlines()) if file_diff.old_content else 0
             file_diff.added_lines = 0
@@ -253,9 +295,9 @@ class DiffEngine:
             b"\xff\xfe\x00\x00",
             b"\x00\x00\xfe\xff",
         )):
-            return False
+            return DiffEngine._decode_text_strict(data) is None
         sample = data[:8192]
-        if b"\x00" in sample:
+        if b"\x00" in data:
             return True
         decoded = None
         for encoding in ("utf-8", "gb18030"):
@@ -271,6 +313,18 @@ class DiffEngine:
             if ord(char) < 32 and char not in "\t\n\r\f"
         )
         return control_count > max(2, len(decoded) // 100)
+
+    def _text_diff_complexity_reason(self, data: bytes) -> str:
+        lines = data.splitlines()
+        if len(lines) > self.MAX_TEXT_DIFF_LINES:
+            return f"行数 {len(lines):,} 超过展示上限 {self.MAX_TEXT_DIFF_LINES:,}"
+        longest = max((len(line) for line in lines), default=len(data))
+        if longest > self.MAX_TEXT_DIFF_LINE_BYTES:
+            return (
+                f"单行 {longest:,} 字节超过展示上限 "
+                f"{self.MAX_TEXT_DIFF_LINE_BYTES:,} 字节"
+            )
+        return ""
 
     def _prepend_metadata(self, file_diff: FileDiff):
         if not file_diff.metadata_changes:
@@ -298,6 +352,19 @@ class DiffEngine:
             f'<div>{display_path}</div>'
             f'<div style="margin-top:8px;">最大端点大小：{largest:,} 字节；'
             f'展示上限：{self.MAX_TEXT_DIFF_BYTES:,} 字节</div>'
+            '<div style="font-size:12px;margin-top:8px;color:#999;">'
+            '文件仍会完整包含在 oldVersion/newVersion 导出中</div>'
+            '</div>'
+        )
+
+    @staticmethod
+    def _complexity_placeholder(cf: ChangedFile, reason: str) -> str:
+        return (
+            '<div style="padding:40px;text-align:center;color:#666;font-size:15px;">'
+            '<div style="font-size:18px;margin-bottom:12px;font-weight:bold;">'
+            '文本结构复杂，已跳过逐行差异展示</div>'
+            f'<div>{html.escape(cf.path)}</div>'
+            f'<div style="margin-top:8px;">{html.escape(reason)}</div>'
             '<div style="font-size:12px;margin-top:8px;color:#999;">'
             '文件仍会完整包含在 oldVersion/newVersion 导出中</div>'
             '</div>'
@@ -434,9 +501,13 @@ class DiffEngine:
     ) -> Optional[List[str]]:
         if old_raw == new_raw:
             return None
-        if old.text != new.text and (
-            self._normalize_line_endings(old.text) != self._normalize_line_endings(new.text)
-        ):
+        old_normalized = self._normalize_line_endings(old.text)
+        new_normalized = self._normalize_line_endings(new.text)
+        trailing_newline_only = (
+            old.text.splitlines() == new.text.splitlines()
+            and old_normalized.endswith("\n") != new_normalized.endswith("\n")
+        )
+        if old.text != new.text and old_normalized != new_normalized and not trailing_newline_only:
             return None
 
         details = []
@@ -448,6 +519,12 @@ class DiffEngine:
         new_eol = self._line_ending(new.text)
         if old_eol != new_eol:
             details.append(f"换行符：{old_eol} → {new_eol}")
+        if trailing_newline_only:
+            details.append(
+                "末尾换行："
+                f"{'有' if old_normalized.endswith(chr(10)) else '无'} → "
+                f"{'有' if new_normalized.endswith(chr(10)) else '无'}"
+            )
         if not details:
             # 解码文本相同但无法可靠归因时，保守说明事实，不虚构编码名称。
             details.append("原始字节发生变化，文字内容一致")
@@ -458,7 +535,7 @@ class DiffEngine:
         added = 0
         deleted = 0
         for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(
-            None, old_lines, new_lines, autojunk=False).get_opcodes():
+            None, old_lines, new_lines, autojunk=True).get_opcodes():
             if tag in ("replace", "delete"):
                 deleted += i2 - i1
             if tag in ("replace", "insert"):
@@ -467,7 +544,7 @@ class DiffEngine:
 
     def _binary_placeholder(self, cf: ChangedFile) -> str:
         """二进制文件：占位提示"""
-        ext = os.path.splitext(cf.path)[1].upper()
+        ext = html.escape(os.path.splitext(cf.path)[1].upper())
         label = {"A": "新增", "M": "修改", "D": "删除", "R": "重命名"}.get(cf.change_type.value, "变更")
         display_path = html.escape(cf.path)
         if cf.change_type == ChangeType.RENAMED and cf.old_path:

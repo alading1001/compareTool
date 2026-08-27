@@ -1,5 +1,6 @@
 import subprocess
 import os
+import re
 import shutil
 from typing import List
 
@@ -58,6 +59,7 @@ class GitVCS(BaseVCS):
     def __init__(self, project_path: str):
         super().__init__(project_path)
         self._git = self._find_git()
+        self._version_pins = {}
 
     @staticmethod
     def _find_git() -> str:
@@ -136,8 +138,10 @@ class GitVCS(BaseVCS):
         return result.stdout
 
     def get_changed_files(self, old_version: str, new_version: str) -> List[ChangedFile]:
+        old_endpoint = self._pin_version(old_version)
+        new_endpoint = self._pin_version(new_version)
         output = self._run_bytes([
-            "diff", "--raw", "-z", "--find-renames", old_version, new_version, "--"
+            "diff", "--raw", "-z", "--find-renames", old_endpoint, new_endpoint, "--"
         ])
         fields = output.split(b"\x00")
         if fields and fields[-1] == b"":
@@ -211,6 +215,29 @@ class GitVCS(BaseVCS):
                 raise RuntimeError(f"暂不支持的 Git 变更类型 {code}: {path}")
         return self._filter_files(files)
 
+    def _pin_version(self, version: str) -> str:
+        """把可变分支/标签固定到本次任务开始时的 commit。"""
+        key = str(version)
+        pins = getattr(self, "_version_pins", None)
+        if pins is None:
+            self._version_pins = {}
+            pins = self._version_pins
+        if key in pins:
+            return pins[key]
+        try:
+            resolved = self._run_bytes([
+                "rev-parse", "--verify", f"{key}^{{commit}}"
+            ]).decode("ascii", errors="strict").strip()
+        except (RuntimeError, UnicodeDecodeError) as exc:
+            raise RuntimeError(f"无法固定 Git 版本端点，已中止生成: {version}") from exc
+        if not re.fullmatch(r"[0-9a-fA-F]{40,64}", resolved):
+            raise RuntimeError(f"Git 版本端点解析结果无效: {version} -> {resolved}")
+        pins[key] = resolved
+        return resolved
+
+    def _resolve_version(self, version: str) -> str:
+        return getattr(self, "_version_pins", {}).get(str(version), str(version))
+
     @staticmethod
     def _mode_executable(mode: str):
         if mode == "000000":
@@ -238,7 +265,7 @@ class GitVCS(BaseVCS):
     def get_file_content(self, version: str, file_path: str) -> str:
         try:
             result = subprocess.run(
-                [self._git, "show", f"{version}:{file_path}"],
+                [self._git, "show", f"{self._resolve_version(version)}:{file_path}"],
                 cwd=self.project_path,
                 capture_output=True,
                 timeout=30
@@ -257,6 +284,17 @@ class GitVCS(BaseVCS):
 
     def get_file_content_bytes(self, version: str, file_path: str) -> bytes:
         data = self.get_file_content_raw_bytes(version, file_path)
+        attrs = self._get_checkout_attributes(version, file_path)
+        unsupported = []
+        for name in ("filter", "working-tree-encoding", "ident", "crlf"):
+            value = attrs.get(name, "unspecified")
+            if value not in ("unspecified", "unset"):
+                unsupported.append(f"{name}={value}")
+        if unsupported:
+            raise RuntimeError(
+                "Git 文件启用了当前无法可靠复现的检出属性，已中止导出: "
+                f"{file_path}\n属性: {', '.join(unsupported)}"
+            )
         if data is not None and self._checkout_uses_crlf(version, file_path, data):
             data = self._apply_crlf(data)
         return data
@@ -265,7 +303,7 @@ class GitVCS(BaseVCS):
         """读取 Git 对象中的原始字节，不应用工作副本换行符转换。"""
         try:
             result = subprocess.run(
-                [self._git, "show", f"{version}:{file_path}"],
+                [self._git, "show", f"{self._resolve_version(version)}:{file_path}"],
                 cwd=self.project_path,
                 capture_output=True,
                 timeout=30
@@ -293,9 +331,17 @@ class GitVCS(BaseVCS):
                 cwd=self.project_path,
                 capture_output=True, text=True, timeout=5
             )
-            value = r.stdout.strip().lower() if r.returncode == 0 else ""
-        except Exception:
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
+            raise RuntimeError(f"无法读取 Git 配置 {name}，已中止导出: {exc}") from exc
+        if r.returncode == 0:
+            value = r.stdout.strip().lower()
+        elif r.returncode == 1:
             value = ""
+        else:
+            stderr = (r.stderr or "").strip()
+            raise RuntimeError(
+                f"读取 Git 配置失败，已中止导出: {name}\n{stderr}"
+            )
         cache[name] = value
         return value
 
@@ -314,13 +360,15 @@ class GitVCS(BaseVCS):
         if cache is None:
             self._attribute_cache = {}
             cache = self._attribute_cache
-        cache_key = (version, file_path)
+        endpoint = self._resolve_version(version)
+        cache_key = (endpoint, file_path)
         if cache_key in cache:
             return cache[cache_key]
 
         result = subprocess.run(
-            [self._git, "check-attr", "-z", f"--source={version}",
-             "text", "eol", "--", file_path],
+            [self._git, "check-attr", "-z", f"--source={endpoint}",
+             "text", "eol", "filter", "working-tree-encoding", "ident", "crlf",
+             "--", file_path],
             cwd=self.project_path,
             capture_output=True,
             timeout=30,

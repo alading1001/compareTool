@@ -16,6 +16,7 @@ from vcs.folder_vcs import FolderVCS
 from vcs.git_vcs import GitVCS, _unescape_git_path
 from vcs.multi_version_vcs import SVNMultiVersionVCS
 from vcs.svn_vcs import SVNVCS
+from stage_ownership import mark_owned
 
 
 def project_temp_dir():
@@ -111,7 +112,7 @@ class ExportTransactionRegressionTests(unittest.TestCase):
             write_text(os.path.join(source_old, "value.txt"), "source-old")
             write_text(os.path.join(source_new, "value.txt"), "source-new")
             report = os.path.join(root, "Demo_diff.html")
-            instructions = os.path.join(root, "上线操作说明.txt")
+            instructions = os.path.join(root, "Demo_上线操作说明.txt")
             old_target = os.path.join(root, "oldVersion", "Demo")
             new_target = os.path.join(root, "newVersion", "Demo")
             write_text(report, "report-original")
@@ -181,7 +182,7 @@ class ExportTransactionRegressionTests(unittest.TestCase):
                 os.path.join(root, "newVersion"),
             )
 
-            instructions = os.path.join(root, "上线操作说明.txt")
+            instructions = os.path.join(root, "Demo_上线操作说明.txt")
             self.assertTrue(os.path.isfile(report))
             self.assertTrue(os.path.isfile(instructions))
             with open(instructions, encoding="utf-8-sig") as stream:
@@ -364,6 +365,8 @@ class ExportTransactionRegressionTests(unittest.TestCase):
                 prefix=".comparetool_delivery_", suffix=".txt", dir=batch
             )
             os.close(delivery_fd)
+            for owned_path in (orphan_dir, orphan_report, orphan_delivery):
+                mark_owned(owned_path)
             write_text(os.path.join(orphan_dir, "source.java"), "source")
 
             export_like_name = os.path.join(
@@ -525,6 +528,7 @@ class VCSRegressionTests(unittest.TestCase):
     def test_git_type_change_fails_instead_of_exporting_wrong_type(self):
         vcs = GitVCS.__new__(GitVCS)
         vcs.exclude_patterns = []
+        vcs._version_pins = {"old": "a" * 40, "new": "b" * 40}
         vcs._run_bytes = lambda args: (
             b":100644 120000 aaaaaaa bbbbbbb T\x00changed.txt\x00"
         )

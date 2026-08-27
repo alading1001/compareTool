@@ -1,6 +1,9 @@
 import os
+import json
+import shutil
 import sys
 import tempfile
+import time
 from typing import List
 
 from logger import warn
@@ -9,6 +12,16 @@ from logger import warn
 TEMP_DIR_ENV = "COMPARETOOL_TEMP_DIR"
 _RUNTIME_TEMP_PARTS = (".tmp", "comparetool_runtime")
 _D_DRIVE_TEMP_ROOT = r"D:\applications\_cache\CompareTool\tmp"
+_TEMP_MARKER_SUFFIX = ".comparetool_temp_owned"
+_TEMP_MAGIC = "CompareTool temp v1"
+_STALE_AFTER_SECONDS = 7 * 24 * 60 * 60
+_KNOWN_PREFIXES = (
+    "cmp_old_", "cmp_new_", "comparetool_folder_old_",
+    "comparetool_folder_new_", "comparetool_git_endpoint_",
+    "comparetool_svn_endpoint_", "comparetool_git_multi_",
+    "comparetool_svn_multi_",
+)
+_CLEANED_ROOTS = set()
 
 
 def _runtime_base_dir() -> str:
@@ -72,7 +85,9 @@ def create_temp_dir(prefix: str) -> str:
     for root in candidate_temp_roots():
         try:
             os.makedirs(root, exist_ok=True)
+            _cleanup_stale_temp_dirs(root)
             path = tempfile.mkdtemp(prefix=prefix, dir=root)
+            _mark_temp_dir(path)
             if os.name == "nt" and _drive(path) == _system_drive():
                 warn(f"CompareTool 临时目录回退到系统盘: {path}")
             return path
@@ -87,3 +102,73 @@ def create_temp_dir(prefix: str) -> str:
             f"无法使用环境变量 {TEMP_DIR_ENV} 指定的临时目录。\n{detail}"
         )
     raise RuntimeError(f"无法创建 CompareTool 临时工作目录。\n{detail}")
+
+
+def remove_temp_dir(path: str):
+    if not path:
+        return
+    if os.path.isdir(path):
+        shutil.rmtree(path)
+    if not os.path.lexists(path):
+        try:
+            os.remove(path + _TEMP_MARKER_SUFFIX)
+        except FileNotFoundError:
+            pass
+
+
+def _mark_temp_dir(path: str):
+    marker = path + _TEMP_MARKER_SUFFIX
+    payload = {
+        "magic": _TEMP_MAGIC,
+        "pid": os.getpid(),
+        "created": time.time(),
+    }
+    try:
+        with open(marker, "x", encoding="utf-8") as stream:
+            json.dump(payload, stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+    except BaseException:
+        shutil.rmtree(path, ignore_errors=True)
+        raise
+
+
+def _cleanup_stale_temp_dirs(root: str):
+    key = os.path.normcase(os.path.abspath(root))
+    if key in _CLEANED_ROOTS:
+        return
+    _CLEANED_ROOTS.add(key)
+    now = time.time()
+    try:
+        entries = list(os.scandir(root))
+    except OSError:
+        return
+    for entry in entries:
+        if not entry.is_dir(follow_symlinks=False) or not entry.name.startswith(_KNOWN_PREFIXES):
+            continue
+        marker = entry.path + _TEMP_MARKER_SUFFIX
+        try:
+            with open(marker, encoding="utf-8") as stream:
+                payload = json.load(stream)
+            created = float(payload.get("created", 0))
+            pid = int(payload.get("pid", 0))
+            if payload.get("magic") != _TEMP_MAGIC or now - created < _STALE_AFTER_SECONDS:
+                continue
+            if _pid_is_alive(pid):
+                continue
+            remove_temp_dir(entry.path)
+            warn(f"已清理 CompareTool 遗留临时目录: {entry.path}")
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            continue
+
+
+def _pid_is_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except PermissionError:
+        return True
+    except OSError:
+        return False

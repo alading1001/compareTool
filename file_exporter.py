@@ -4,9 +4,11 @@ import re
 import shutil
 import tempfile
 import uuid
+from contextlib import contextmanager
 from diff_engine import DiffResult
 from logger import warn
 from path_safety import is_link_or_junction, safe_join
+from stage_ownership import is_owned, mark_owned, remove_ownership_marker
 from vcs.base import ChangeType
 
 
@@ -111,13 +113,14 @@ class FileExporter:
     def _cleanup_stage(cls, stage: str):
         if not stage:
             return
+        parent = os.path.dirname(os.path.abspath(stage))
+        owner = parent if os.path.basename(parent).startswith(".comparetool_stage_") else stage
         if os.path.lexists(stage):
             try:
                 cls._remove_path(stage)
             except OSError as exc:
                 warn(f"清理导出暂存目录失败: {stage}: {exc}")
                 return
-        parent = os.path.dirname(os.path.abspath(stage))
         if os.path.basename(parent).startswith(".comparetool_stage_"):
             try:
                 os.rmdir(parent)
@@ -125,6 +128,9 @@ class FileExporter:
                 pass
             except OSError as exc:
                 warn(f"清理导出暂存根失败: {parent}: {exc}")
+        if os.path.lexists(owner):
+            return
+        remove_ownership_marker(owner)
 
     def _write_file(self, base_dir: str, rel_path: str, version: str, text_content: str):
         file_path = self._safe_join(base_dir, rel_path)
@@ -179,14 +185,29 @@ class FileExporter:
         parent = stage_parent or os.path.dirname(target_dir)
         os.makedirs(parent, exist_ok=True)
         stage_root = tempfile.mkdtemp(prefix=".comparetool_stage_", dir=parent)
-        if not stage_parent:
-            return stage_root
-        stage = os.path.join(stage_root, os.path.basename(target_dir))
-        os.makedirs(stage)
-        return stage
+        try:
+            mark_owned(stage_root)
+            if not stage_parent:
+                return stage_root
+            stage = os.path.join(stage_root, os.path.basename(target_dir))
+            os.makedirs(stage)
+            return stage
+        except BaseException:
+            shutil.rmtree(stage_root, ignore_errors=True)
+            remove_ownership_marker(stage_root)
+            raise
 
     @classmethod
     def _replace_outputs(cls, pairs):
+        targets = [os.path.abspath(target) for _stage, target in pairs]
+        transaction_root = cls._transaction_root(targets)
+        if not transaction_root:
+            raise RuntimeError("多个输出目标没有安全的共同事务目录")
+        with cls._transaction_lock(transaction_root):
+            return cls._replace_outputs_locked(pairs)
+
+    @classmethod
+    def _replace_outputs_locked(cls, pairs):
         """成组替换文件或目录；任一步失败时恢复全部原有输出。"""
         token = uuid.uuid4().hex
         states = []
@@ -214,6 +235,7 @@ class FileExporter:
                     transaction_root,
                     raise_on_error=True,
                     protected_stages=[stage for stage, _target in normalized_pairs],
+                    acquire_locks=False,
                 )
 
             for stage, target in normalized_pairs:
@@ -279,6 +301,10 @@ class FileExporter:
         journal_path = os.path.join(
             root, f"{cls.TRANSACTION_PREFIX}{token}{cls.TRANSACTION_SUFFIX}"
         )
+        for state in states:
+            owner = cls._stage_owner(state["stage"])
+            if not is_owned(owner):
+                mark_owned(owner)
         payload = {
             "version": 1,
             "token": token,
@@ -293,6 +319,7 @@ class FileExporter:
             ],
         }
         try:
+            mark_owned(journal_path)
             with open(journal_path, "x", encoding="utf-8") as stream:
                 json.dump(payload, stream, ensure_ascii=False, indent=2)
                 stream.flush()
@@ -301,6 +328,12 @@ class FileExporter:
             cls._remove_journal(journal_path)
             raise
         return journal_path
+
+    @staticmethod
+    def _stage_owner(stage: str) -> str:
+        stage = os.path.abspath(stage)
+        parent = os.path.dirname(stage)
+        return parent if os.path.basename(parent).startswith(".comparetool_stage_") else stage
 
     @staticmethod
     def _transaction_root(targets) -> str:
@@ -328,6 +361,7 @@ class FileExporter:
                 os.remove(path)
             except OSError as exc:
                 warn(f"清理输出事务日志失败: {path}: {exc}")
+        remove_ownership_marker(journal_path)
 
     @staticmethod
     def _mark_transaction(journal_path: str, decision: str):
@@ -344,6 +378,46 @@ class FileExporter:
         except OSError as exc:
             warn(f"写入输出事务 {decision} 标记失败: {marker}: {exc}")
 
+    @staticmethod
+    @contextmanager
+    def _transaction_lock(directory: str):
+        """对一个输出批次加非阻塞进程锁，避免两个实例互相恢复/覆盖。"""
+        os.makedirs(directory, exist_ok=True)
+        lock_path = os.path.join(directory, ".comparetool_transaction.lock")
+        stream = open(lock_path, "a+b")
+        try:
+            stream.seek(0, os.SEEK_END)
+            if stream.tell() == 0:
+                stream.write(b"0")
+                stream.flush()
+            stream.seek(0)
+            try:
+                if os.name == "nt":
+                    import msvcrt
+                    msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except (OSError, IOError) as exc:
+                raise RuntimeError(
+                    f"输出目录正在被另一个 CompareTool 实例使用: {directory}"
+                ) from exc
+            try:
+                yield
+            finally:
+                stream.seek(0)
+                try:
+                    if os.name == "nt":
+                        import msvcrt
+                        msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+                    else:
+                        import fcntl
+                        fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+                except OSError:
+                    pass
+        finally:
+            stream.close()
+
     @classmethod
     def recover_transactions(
         cls,
@@ -351,6 +425,7 @@ class FileExporter:
         include_direct_children: bool = False,
         raise_on_error: bool = False,
         protected_stages=None,
+        acquire_locks: bool = True,
     ):
         """恢复上次非正常中断的输出事务。"""
         if not output_root:
@@ -377,6 +452,22 @@ class FileExporter:
             os.path.normcase(os.path.abspath(path))
             for path in (protected_stages or [])
         }
+        if acquire_locks:
+            for directory in directories:
+                try:
+                    with cls._transaction_lock(directory):
+                        recovered.extend(cls.recover_transactions(
+                            directory,
+                            include_direct_children=False,
+                            raise_on_error=raise_on_error,
+                            protected_stages=protected_stages,
+                            acquire_locks=False,
+                        ))
+                except RuntimeError as exc:
+                    if raise_on_error:
+                        raise
+                    warn(str(exc))
+            return recovered
         for directory in directories:
             directory_failed = False
             try:
@@ -419,6 +510,9 @@ class FileExporter:
         for entry in entries:
             if not any(pattern.fullmatch(entry.name) for pattern in cls._ORPHAN_STAGE_PATTERNS):
                 continue
+            if not is_owned(entry.path):
+                warn(f"跳过没有 CompareTool 所有权标记的同名前缀路径: {entry.path}")
+                continue
             entry_path = os.path.normcase(os.path.abspath(entry.path))
             protects_current_work = entry_path in protected
             if not protects_current_work:
@@ -436,12 +530,15 @@ class FileExporter:
                 continue
             try:
                 cls._remove_path(entry.path)
+                remove_ownership_marker(entry.path)
                 warn(f"已清理上次强退遗留的输出暂存物: {entry.path}")
             except OSError as exc:
                 warn(f"清理遗留输出暂存物失败: {entry.path}: {exc}")
 
     @classmethod
     def _recover_transaction_journal(cls, journal_path: str, root: str):
+        if not is_owned(journal_path):
+            raise RuntimeError("事务日志缺少 CompareTool 所有权标记")
         with open(journal_path, encoding="utf-8") as stream:
             payload = json.load(stream)
         if payload.get("version") != 1 or not isinstance(payload.get("states"), list):
@@ -449,7 +546,7 @@ class FileExporter:
 
         token = payload.get("token", "")
         expected_name = f"{cls.TRANSACTION_PREFIX}{token}{cls.TRANSACTION_SUFFIX}"
-        if not token or os.path.basename(journal_path) != expected_name:
+        if not re.fullmatch(r"[0-9a-f]{32}", str(token)) or os.path.basename(journal_path) != expected_name:
             raise RuntimeError("事务日志标识不一致")
 
         root = os.path.abspath(root)
@@ -486,7 +583,12 @@ class FileExporter:
                 os.path.normcase(stage_name).casefold() ==
                 os.path.normcase(os.path.basename(target)).casefold()
             )
-            if not inside or not real_inside or not valid_stage_layout:
+            stage_owner = (
+                os.path.dirname(stage)
+                if stage_parent_name.startswith(".comparetool_stage_")
+                else stage
+            )
+            if not inside or not real_inside or not valid_stage_layout or not is_owned(stage_owner):
                 raise RuntimeError("事务日志路径越界")
             if backup != os.path.abspath(f"{target}.comparetool_backup_{token}"):
                 raise RuntimeError("事务备份路径无效")
@@ -534,6 +636,9 @@ class FileExporter:
                     os.rmdir(stage_parent)
                 except OSError:
                     pass
+                remove_ownership_marker(stage_parent)
+            else:
+                remove_ownership_marker(state["stage"])
         cls._remove_journal(journal_path)
 
     @staticmethod
