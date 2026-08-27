@@ -525,7 +525,9 @@ class VCSRegressionTests(unittest.TestCase):
     def test_git_type_change_fails_instead_of_exporting_wrong_type(self):
         vcs = GitVCS.__new__(GitVCS)
         vcs.exclude_patterns = []
-        vcs._run = lambda args: "T\tchanged.txt\n"
+        vcs._run_bytes = lambda args: (
+            b":100644 120000 aaaaaaa bbbbbbb T\x00changed.txt\x00"
+        )
 
         with self.assertRaisesRegex(RuntimeError, "文件类型发生变化"):
             vcs.get_changed_files("old", "new")

@@ -79,6 +79,7 @@ from delivery_instructions import (
     prepare_delivery_instructions,
 )
 from logger import info, warn, error
+from path_safety import sanitize_windows_component
 
 
 def _load_config():
@@ -649,12 +650,7 @@ class CompareToolApp:
 
     @staticmethod
     def _sanitize_project_name(name: str) -> str:
-        raw = (name or "").strip()
-        meaningful = "".join(ch for ch in raw if ch not in '<>:"/\\|?*').strip(" ._")
-        if not meaningful:
-            return ""
-        cleaned = "".join("_" if ch in '<>:"/\\|?*' else ch for ch in raw)
-        return cleaned.strip(" .")
+        return sanitize_windows_component(name)
 
     @staticmethod
     def _project_name_key(name: str) -> str:
@@ -663,8 +659,56 @@ class CompareToolApp:
 
     @staticmethod
     def _sanitize_output_batch_name(name: str) -> str:
-        cleaned = "".join("_" if ch in '<>:"/\\|?*' else ch for ch in (name or "").strip())
-        return cleaned.strip(" .")
+        return sanitize_windows_component(name)
+
+    @staticmethod
+    def _validate_source_output_separation(
+            source_paths, directory_targets, file_targets=()):
+        """拒绝输出覆盖输入，或把生成物写进会被遍历的源码目录。"""
+        sources = [
+            os.path.realpath(os.path.abspath(path))
+            for path in source_paths if path
+        ]
+        directories = [
+            os.path.realpath(os.path.abspath(path))
+            for path in directory_targets if path
+        ]
+        files = [
+            os.path.realpath(os.path.abspath(path))
+            for path in file_targets if path
+        ]
+
+        for source in sources:
+            for target in directories:
+                try:
+                    common = os.path.commonpath([source, target])
+                except ValueError:
+                    continue
+                if os.path.normcase(common) in (
+                        os.path.normcase(source), os.path.normcase(target)):
+                    raise ValueError(
+                        "输出目录与输入源码目录重叠，可能覆盖源码或把上次产物计入比对：\n"
+                        f"输入：{source}\n输出：{target}"
+                    )
+            for target in files:
+                try:
+                    common = os.path.commonpath([source, target])
+                except ValueError:
+                    continue
+                if os.path.normcase(common) == os.path.normcase(source):
+                    raise ValueError(
+                        "输出文件位于输入源码目录内，可能被后续比对误识别为源码：\n"
+                        f"输入：{source}\n输出：{target}"
+                    )
+
+    @staticmethod
+    def _task_source_directories(task: dict) -> list:
+        vcs_type = task.get("vcs_type", "")
+        if vcs_type == "folder":
+            return [task.get("old_version", ""), task.get("new_version", "")]
+        if vcs_type == "archive":
+            return []
+        return [task.get("project_path", "")]
 
     @staticmethod
     def _should_skip_main_mousewheel(widget) -> bool:
@@ -1706,6 +1750,24 @@ class CompareToolApp:
             messagebox.showwarning("提示", "请先选择输出目录")
             return
 
+        source_paths = (
+            [old_version, new_version]
+            if is_folder else ([] if is_archive else [project_path])
+        )
+        instruction_path = os.path.join(
+            os.path.dirname(os.path.abspath(report_path)),
+            DELIVERY_INSTRUCTIONS_FILENAME,
+        )
+        try:
+            self._validate_source_output_separation(
+                source_paths,
+                [old_export, new_export],
+                [report_path, instruction_path],
+            )
+        except ValueError as exc:
+            messagebox.showwarning("提示", str(exc))
+            return
+
         if not self._confirm_output_batch():
             return
 
@@ -1753,19 +1815,36 @@ class CompareToolApp:
                 return
             names[key] = name
 
-        if not self._confirm_output_batch():
-            return
         effective_output_dir = self._effective_output_dir(output_dir)
-
-        self._save_current_exclude_rules_for_current_key()
-        self._save_current_config()
-
         self.old_export_var.set(self._join_display_path(effective_output_dir, "oldVersion"))
         self.new_export_var.set(self._join_display_path(effective_output_dir, "newVersion"))
 
         report_path = self._multi_report_path()
         old_export = self.old_export_var.get().strip()
         new_export = self.new_export_var.get().strip()
+        instruction_path = os.path.join(
+            os.path.dirname(os.path.abspath(report_path)),
+            DELIVERY_INSTRUCTIONS_FILENAME,
+        )
+        source_paths = [
+            source
+            for task in self._multi_tasks
+            for source in self._task_source_directories(task)
+        ]
+        try:
+            self._validate_source_output_separation(
+                source_paths,
+                [old_export, new_export],
+                [report_path, instruction_path],
+            )
+        except ValueError as exc:
+            messagebox.showwarning("提示", str(exc))
+            return
+        if not self._confirm_output_batch():
+            return
+
+        self._save_current_exclude_rules_for_current_key()
+        self._save_current_config()
         self._set_generating(True)
         self.progress.start()
         self.status_var.set("正在生成多项目总报告...")
@@ -1784,6 +1863,20 @@ class CompareToolApp:
             report_path, old_export, new_export):
         cleanup_vcs = None  # 持有引用以便 finally 清理临时目录
         try:
+            source_paths = (
+                [old_version, new_version]
+                if vcs_type == "folder"
+                else ([] if vcs_type == "archive" else [project_path])
+            )
+            instruction_target = os.path.join(
+                os.path.dirname(os.path.abspath(report_path)),
+                DELIVERY_INSTRUCTIONS_FILENAME,
+            )
+            self._validate_source_output_separation(
+                source_paths,
+                [old_export, new_export],
+                [report_path, instruction_target],
+            )
             info(f"=== 开始生成比对报告 ===")
             info(f"project_path={project_path}, vcs_type={vcs_type}, old={old_version}, new={new_version}")
 
@@ -1847,10 +1940,6 @@ class CompareToolApp:
                     new_export,
                     project_name=project_name,
                 )
-                instruction_target = os.path.join(
-                    os.path.dirname(os.path.abspath(report_path)),
-                    DELIVERY_INSTRUCTIONS_FILENAME,
-                )
                 instruction_stage, instruction_target = prepare_delivery_instructions(
                     [{"project_name": project_name, "diff_result": diff_result}],
                     instruction_target,
@@ -1886,6 +1975,19 @@ class CompareToolApp:
         report_stage = ""
         instruction_stage = ""
         try:
+            instruction_target = os.path.join(
+                os.path.dirname(os.path.abspath(report_path)),
+                DELIVERY_INSTRUCTIONS_FILENAME,
+            )
+            self._validate_source_output_separation(
+                [
+                    source
+                    for task in tasks
+                    for source in self._task_source_directories(task)
+                ],
+                [old_export, new_export],
+                [report_path, instruction_target],
+            )
             info("=== 开始生成多项目总报告 ===")
             for idx, task in enumerate(tasks, start=1):
                 info(f"多项目任务 {idx}/{len(tasks)}: {task.get('project_name')} {task.get('vcs_type')}")
@@ -1911,10 +2013,6 @@ class CompareToolApp:
             report_gen = ReportGenerator(template_dir)
             report_stage = self._make_report_stage_path(report_path)
             report_gen.generate_multi(project_results, report_stage)
-            instruction_target = os.path.join(
-                os.path.dirname(os.path.abspath(report_path)),
-                DELIVERY_INSTRUCTIONS_FILENAME,
-            )
             instruction_stage, instruction_target = prepare_delivery_instructions(
                 project_results,
                 instruction_target,

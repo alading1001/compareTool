@@ -1,9 +1,11 @@
 import io
 import os
 import subprocess
+import stat
 import tarfile
 import tempfile
 import unittest
+import warnings
 import zipfile
 from unittest import mock
 
@@ -104,6 +106,61 @@ class SelectedVersionDiffTests(unittest.TestCase):
                 [item.change_type for item in result.files],
             )
 
+    def test_extensionless_binary_is_not_sent_to_html_diff(self):
+        with project_temp_dir() as root:
+            vcs = VersionedFakeVCS(
+                root,
+                [ChangedFile("payload", ChangeType.MODIFIED)],
+                {
+                    ("old", "payload"): b"old\x00binary",
+                    ("new", "payload"): b"new\x00binary",
+                },
+            )
+
+            file_diff = DiffEngine(vcs).generate_diff("old", "new").files[0]
+
+        self.assertIn("无扩展名 二进制归档文件", file_diff.side_by_side_html)
+        self.assertEqual("", file_diff.old_content)
+        self.assertEqual("", file_diff.new_content)
+
+    def test_large_text_skips_quadratic_html_diff_but_stays_changed(self):
+        with project_temp_dir() as root:
+            vcs = VersionedFakeVCS(
+                root,
+                [ChangedFile("large.txt", ChangeType.MODIFIED)],
+                {
+                    ("old", "large.txt"): b"12345",
+                    ("new", "large.txt"): b"12346",
+                },
+            )
+            with mock.patch.object(DiffEngine, "MAX_TEXT_DIFF_BYTES", 4):
+                file_diff = DiffEngine(vcs).generate_diff("old", "new").files[0]
+
+        self.assertIn("文件过大，已跳过逐行差异展示", file_diff.side_by_side_html)
+        self.assertEqual(ChangeType.MODIFIED, file_diff.change_type)
+
+    def test_metadata_only_change_is_visible_even_when_bytes_match(self):
+        with project_temp_dir() as root:
+            vcs = VersionedFakeVCS(
+                root,
+                [ChangedFile(
+                    "script.sh",
+                    ChangeType.MODIFIED,
+                    metadata_changes=["Git 文件模式：100644 → 100755"],
+                    old_executable=False,
+                    new_executable=True,
+                )],
+                {
+                    ("old", "script.sh"): b"echo ok\n",
+                    ("new", "script.sh"): b"echo ok\n",
+                },
+            )
+
+            file_diff = DiffEngine(vcs).generate_diff("old", "new").files[0]
+
+        self.assertIn("文件元数据变化", file_diff.side_by_side_html)
+        self.assertIn("100644 → 100755", file_diff.side_by_side_html)
+
 
 class ArchiveBoundaryTests(unittest.TestCase):
     def test_zip_parent_traversal_is_rejected_without_writing_outside(self):
@@ -138,6 +195,58 @@ class ArchiveBoundaryTests(unittest.TestCase):
             instance = ArchiveVCS.__new__(ArchiveVCS)
             with self.assertRaisesRegex(ValueError, "链接/特殊文件"):
                 instance._extract_tar(archive, dest)
+
+            self.assertFalse(os.path.exists(os.path.join(dest, "safe.txt")))
+
+    def test_zip_duplicate_file_target_is_rejected_before_writing(self):
+        with project_temp_dir() as root:
+            archive = os.path.join(root, "duplicate.zip")
+            dest = os.path.join(root, "dest")
+            os.makedirs(dest)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", UserWarning)
+                with zipfile.ZipFile(archive, "w") as zf:
+                    zf.writestr("same.txt", b"first")
+                    zf.writestr("same.txt", b"second")
+
+            instance = ArchiveVCS.__new__(ArchiveVCS)
+            with self.assertRaisesRegex(ValueError, "同一 Windows 路径"):
+                instance._extract_zip(archive, dest)
+
+            self.assertEqual([], os.listdir(dest))
+
+    def test_zip_case_collision_is_rejected_before_writing(self):
+        with project_temp_dir() as root:
+            archive = os.path.join(root, "case.zip")
+            dest = os.path.join(root, "dest")
+            os.makedirs(dest)
+            with zipfile.ZipFile(archive, "w") as zf:
+                zf.writestr("Demo.txt", b"first")
+                zf.writestr("demo.txt", b"second")
+
+            instance = ArchiveVCS.__new__(ArchiveVCS)
+            with self.assertRaisesRegex(ValueError, "同一 Windows 路径"):
+                instance._extract_zip(archive, dest)
+
+            self.assertEqual([], os.listdir(dest))
+
+    def test_zip_link_is_rejected_before_earlier_regular_member_is_written(self):
+        with project_temp_dir() as root:
+            archive = os.path.join(root, "link.zip")
+            dest = os.path.join(root, "dest")
+            os.makedirs(dest)
+            link = zipfile.ZipInfo("link")
+            link.create_system = 3
+            link.external_attr = (stat.S_IFLNK | 0o777) << 16
+            with zipfile.ZipFile(archive, "w") as zf:
+                zf.writestr("safe.txt", b"safe")
+                zf.writestr(link, b"../outside")
+
+            instance = ArchiveVCS.__new__(ArchiveVCS)
+            with self.assertRaisesRegex(ValueError, "符号链接"):
+                instance._extract_zip(archive, dest)
+
+            self.assertEqual([], os.listdir(dest))
 
 
 class ExportIntegrityTests(unittest.TestCase):
@@ -272,10 +381,27 @@ class ExportIntegrityTests(unittest.TestCase):
 
 
 class VCSParsingTests(unittest.TestCase):
+    def test_git_mode_only_change_is_preserved_as_metadata(self):
+        vcs = GitVCS.__new__(GitVCS)
+        vcs.exclude_patterns = []
+        vcs._run_bytes = lambda args: (
+            b":100644 100755 aaaaaaa aaaaaaa M\x00script.sh\x00"
+        )
+
+        files = vcs.get_changed_files("old", "new")
+
+        self.assertEqual(1, len(files))
+        self.assertEqual(ChangeType.MODIFIED, files[0].change_type)
+        self.assertEqual(["Git 文件模式：100644 → 100755"], files[0].metadata_changes)
+        self.assertFalse(files[0].old_executable)
+        self.assertTrue(files[0].new_executable)
+
     def test_git_type_change_fails_closed(self):
         vcs = GitVCS.__new__(GitVCS)
         vcs.exclude_patterns = []
-        vcs._run = lambda args: "T\tchanged.txt\n"
+        vcs._run_bytes = lambda args: (
+            b":100644 120000 aaaaaaa bbbbbbb T\x00changed.txt\x00"
+        )
 
         with self.assertRaisesRegex(RuntimeError, "文件类型发生变化"):
             vcs.get_changed_files("old", "new")
@@ -283,7 +409,9 @@ class VCSParsingTests(unittest.TestCase):
     def test_unknown_git_change_type_fails_instead_of_being_omitted(self):
         vcs = GitVCS.__new__(GitVCS)
         vcs.exclude_patterns = []
-        vcs._run = lambda args: "X\tmystery.txt\n"
+        vcs._run_bytes = lambda args: (
+            b":100644 100644 aaaaaaa bbbbbbb X\x00mystery.txt\x00"
+        )
 
         with self.assertRaisesRegex(RuntimeError, "暂不支持"):
             vcs.get_changed_files("old", "new")
@@ -300,6 +428,9 @@ class VCSParsingTests(unittest.TestCase):
   <path item="deleted" props="none" kind="dir">gone-dir</path>
   <path item="replaced" props="none" kind="file">same-name.txt</path>
 </paths></diff>"""
+
+            def _compare_endpoint_metadata(self, *args):
+                return {}
 
         with project_temp_dir() as root:
             files = FakeSVN(root).get_changed_files("1", "2")
@@ -318,7 +449,11 @@ class VCSParsingTests(unittest.TestCase):
         completed = subprocess.CompletedProcess(
             args=[],
             returncode=0,
-            stdout=b"native",
+            stdout=(
+                b'<?xml version="1.0"?><properties><target path="x">'
+                b'<property name="svn:eol-style">native</property>'
+                b'</target></properties>'
+            ),
             stderr=b"",
         )
 
@@ -331,8 +466,59 @@ class VCSParsingTests(unittest.TestCase):
         self.assertIn("12", args)
         self.assertIn("https://example.invalid/repo/project/deleted.txt@12", args)
 
+    def test_svn_property_lookup_failure_fails_closed(self):
+        vcs = SVNVCS.__new__(SVNVCS)
+        vcs.project_path = "demo"
+        vcs._svn = "svn"
+        vcs._cached_repo_url = "https://example.invalid/repo/project"
+        failed = subprocess.CompletedProcess(
+            args=[], returncode=1, stdout=b"", stderr=b"network failed"
+        )
+
+        with mock.patch("vcs.svn_vcs.subprocess.run", return_value=failed):
+            with self.assertRaisesRegex(RuntimeError, "无法读取 SVN 文件属性"):
+                vcs._get_eol_style("r12", "demo.txt")
+
+    def test_svn_unsupported_property_change_fails_closed(self):
+        vcs = SVNVCS.__new__(SVNVCS)
+        vcs._get_properties = mock.Mock(side_effect=[
+            {"custom:deployment": "old"},
+            {"custom:deployment": "new"},
+        ])
+
+        with self.assertRaisesRegex(RuntimeError, "custom:deployment"):
+            vcs._compare_endpoint_metadata("1", "demo.txt", "2", "demo.txt")
+
 
 class ReportAndTaskSafetyTests(unittest.TestCase):
+    def test_source_and_output_directories_must_not_overlap(self):
+        with project_temp_dir() as root:
+            source = os.path.join(root, "source")
+            os.makedirs(source)
+
+            with self.assertRaisesRegex(ValueError, "重叠"):
+                CompareToolApp._validate_source_output_separation(
+                    [source], [os.path.join(source, "generated")]
+                )
+            with self.assertRaisesRegex(ValueError, "重叠"):
+                CompareToolApp._validate_source_output_separation(
+                    [source], [root]
+                )
+            with self.assertRaisesRegex(ValueError, "输出文件位于输入源码目录内"):
+                CompareToolApp._validate_source_output_separation(
+                    [source], [], [os.path.join(source, "report.html")]
+                )
+
+            CompareToolApp._validate_source_output_separation(
+                [source], [os.path.join(root, "sibling-output")]
+            )
+
+    def test_reserved_windows_names_are_sanitized_consistently(self):
+        self.assertEqual("_CON", CompareToolApp._sanitize_project_name("CON"))
+        self.assertEqual("_lpt1.txt", CompareToolApp._sanitize_project_name("lpt1.txt"))
+        self.assertEqual("_NUL", CompareToolApp._sanitize_output_batch_name("NUL"))
+        self.assertEqual("demo_name", CompareToolApp._sanitize_project_name("demo:name"))
+
     def test_diff_table_escapes_repository_file_names(self):
         with project_temp_dir() as root:
             path = '<img src=x onerror="alert(1)">.txt'

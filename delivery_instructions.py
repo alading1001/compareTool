@@ -30,6 +30,7 @@ def prepare_delivery_instructions(project_results: list, target_path: str):
 def write_delivery_instructions(project_results: list, output_path: str):
     delete_entries = []
     rename_entries = []
+    permission_entries = []
     deleted_count = 0
 
     for project in project_results:
@@ -48,9 +49,19 @@ def write_delivery_instructions(project_results: list, output_path: str):
                 new_delivery_path = _delivery_path(project_name, file_diff.file_path)
                 delete_entries.append((old_delivery_path, "重命名旧路径"))
                 rename_entries.append((old_delivery_path, new_delivery_path))
+            if file_diff.change_type != ChangeType.DELETED:
+                delivery_path = _delivery_path(project_name, file_diff.file_path)
+                if file_diff.new_executable is True:
+                    permission_entries.append((delivery_path, "设置可执行权限（chmod +x）"))
+                elif (
+                    file_diff.old_executable is True
+                    and file_diff.new_executable is False
+                ):
+                    permission_entries.append((delivery_path, "移除可执行权限（chmod -x）"))
 
     delete_entries.sort(key=lambda item: item[0].casefold())
     rename_entries.sort(key=lambda item: (item[0].casefold(), item[1].casefold()))
+    permission_entries.sort(key=lambda item: item[0].casefold())
 
     lines = [
         "CompareTool 上线操作说明",
@@ -62,6 +73,7 @@ def write_delivery_instructions(project_results: list, output_path: str):
         f"删除文件：{deleted_count} 个",
         f"重命名文件：{len(rename_entries)} 个",
         f"需要删除的旧路径合计：{len(delete_entries)} 个",
+        f"需要确认的可执行权限：{len(permission_entries)} 个",
         "",
         "一、需要从目标环境删除的旧路径",
         "================================",
@@ -82,6 +94,17 @@ def write_delivery_instructions(project_results: list, output_path: str):
             lines.append(f"  -> {new_path}")
     else:
         lines.append("本次无重命名文件。")
+
+    lines.extend([
+        "",
+        "三、Unix/Linux 可执行权限",
+        "=======================",
+    ])
+    if permission_entries:
+        lines.append("普通 Windows 文件目录不会保留 Git/SVN 的 Unix 可执行位，请在目标环境确认：")
+        lines.extend(f"[{action}] {path}" for path, action in permission_entries)
+    else:
+        lines.append("本次无需要单独处理的可执行权限。")
 
     lines.extend([
         "",

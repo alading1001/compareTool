@@ -230,6 +230,20 @@ class _MultiVersionFolderDelegate(BaseVCS):
             new_raw = self._read_endpoint(
                 raw_content_getter, entity.new_version, entity.new_path, "新版本原始字节"
             )
+            metadata = self._compare_endpoint_metadata(
+                entity.old_version,
+                entity.old_path,
+                entity.new_version,
+                entity.new_path,
+            )
+            metadata_changes = list(metadata.get("changes", []))
+            metadata_kwargs = {
+                "metadata_changes": metadata_changes,
+                "old_executable": metadata.get("old_executable"),
+                "new_executable": metadata.get("new_executable"),
+                "old_mode": metadata.get("old_mode", ""),
+                "new_mode": metadata.get("new_mode", ""),
+            }
 
             if entity.old_path is None and entity.new_path is None:
                 continue
@@ -239,6 +253,7 @@ class _MultiVersionFolderDelegate(BaseVCS):
                 and entity.old_path == entity.new_path
                 and old_data == new_data
                 and old_raw == new_raw
+                and not metadata_changes
             ):
                 continue
 
@@ -247,13 +262,17 @@ class _MultiVersionFolderDelegate(BaseVCS):
                 self._write_endpoint(
                     self._new_raw_dir, entity.new_path, new_raw, new_raw_targets
                 )
-                self._planned_files.append(ChangedFile(entity.new_path, ChangeType.ADDED))
+                self._planned_files.append(ChangedFile(
+                    entity.new_path, ChangeType.ADDED, **metadata_kwargs
+                ))
             elif entity.new_path is None:
                 self._write_endpoint(self._old_dir, entity.old_path, old_data, old_targets)
                 self._write_endpoint(
                     self._old_raw_dir, entity.old_path, old_raw, old_raw_targets
                 )
-                self._planned_files.append(ChangedFile(entity.old_path, ChangeType.DELETED))
+                self._planned_files.append(ChangedFile(
+                    entity.old_path, ChangeType.DELETED, **metadata_kwargs
+                ))
             elif entity.old_path != entity.new_path:
                 self._write_endpoint(self._old_dir, entity.old_path, old_data, old_targets)
                 self._write_endpoint(self._new_dir, entity.new_path, new_data, new_targets)
@@ -264,7 +283,10 @@ class _MultiVersionFolderDelegate(BaseVCS):
                     self._new_raw_dir, entity.new_path, new_raw, new_raw_targets
                 )
                 self._planned_files.append(ChangedFile(
-                    entity.new_path, ChangeType.RENAMED, old_path=entity.old_path
+                    entity.new_path,
+                    ChangeType.RENAMED,
+                    old_path=entity.old_path,
+                    **metadata_kwargs,
                 ))
             else:
                 self._write_endpoint(self._old_dir, entity.old_path, old_data, old_targets)
@@ -275,7 +297,9 @@ class _MultiVersionFolderDelegate(BaseVCS):
                 self._write_endpoint(
                     self._new_raw_dir, entity.new_path, new_raw, new_raw_targets
                 )
-                self._planned_files.append(ChangedFile(entity.new_path, ChangeType.MODIFIED))
+                self._planned_files.append(ChangedFile(
+                    entity.new_path, ChangeType.MODIFIED, **metadata_kwargs
+                ))
 
         self._folder = FolderVCS(self._old_dir, self._new_dir)
         self._raw_folder = FolderVCS(self._old_raw_dir, self._new_raw_dir)
@@ -288,6 +312,10 @@ class _MultiVersionFolderDelegate(BaseVCS):
         if data is None:
             raise RuntimeError(f"无法读取{label}文件端点，已中止生成: {path}@{version}")
         return data
+
+    def _compare_endpoint_metadata(
+            self, old_version, old_path, new_version, new_path) -> dict:
+        return {}
 
     @staticmethod
     def _write_endpoint(base_dir: str, path: str, data: bytes, targets: Dict[str, str]):
@@ -364,6 +392,7 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
         self._git_exe = GitVCS._find_git()
         self._content_vcs = GitVCS(project_path)
         self._content_vcs._git = self._git_exe
+        self._git_mode_cache = {}
         super().__init__(project_path, selected_versions, "comparetool_git_multi_")
         try:
             self._prepare()
@@ -779,15 +808,44 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
         return self._content_vcs.get_file_content_raw_bytes(version, path)
 
     def _validate_git_endpoint_mode(self, version: str, path: str):
+        cache_key = (str(version), path)
+        if cache_key in self._git_mode_cache:
+            return self._git_mode_cache[cache_key]
         mode_line = self._git_bytes("ls-tree", "-z", version, "--", path)
         if not mode_line:
-            return
+            return ""
         header = mode_line.split(b"\t", 1)[0].decode("ascii", errors="replace")
         mode = header.split(" ", 1)[0]
         if mode not in ("100644", "100755"):
             raise RuntimeError(
                 f"Git 多版本端点不是普通文件，已中止生成: {path}@{version} (mode={mode})"
             )
+        self._git_mode_cache[cache_key] = mode
+        return mode
+
+    def _compare_endpoint_metadata(
+            self, old_version, old_path, new_version, new_path) -> dict:
+        old_mode = (
+            self._validate_git_endpoint_mode(old_version, old_path)
+            if old_path is not None else ""
+        )
+        new_mode = (
+            self._validate_git_endpoint_mode(new_version, new_path)
+            if new_path is not None else ""
+        )
+        return {
+            "changes": GitVCS._mode_metadata(
+                old_mode or "000000", new_mode or "000000"
+            ),
+            "old_executable": (
+                GitVCS._mode_executable(old_mode) if old_mode else None
+            ),
+            "new_executable": (
+                GitVCS._mode_executable(new_mode) if new_mode else None
+            ),
+            "old_mode": old_mode,
+            "new_mode": new_mode,
+        }
 
 
 @dataclass(frozen=True)
@@ -936,7 +994,7 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         self._project_root_transitions = []
         self._svn_raw_cache = {}
         self._svn_eol_cache = {}
-        self._svn_regular_endpoint_cache = set()
+        self._svn_property_cache = {}
 
         self._content_vcs = SVNVCS(self.source_project_path, self._svn)
         self._content_vcs._cached_repo_url = self._project_url
@@ -1512,38 +1570,24 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         cache_key = (str(version), path)
         if cache_key in self._svn_eol_cache:
             return self._svn_eol_cache[cache_key]
-        rev = str(version).lstrip("rR")
-        try:
-            result = subprocess.run(
-                [
-                    self._svn,
-                    "propget",
-                    "svn:eol-style",
-                    "--strict",
-                    "-r",
-                    rev,
-                    self._svn_file_url(version, path),
-                ],
-                cwd=self.source_project_path,
-                capture_output=True,
-                timeout=30,
-            )
-            style = self._decode(result.stdout).strip() if result.returncode == 0 else ""
-        except Exception:
-            style = ""
+        style = self._validate_svn_regular_endpoint(version, path).get(
+            "svn:eol-style", ""
+        )
         self._svn_eol_cache[cache_key] = style
         return style
 
     def _validate_svn_regular_endpoint(self, version: str, path: str):
         cache_key = (str(version), path)
-        if cache_key in self._svn_regular_endpoint_cache:
-            return
+        if cache_key in self._svn_property_cache:
+            return self._svn_property_cache[cache_key]
         rev = str(version).lstrip("rR")
         result = subprocess.run(
             [
                 self._svn,
                 "proplist",
                 "--xml",
+                "-v",
+                "--non-interactive",
                 "-r",
                 rev,
                 self._svn_file_url(version, path),
@@ -1562,14 +1606,64 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         except ElementTree.ParseError as exc:
             raise RuntimeError(f"无法解析 SVN 端点属性: {path}@{version}") from exc
         properties = {
-            node.get("name", "") for node in root.findall(".//property")
+            node.get("name", ""): (
+                f"{node.get('encoding')}:{node.text or ''}"
+                if node.get("encoding") else (node.text or "")
+            )
+            for node in root.findall(".//property")
+            if node.get("name")
         }
         if "svn:special" in properties:
             raise RuntimeError(
                 f"SVN 多版本端点是 svn:special（符号链接等特殊节点），"
                 f"已中止生成: {path}@{version}"
             )
-        self._svn_regular_endpoint_cache.add(cache_key)
+        self._svn_property_cache[cache_key] = properties
+        return properties
+
+    def _compare_endpoint_metadata(
+            self, old_version, old_path, new_version, new_path) -> dict:
+        old_props = (
+            self._validate_svn_regular_endpoint(old_version, old_path)
+            if old_path is not None else {}
+        )
+        new_props = (
+            self._validate_svn_regular_endpoint(new_version, new_path)
+            if new_path is not None else {}
+        )
+        changed = {
+            name for name in set(old_props) | set(new_props)
+            if old_props.get(name) != new_props.get(name)
+        }
+        supported = {"svn:eol-style", "svn:executable"}
+        unsupported = sorted(changed - supported)
+        if unsupported:
+            raise RuntimeError(
+                "SVN 多版本文件属性发生变化，但普通文件交付无法保真，已中止生成: "
+                f"{new_path or old_path}\n属性: {', '.join(unsupported)}"
+            )
+        details = []
+        if "svn:eol-style" in changed:
+            details.append(
+                "SVN 换行属性："
+                f"{old_props.get('svn:eol-style', '未设置')} → "
+                f"{new_props.get('svn:eol-style', '未设置')}"
+            )
+        if "svn:executable" in changed:
+            details.append(
+                "SVN 可执行属性："
+                f"{'已设置' if 'svn:executable' in old_props else '未设置'} → "
+                f"{'已设置' if 'svn:executable' in new_props else '未设置'}"
+            )
+        return {
+            "changes": details,
+            "old_executable": (
+                "svn:executable" in old_props if old_path is not None else None
+            ),
+            "new_executable": (
+                "svn:executable" in new_props if new_path is not None else None
+            ),
+        }
 
     def _svn_file_url(self, version: str, path: str) -> str:
         revision = int(str(version).lstrip("rR"))

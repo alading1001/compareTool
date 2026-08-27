@@ -3,7 +3,7 @@ import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List
+from typing import List, Optional
 
 
 class ChangeType(Enum):
@@ -18,6 +18,11 @@ class ChangedFile:
     path: str
     change_type: ChangeType
     old_path: str = ""  # for renamed files
+    metadata_changes: List[str] = field(default_factory=list)
+    old_executable: Optional[bool] = None
+    new_executable: Optional[bool] = None
+    old_mode: str = ""
+    new_mode: str = ""
 
 
 class BaseVCS(ABC):
@@ -83,9 +88,21 @@ class BaseVCS(ABC):
             if old_excluded and new_excluded:
                 continue
             if old_excluded:
-                result.append(ChangedFile(path=item.path, change_type=ChangeType.ADDED))
+                result.append(ChangedFile(
+                    path=item.path,
+                    change_type=ChangeType.ADDED,
+                    metadata_changes=list(item.metadata_changes),
+                    new_executable=item.new_executable,
+                    new_mode=item.new_mode,
+                ))
             elif new_excluded:
-                result.append(ChangedFile(path=old_path, change_type=ChangeType.DELETED))
+                result.append(ChangedFile(
+                    path=old_path,
+                    change_type=ChangeType.DELETED,
+                    metadata_changes=list(item.metadata_changes),
+                    old_executable=item.old_executable,
+                    old_mode=item.old_mode,
+                ))
             else:
                 result.append(item)
         return result

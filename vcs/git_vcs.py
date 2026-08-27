@@ -120,45 +120,120 @@ class GitVCS(BaseVCS):
             raise RuntimeError(f"Git命令失败: {' '.join(args)}\n{result.stderr}")
         return result.stdout
 
+    def _run_bytes(self, args: list) -> bytes:
+        try:
+            result = subprocess.run(
+                [self._git] + args,
+                cwd=self.project_path,
+                capture_output=True,
+                timeout=600,
+            )
+        except FileNotFoundError:
+            raise RuntimeError(GIT_NOT_FOUND_MESSAGE)
+        if result.returncode != 0:
+            stderr = result.stderr.decode("utf-8", errors="replace")
+            raise RuntimeError(f"Git命令失败: {' '.join(args)}\n{stderr}")
+        return result.stdout
+
     def get_changed_files(self, old_version: str, new_version: str) -> List[ChangedFile]:
-        output = self._run(["diff", "--name-status", "--find-renames", old_version, new_version])
+        output = self._run_bytes([
+            "diff", "--raw", "-z", "--find-renames", old_version, new_version, "--"
+        ])
+        fields = output.split(b"\x00")
+        if fields and fields[-1] == b"":
+            fields.pop()
         files = []
-        for line in output.strip().split("\n"):
-            if not line:
-                continue
-            parts = line.split("\t")
-            if len(parts) < 2:
-                raise RuntimeError(f"无法解析 Git 变更记录: {line}")
-            code = parts[0]
-            path = _unescape_git_path(parts[-1])
+        index = 0
+        while index < len(fields):
+            header = fields[index]
+            index += 1
+            if not header.startswith(b":"):
+                raise RuntimeError("无法解析 Git raw 变更记录")
+            parts = header[1:].split()
+            if len(parts) != 5:
+                raise RuntimeError(
+                    "无法解析 Git raw 变更头: "
+                    + header.decode("utf-8", errors="replace")
+                )
+            old_mode = parts[0].decode("ascii", errors="replace")
+            new_mode = parts[1].decode("ascii", errors="replace")
+            status = parts[4].decode("ascii", errors="replace")
+            code = status[:1]
+            if code in ("R", "C"):
+                if index + 1 >= len(fields):
+                    raise RuntimeError("无法解析 Git 重命名/复制路径")
+                old_path = fields[index].decode("utf-8", errors="surrogateescape")
+                path = fields[index + 1].decode("utf-8", errors="surrogateescape")
+                index += 2
+            else:
+                if index >= len(fields):
+                    raise RuntimeError("无法解析 Git 变更路径")
+                path = fields[index].decode("utf-8", errors="surrogateescape")
+                old_path = ""
+                index += 1
 
-            change_map = {
-                "A": ChangeType.ADDED,
-                "M": ChangeType.MODIFIED,
-                "D": ChangeType.DELETED,
-            }
-
-            if code.startswith("R"):
-                if len(parts) < 3:
-                    raise RuntimeError(f"无法解析 Git 重命名记录: {line}")
-                old_path = _unescape_git_path(parts[1])
-                files.append(ChangedFile(
-                    path=path, change_type=ChangeType.RENAMED, old_path=old_path
-                ))
-            elif code.startswith("C"):
-                if len(parts) < 3:
-                    raise RuntimeError(f"无法解析 Git 复制记录: {line}")
-                files.append(ChangedFile(path=path, change_type=ChangeType.ADDED))
-            elif code == "T":
+            if code == "T":
                 raise RuntimeError(
                     f"Git 文件类型发生变化（如普通文件与符号链接互换），"
                     f"已中止生成以避免导出错误文件: {path}"
                 )
-            elif code in change_map:
-                files.append(ChangedFile(path=path, change_type=change_map[code]))
+            self._validate_regular_modes(old_mode, new_mode, path)
+            metadata = self._mode_metadata(old_mode, new_mode)
+            kwargs = {
+                "metadata_changes": metadata,
+                "old_executable": self._mode_executable(old_mode),
+                "new_executable": self._mode_executable(new_mode),
+                "old_mode": "" if old_mode == "000000" else old_mode,
+                "new_mode": "" if new_mode == "000000" else new_mode,
+            }
+
+            if code == "R":
+                files.append(ChangedFile(
+                    path=path,
+                    change_type=ChangeType.RENAMED,
+                    old_path=old_path,
+                    **kwargs,
+                ))
+            elif code == "C":
+                files.append(ChangedFile(
+                    path=path,
+                    change_type=ChangeType.ADDED,
+                    **kwargs,
+                ))
+            elif code in {"A", "M", "D"}:
+                change_type = {
+                    "A": ChangeType.ADDED,
+                    "M": ChangeType.MODIFIED,
+                    "D": ChangeType.DELETED,
+                }[code]
+                files.append(ChangedFile(path=path, change_type=change_type, **kwargs))
             else:
                 raise RuntimeError(f"暂不支持的 Git 变更类型 {code}: {path}")
         return self._filter_files(files)
+
+    @staticmethod
+    def _mode_executable(mode: str):
+        if mode == "000000":
+            return None
+        return mode == "100755"
+
+    @staticmethod
+    def _mode_metadata(old_mode: str, new_mode: str) -> List[str]:
+        if old_mode in ("000000", new_mode) or new_mode == "000000":
+            return []
+        return [f"Git 文件模式：{old_mode} → {new_mode}"]
+
+    @staticmethod
+    def _validate_regular_modes(old_mode: str, new_mode: str, path: str):
+        invalid = [
+            mode for mode in (old_mode, new_mode)
+            if mode not in ("000000", "100644", "100755")
+        ]
+        if invalid:
+            raise RuntimeError(
+                f"Git 端点不是普通文件，已中止生成: {path} "
+                f"(mode={old_mode}->{new_mode})"
+            )
 
     def get_file_content(self, version: str, file_path: str) -> str:
         try:

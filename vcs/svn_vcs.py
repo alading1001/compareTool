@@ -3,6 +3,7 @@ import shutil
 import subprocess
 import os
 from typing import List
+from urllib.parse import quote
 from xml.etree import ElementTree
 
 from .base import BaseVCS, ChangedFile, ChangeType
@@ -136,8 +137,8 @@ class SVNVCS(BaseVCS):
         for node in root.findall(".//path"):
             if node.get("kind") == "dir":
                 continue
-            path = (node.text or "").strip()
-            if not path:
+            path = node.text or ""
+            if not path.strip():
                 continue
 
             # svn diff 返回的是相对于项目目录的路径，先拼成绝对路径再算相对路径
@@ -160,7 +161,17 @@ class SVNVCS(BaseVCS):
             if change_type is None and item in ("none", "normal") and node.get("props") == "modified":
                 change_type = ChangeType.MODIFIED
             if change_type is not None:
-                files.append(ChangedFile(path=rel_path, change_type=change_type))
+                metadata = self._compare_endpoint_metadata(
+                    old_rev,
+                    None if change_type == ChangeType.ADDED else rel_path,
+                    new_rev,
+                    None if change_type == ChangeType.DELETED else rel_path,
+                )
+                files.append(ChangedFile(
+                    path=rel_path,
+                    change_type=change_type,
+                    **metadata,
+                ))
             elif item not in ("none", "normal"):
                 raise RuntimeError(f"暂不支持的 SVN 变更类型 {item}: {path}")
         return files
@@ -171,9 +182,7 @@ class SVNVCS(BaseVCS):
 
     def get_file_content(self, version: str, file_path: str) -> str:
         try:
-            rev = version.lstrip("r")
-            url = f"{self._repo_url}/{file_path.replace(chr(92), '/')}@{rev}"
-            data = self._run_bytes(["cat", url])
+            data = self._run_bytes(["cat", self._file_url(version, file_path)])
             return _decode_bytes(data)
         except RuntimeError:
             return ""
@@ -199,9 +208,7 @@ class SVNVCS(BaseVCS):
     def get_file_content_raw_bytes(self, version: str, file_path: str) -> bytes:
         """读取仓库中的原始字节，不应用工作副本换行符转换。"""
         try:
-            rev = version.lstrip("r")
-            url = f"{self._repo_url}/{file_path.replace(chr(92), '/')}@{rev}"
-            return self._run_bytes(["cat", url])
+            return self._run_bytes(["cat", self._file_url(version, file_path)])
         except RuntimeError:
             return None
 
@@ -213,18 +220,110 @@ class SVNVCS(BaseVCS):
         cache_key = (version, file_path)
         if cache_key in self._eol_cache:
             return self._eol_cache[cache_key]
-        try:
-            rev = version.lstrip("r")
-            url = f"{self._repo_url}/{file_path.replace(chr(92), '/')}@{rev}"
-            result = subprocess.run(
-                [self._svn, "propget", "svn:eol-style", "--strict", "-r", rev, url],
-                capture_output=True, timeout=10
-            )
-            style = result.stdout.decode("utf-8").strip() if result.returncode == 0 else ""
-        except Exception:
-            style = ""
+        style = self._get_properties(version, file_path).get("svn:eol-style", "")
         self._eol_cache[cache_key] = style
         return style
+
+    def _file_url(self, version: str, file_path: str) -> str:
+        rev = str(version).lstrip("rR")
+        relative = quote(file_path.replace("\\", "/").strip("/"), safe="/")
+        return f"{self._repo_url.rstrip('/')}/{relative}@{rev}"
+
+    def _get_properties(self, version: str, file_path: str) -> dict:
+        cache = getattr(self, "_property_cache", None)
+        if cache is None:
+            self._property_cache = {}
+            cache = self._property_cache
+        cache_key = (str(version), file_path)
+        if cache_key in cache:
+            return cache[cache_key]
+        rev = str(version).lstrip("rR")
+        try:
+            result = subprocess.run(
+                [
+                    self._svn,
+                    "proplist",
+                    "--xml",
+                    "-v",
+                    "--non-interactive",
+                    "-r",
+                    rev,
+                    self._file_url(version, file_path),
+                ],
+                cwd=self.project_path,
+                capture_output=True,
+                timeout=30,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+            raise RuntimeError(
+                f"无法读取 SVN 文件属性，已中止导出: {file_path}@{version}\n{exc}"
+            ) from exc
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"无法读取 SVN 文件属性，已中止导出: {file_path}@{version}\n"
+                + _decode_bytes(result.stderr or result.stdout)
+            )
+        try:
+            root = ElementTree.fromstring(_decode_bytes(result.stdout))
+        except ElementTree.ParseError as exc:
+            raise RuntimeError(
+                f"无法解析 SVN 文件属性，已中止导出: {file_path}@{version}"
+            ) from exc
+        properties = {}
+        for node in root.findall(".//property"):
+            name = node.get("name", "")
+            if not name:
+                continue
+            value = node.text or ""
+            if node.get("encoding"):
+                value = f"{node.get('encoding')}:{value}"
+            properties[name] = value
+        cache[cache_key] = properties
+        return properties
+
+    def _compare_endpoint_metadata(
+            self, old_version, old_path, new_version, new_path) -> dict:
+        old_props = self._get_properties(old_version, old_path) if old_path else {}
+        new_props = self._get_properties(new_version, new_path) if new_path else {}
+        if "svn:special" in old_props or "svn:special" in new_props:
+            special_path = new_path or old_path
+            raise RuntimeError(
+                "SVN 端点是 svn:special（符号链接等特殊节点），普通文件导出无法保真，"
+                f"已中止生成: {special_path}"
+            )
+        changed = {
+            name for name in set(old_props) | set(new_props)
+            if old_props.get(name) != new_props.get(name)
+        }
+        supported = {"svn:eol-style", "svn:executable"}
+        unsupported = sorted(changed - supported)
+        if unsupported:
+            raise RuntimeError(
+                "SVN 文件属性发生变化，但普通文件交付无法保真，已中止生成: "
+                f"{new_path or old_path}\n属性: {', '.join(unsupported)}"
+            )
+        details = []
+        if "svn:eol-style" in changed:
+            details.append(
+                "SVN 换行属性："
+                f"{old_props.get('svn:eol-style', '未设置')} → "
+                f"{new_props.get('svn:eol-style', '未设置')}"
+            )
+        if "svn:executable" in changed:
+            details.append(
+                "SVN 可执行属性："
+                f"{'已设置' if 'svn:executable' in old_props else '未设置'} → "
+                f"{'已设置' if 'svn:executable' in new_props else '未设置'}"
+            )
+        return {
+            "metadata_changes": details,
+            "old_executable": (
+                "svn:executable" in old_props if old_path else None
+            ),
+            "new_executable": (
+                "svn:executable" in new_props if new_path else None
+            ),
+        }
 
     def get_file_content_working(self, file_path: str) -> str:
         full_path = os.path.join(self.project_path, file_path)

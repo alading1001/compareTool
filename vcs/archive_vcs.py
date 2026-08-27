@@ -65,14 +65,24 @@ class ArchiveVCS(BaseVCS):
                 path,
                 [(info.filename, info.file_size, info.compress_size, info.is_dir()) for info in members],
             )
-            for info in members:
-                name = self._fix_zip_filename(info)
+            decoded_members = [
+                (info, self._fix_zip_filename(info)) for info in members
+            ]
+            self._validate_archive_targets(
+                dest,
+                [(name, info.is_dir()) for info, name in decoded_members],
+            )
+            for info, name in decoded_members:
+                unix_mode = info.external_attr >> 16
+                file_type = stat.S_IFMT(unix_mode)
+                if stat.S_ISLNK(unix_mode):
+                    raise ValueError(f"压缩包包含不安全的符号链接: {name}")
+                if file_type and not (stat.S_ISREG(unix_mode) or stat.S_ISDIR(unix_mode)):
+                    raise ValueError(f"压缩包包含不安全或不支持的特殊文件: {name}")
+            for info, name in decoded_members:
                 if self._is_root_directory(name, info.is_dir()):
                     continue
                 target = self._safe_extract_target(dest, name)
-                unix_mode = info.external_attr >> 16
-                if stat.S_ISLNK(unix_mode):
-                    raise ValueError(f"压缩包包含不安全的符号链接: {name}")
                 if info.is_dir():
                     os.makedirs(target, exist_ok=True)
                 else:
@@ -91,6 +101,17 @@ class ArchiveVCS(BaseVCS):
                 [(member.name, member.size, archive_size, member.isdir()) for member in members],
                 check_member_ratio=False,
             )
+            self._validate_archive_targets(
+                dest,
+                [(member.name, member.isdir()) for member in members],
+            )
+            for member in members:
+                if self._is_root_directory(member.name, member.isdir()):
+                    continue
+                if not (member.isdir() or member.isfile()):
+                    raise ValueError(
+                        f"压缩包包含不安全或不支持的链接/特殊文件: {member.name}"
+                    )
             total_size = sum(member.size for member in members if member.isfile())
             if total_size / archive_size > self.MAX_COMPRESSION_RATIO:
                 raise ValueError(
@@ -104,8 +125,6 @@ class ArchiveVCS(BaseVCS):
                 if member.isdir():
                     os.makedirs(target, exist_ok=True)
                     continue
-                if not member.isfile():
-                    raise ValueError(f"压缩包包含不安全或不支持的链接/特殊文件: {member.name}")
                 os.makedirs(os.path.dirname(target), exist_ok=True)
                 src = tf.extractfile(member)
                 if src is None:
@@ -126,6 +145,44 @@ class ArchiveVCS(BaseVCS):
     def _is_root_directory(member_name: str, is_dir: bool) -> bool:
         normalized = posixpath.normpath((member_name or "").replace("\\", "/"))
         return is_dir and normalized == "."
+
+    @classmethod
+    def _validate_archive_targets(cls, dest: str, members):
+        """在写盘前拒绝重复、大小写碰撞和文件/目录前缀冲突。"""
+        targets = {}
+        for name, is_dir in members:
+            if cls._is_root_directory(name, is_dir):
+                continue
+            target = cls._safe_extract_target(dest, name)
+            relative = os.path.relpath(target, os.path.abspath(dest)).replace("\\", "/")
+            parts = tuple(part.casefold() for part in relative.split("/"))
+            normalized_name = relative.replace("\\", "/")
+            previous = targets.get(parts)
+            if previous is not None:
+                previous_name, previous_is_dir, previous_normalized = previous
+                if is_dir and previous_is_dir and normalized_name == previous_normalized:
+                    continue
+                raise ValueError(
+                    "压缩包成员会写入同一 Windows 路径，已拒绝解压: "
+                    f"{previous_name} / {name}"
+                )
+            targets[parts] = (name, is_dir, normalized_name)
+
+        file_targets = [
+            (parts, name)
+            for parts, (name, is_dir, _normalized) in targets.items()
+            if not is_dir
+        ]
+        for file_parts, file_name in file_targets:
+            for other_parts, (other_name, _is_dir, _normalized) in targets.items():
+                if (
+                    len(other_parts) > len(file_parts)
+                    and other_parts[:len(file_parts)] == file_parts
+                ):
+                    raise ValueError(
+                        "压缩包成员存在文件/目录前缀冲突，已拒绝解压: "
+                        f"{file_name} / {other_name}"
+                    )
 
     @classmethod
     def _validate_archive_limits(cls, path: str, members, check_member_ratio: bool = True):

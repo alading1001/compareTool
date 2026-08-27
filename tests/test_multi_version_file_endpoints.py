@@ -16,6 +16,7 @@ from file_exporter import FileExporter
 from vcs.base import ChangeType
 from vcs.git_vcs import GitVCS
 from vcs.multi_version_vcs import GitMultiVersionVCS, SVNMultiVersionVCS
+from vcs.svn_vcs import SVNVCS
 
 
 def project_temp_dir():
@@ -84,6 +85,29 @@ class GitFileEndpointTests(unittest.TestCase):
             [self.git, "update-index", "--cacheinfo", f"120000,{blob},{path}"],
             self.repo,
         )
+
+    def test_normal_and_multi_git_preserve_mode_only_change(self):
+        self.write("script.sh", "echo ok\n")
+        baseline = self.commit("baseline")
+        run([self.git, "update-index", "--chmod=+x", "script.sh"], self.repo)
+        run([self.git, "commit", "-m", "make executable"], self.repo)
+        selected = run([self.git, "rev-parse", "HEAD"], self.repo).stdout.strip()
+
+        normal_files = GitVCS(self.repo).get_changed_files(baseline, selected)
+        self.assertEqual(1, len(normal_files))
+        self.assertEqual(["Git 文件模式：100644 → 100755"], normal_files[0].metadata_changes)
+        self.assertTrue(normal_files[0].new_executable)
+
+        vcs = GitMultiVersionVCS(self.repo, [selected])
+        try:
+            files = vcs.get_changed_files()
+            self.assertEqual(1, len(files))
+            self.assertEqual(ChangeType.MODIFIED, files[0].change_type)
+            self.assertEqual(["Git 文件模式：100644 → 100755"], files[0].metadata_changes)
+            diff = DiffEngine(vcs).generate_diff("ui-selected", vcs.new_version_label)
+            self.assertIn("文件元数据变化", diff.files[0].side_by_side_html)
+        finally:
+            vcs.cleanup()
 
     def test_each_file_uses_its_own_selected_endpoints_not_head(self):
         self.write("A.java", "A-base\n")
@@ -700,6 +724,30 @@ class SVNFileEndpointTests(unittest.TestCase):
         match = re.search(r"Committed revision (\d+)", output)
         self.assertIsNotNone(match, output)
         return int(match.group(1))
+
+    def test_normal_and_multi_svn_preserve_executable_property_only_change(self):
+        self.write("Script.sh", "echo ok\n")
+        baseline = self.commit("baseline")
+        run([self.svn, "propset", "svn:executable", "*", "Script.sh"], self.wc)
+        selected = self.commit("make executable")
+
+        normal = SVNVCS(self.wc, svn_path=self.svn)
+        normal_files = normal.get_changed_files(str(baseline), str(selected))
+        self.assertEqual(1, len(normal_files))
+        self.assertIn("SVN 可执行属性", normal_files[0].metadata_changes[0])
+        self.assertTrue(normal_files[0].new_executable)
+
+        vcs = SVNMultiVersionVCS(
+            self.wc, [f"r{selected}"], svn_path=self.svn
+        )
+        try:
+            files = vcs.get_changed_files()
+            self.assertEqual(1, len(files))
+            self.assertEqual(ChangeType.MODIFIED, files[0].change_type)
+            self.assertIn("SVN 可执行属性", files[0].metadata_changes[0])
+            self.assertTrue(files[0].new_executable)
+        finally:
+            vcs.cleanup()
 
     def test_each_file_uses_its_own_svn_revision_endpoints(self):
         self.write("A.java", "A-base\n")
@@ -1349,6 +1397,32 @@ class DeliveryInstructionsTests(unittest.TestCase):
             finally:
                 if os.path.isfile(stage):
                     os.remove(stage)
+
+    def test_instructions_include_executable_permission_actions(self):
+        result = self.result([
+            FileDiff(
+                "bin/start.sh",
+                ChangeType.MODIFIED,
+                old_executable=False,
+                new_executable=True,
+            ),
+            FileDiff(
+                "bin/stop.sh",
+                ChangeType.MODIFIED,
+                old_executable=True,
+                new_executable=False,
+            ),
+        ])
+        with project_temp_dir() as root:
+            output = os.path.join(root, DELIVERY_INSTRUCTIONS_FILENAME)
+            write_delivery_instructions(
+                [{"project_name": "Demo", "diff_result": result}], output
+            )
+            with open(output, encoding="utf-8-sig") as handle:
+                text = handle.read()
+
+        self.assertIn("[设置可执行权限（chmod +x）] Demo/bin/start.sh", text)
+        self.assertIn("[移除可执行权限（chmod -x）] Demo/bin/stop.sh", text)
 
 if __name__ == "__main__":
     unittest.main()

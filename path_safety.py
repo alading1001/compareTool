@@ -11,6 +11,21 @@ WINDOWS_RESERVED_NAMES = {
 }
 
 
+def sanitize_windows_component(value: str) -> str:
+    """清洗一个可安全作为 Windows 单级目录/文件名的用户输入。"""
+    raw = (value or "").strip()
+    cleaned = "".join(
+        "_" if ord(char) < 32 or char in WINDOWS_INVALID_CHARS or char in "/\\" else char
+        for char in raw
+    ).strip(" .")
+    if not cleaned or not cleaned.strip("._"):
+        return ""
+    stem = cleaned.split(".", 1)[0].upper()
+    if stem in WINDOWS_RESERVED_NAMES:
+        cleaned = "_" + cleaned
+    return cleaned
+
+
 def split_safe_relative_path(path: str, label: str = "路径"):
     """解析可安全落到 Windows 文件系统的相对路径。"""
     raw = (path or "").replace("\\", "/")

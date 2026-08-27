@@ -21,6 +21,11 @@ class FileDiff:
     deleted_lines: int = 0
     format_only: bool = False
     format_details: List[str] = field(default_factory=list)
+    metadata_changes: List[str] = field(default_factory=list)
+    old_executable: Optional[bool] = None
+    new_executable: Optional[bool] = None
+    old_mode: str = ""
+    new_mode: str = ""
 
     @property
     def total_changes(self) -> int:
@@ -88,6 +93,7 @@ class DiffEngine:
         ".ttf", ".otf", ".woff", ".woff2",
         ".mp3", ".mp4", ".avi", ".mov",
     }
+    MAX_TEXT_DIFF_BYTES = 5 * 1024 * 1024
 
     def __init__(self, vcs, show_full_context: bool = True):
         self.vcs = vcs
@@ -122,11 +128,35 @@ class DiffEngine:
             file_path=cf.path,
             change_type=cf.change_type,
             old_path=cf.old_path,
+            metadata_changes=list(cf.metadata_changes),
+            old_executable=cf.old_executable,
+            new_executable=cf.new_executable,
+            old_mode=cf.old_mode,
+            new_mode=cf.new_mode,
         )
+
+        old_path = cf.old_path or cf.path
+        old_raw = None
+        new_raw = None
 
         # 二进制文件：只标记变更，不展示内容差异
         if self._is_binary(cf.path) or (cf.old_path and self._is_binary(cf.old_path)):
             file_diff.side_by_side_html = self._binary_placeholder(cf)
+            self._prepend_metadata(file_diff)
+            return file_diff
+
+        if cf.change_type != ChangeType.ADDED:
+            old_raw = self._get_raw_bytes(old_version, old_path)
+        if cf.change_type != ChangeType.DELETED:
+            new_raw = self._get_raw_bytes(new_version, cf.path)
+        raw_values = [data for data in (old_raw, new_raw) if data is not None]
+        if any(len(data) > self.MAX_TEXT_DIFF_BYTES for data in raw_values):
+            file_diff.side_by_side_html = self._large_file_placeholder(cf, raw_values)
+            self._prepend_metadata(file_diff)
+            return file_diff
+        if any(self._content_is_binary(data) for data in raw_values):
+            file_diff.side_by_side_html = self._binary_placeholder(cf)
+            self._prepend_metadata(file_diff)
             return file_diff
 
         if cf.change_type == ChangeType.ADDED:
@@ -146,9 +176,6 @@ class DiffEngine:
                 file_diff.old_content, cf.path)
 
         elif cf.change_type == ChangeType.RENAMED:
-            old_path = cf.old_path or cf.path
-            old_raw = self._get_raw_bytes(old_version, old_path)
-            new_raw = self._get_raw_bytes(new_version, cf.path)
             old_decoded = self._decode_text_strict(old_raw)
             new_decoded = self._decode_text_strict(new_raw)
             if old_decoded is not None and new_decoded is not None:
@@ -182,8 +209,6 @@ class DiffEngine:
                     old_lines, new_lines, cf.path, old_path=old_path)
 
         else:
-            old_raw = self._get_raw_bytes(old_version, cf.path)
-            new_raw = self._get_raw_bytes(new_version, cf.path)
             old_decoded = self._decode_text_strict(old_raw)
             new_decoded = self._decode_text_strict(new_raw)
 
@@ -214,7 +239,69 @@ class DiffEngine:
                 file_diff.side_by_side_html = self._side_by_side_html(
                     old_lines, new_lines, cf.path)
 
+        self._prepend_metadata(file_diff)
         return file_diff
+
+    @staticmethod
+    def _content_is_binary(data: bytes) -> bool:
+        if data is None:
+            return False
+        if data.startswith((
+            b"\xef\xbb\xbf",
+            b"\xff\xfe",
+            b"\xfe\xff",
+            b"\xff\xfe\x00\x00",
+            b"\x00\x00\xfe\xff",
+        )):
+            return False
+        sample = data[:8192]
+        if b"\x00" in sample:
+            return True
+        decoded = None
+        for encoding in ("utf-8", "gb18030"):
+            try:
+                decoded = sample.decode(encoding)
+                break
+            except UnicodeDecodeError:
+                continue
+        if decoded is None:
+            return True
+        control_count = sum(
+            1 for char in decoded
+            if ord(char) < 32 and char not in "\t\n\r\f"
+        )
+        return control_count > max(2, len(decoded) // 100)
+
+    def _prepend_metadata(self, file_diff: FileDiff):
+        if not file_diff.metadata_changes:
+            return
+        details = "".join(
+            f'<div style="margin-top:5px;">{html.escape(item)}</div>'
+            for item in file_diff.metadata_changes
+        )
+        banner = (
+            '<div style="padding:12px 16px;margin-bottom:12px;'
+            'background:#fff7e6;border:1px solid #f0b44d;border-radius:4px;'
+            'color:#6b4b16;">'
+            '<b>文件元数据变化</b>'
+            f'{details}</div>'
+        )
+        file_diff.side_by_side_html = banner + file_diff.side_by_side_html
+
+    def _large_file_placeholder(self, cf: ChangedFile, raw_values: List[bytes]) -> str:
+        largest = max((len(data) for data in raw_values), default=0)
+        display_path = html.escape(cf.path)
+        return (
+            '<div style="padding:40px;text-align:center;color:#666;font-size:15px;">'
+            '<div style="font-size:18px;margin-bottom:12px;font-weight:bold;">'
+            '文件过大，已跳过逐行差异展示</div>'
+            f'<div>{display_path}</div>'
+            f'<div style="margin-top:8px;">最大端点大小：{largest:,} 字节；'
+            f'展示上限：{self.MAX_TEXT_DIFF_BYTES:,} 字节</div>'
+            '<div style="font-size:12px;margin-top:8px;color:#999;">'
+            '文件仍会完整包含在 oldVersion/newVersion 导出中</div>'
+            '</div>'
+        )
 
     def _merge_exact_renames(
         self,
@@ -247,7 +334,7 @@ class DiffEngine:
                 old_item = old_items[0]
                 new_item = new_items[0]
                 paired_old_ids.add(id(old_item))
-                pairs_by_new_id[id(new_item)] = old_item.path
+                pairs_by_new_id[id(new_item)] = old_item
 
         if not pairs_by_new_id:
             return changed_files
@@ -256,12 +343,20 @@ class DiffEngine:
         for item in changed_files:
             if id(item) in paired_old_ids:
                 continue
-            old_path = pairs_by_new_id.get(id(item))
-            if old_path:
+            old_item = pairs_by_new_id.get(id(item))
+            if old_item:
+                metadata_changes = list(dict.fromkeys(
+                    list(old_item.metadata_changes) + list(item.metadata_changes)
+                ))
                 result.append(ChangedFile(
                     path=item.path,
                     change_type=ChangeType.RENAMED,
-                    old_path=old_path,
+                    old_path=old_item.path,
+                    metadata_changes=metadata_changes,
+                    old_executable=old_item.old_executable,
+                    new_executable=item.new_executable,
+                    old_mode=old_item.old_mode,
+                    new_mode=item.new_mode,
                 ))
             else:
                 result.append(item)
@@ -381,7 +476,7 @@ class DiffEngine:
             f'<div style="padding:40px;text-align:center;color:#888;font-size:15px;">'
             f'<div style="font-size:48px;margin-bottom:16px;">📦</div>'
             f'<div><b>{display_path}</b></div>'
-            f'<div style="margin-top:8px;">{ext} 二进制归档文件 &mdash; {label}</div>'
+            f'<div style="margin-top:8px;">{ext or "无扩展名"} 二进制归档文件 &mdash; {label}</div>'
             f'<div style="font-size:12px;margin-top:4px;color:#bbb;">不支持差异内容展示，仅标记文件变更状态</div>'
             f'</div>'
         )
