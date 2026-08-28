@@ -11,7 +11,13 @@ from vcs.archive_vcs import ArchiveVCS
 from vcs.base import BaseVCS, ChangedFile, ChangeType
 from vcs.folder_vcs import FolderVCS
 from vcs.git_vcs import GitVCS
-from vcs.multi_version_vcs import GitMultiVersionVCS, _HistoryChange
+from vcs.multi_version_vcs import (
+    GitMultiVersionVCS,
+    SVNMultiVersionVCS,
+    _EndpointPlanner,
+    _HistoryChange,
+)
+from vcs.svn_vcs import SVNVCS
 
 
 def project_temp_dir():
@@ -57,6 +63,47 @@ class SizedBytesVCS(BaseVCS):
 
 
 class DiffAndReportBudgetTests(unittest.TestCase):
+    def test_default_compatibility_policy_disables_performance_rejections(self):
+        self.assertEqual(0, FolderVCS.MIN_SNAPSHOT_FREE_BYTES)
+        self.assertEqual(0, ArchiveVCS.MIN_WORKING_FREE_BYTES)
+        for owner, names in (
+            (FolderVCS, (
+                "MAX_SNAPSHOT_FILES",
+                "MAX_SNAPSHOT_ENTRIES",
+                "MAX_SNAPSHOT_TOTAL_BYTES",
+            )),
+            (ArchiveVCS, ("MAX_ARCHIVE_SOURCE_BYTES",)),
+            (_EndpointPlanner, (
+                "MAX_HISTORY_STEPS",
+                "MAX_HISTORY_CHANGES",
+                "MAX_HISTORY_PATH_BYTES",
+                "MAX_LOGICAL_FILES",
+            )),
+            (GitMultiVersionVCS, (
+                "MAX_ENDPOINT_FILES",
+                "MAX_ENDPOINT_SOURCE_BYTES",
+                "MAX_ENDPOINT_DISK_BYTES",
+                "MAX_GIT_RENAME_PAIR_CANDIDATES",
+                "MAX_GIT_RENAME_SCORING_EVALUATIONS",
+                "MAX_GIT_RENAME_SCORING_BYTES",
+                "MAX_GIT_STORED_AMBIGUOUS_CANDIDATES",
+                "MAX_GIT_PENDING_DELETES",
+                "MAX_GIT_COMMAND_OUTPUT_BYTES",
+            )),
+            (SVNMultiVersionVCS, (
+                "MAX_SVN_COMMAND_OUTPUT_BYTES",
+                "MAX_SVN_LOG_ENTRIES",
+                "MAX_SVN_PATH_RECORDS",
+                "MAX_SVN_PATH_BYTES",
+                "MAX_SVN_LIST_ENTRIES",
+            )),
+        ):
+            for name in names:
+                self.assertIsNone(getattr(owner, name), f"{owner.__name__}.{name}")
+        self.assertEqual(0, GitMultiVersionVCS.MIN_ENDPOINT_FREE_BYTES)
+        for owner in (GitVCS, SVNVCS, GitMultiVersionVCS, SVNMultiVersionVCS):
+            self.assertIsNone(owner.COMMAND_TIMEOUT, owner.__name__)
+
     def test_directory_replacement_inference_is_prefix_linear_and_not_exact_file(self):
         changes = [
             ChangedFile(f"tree/{index}/child.txt", ChangeType.DELETED)
@@ -73,18 +120,24 @@ class DiffAndReportBudgetTests(unittest.TestCase):
         self.assertIn("tree/19999", required)
         self.assertNotIn("same.txt", required)
 
-    def test_combined_line_and_character_work_skips_html_diff(self):
-        old_data = (b"abcdefghij\n" * 100)
-        new_data = (b"jihgfedcba\n" * 100)
+    def test_structured_text_at_reported_scale_still_renders_line_diff(self):
+        # 旧的组合预算会把这组数据估成：
+        # 1,655 * 2,220 * 33 = 121,245,300，恰好复现用户报告中的误杀值。
+        # 实际内容是结构稳定、尾部新增的普通文本，HtmlDiff 可以稳定完成。
+        old_lines = [f"{index:04d}:".encode("ascii") + b"x" * 28 for index in range(1_655)]
+        new_lines = old_lines + [
+            f"{index:04d}:".encode("ascii") + b"x" * 28
+            for index in range(1_655, 2_220)
+        ]
+        old_data = b"\n".join(old_lines) + b"\n"
+        new_data = b"\n".join(new_lines) + b"\n"
         engine = DiffEngine(SizedBytesVCS(old_data, new_data))
-        engine.MAX_TEXT_DIFF_COMBINED_WORK = 1_000
-        with mock.patch.object(
-            __import__("difflib").HtmlDiff,
-            "make_table",
-            side_effect=AssertionError("HtmlDiff must not run"),
-        ):
-            result = engine.generate_diff("old", "new")
-        self.assertIn("组合工作量", result.files[0].side_by_side_html)
+
+        result = engine.generate_diff("old", "new")
+
+        self.assertIn('<table class="diff"', result.files[0].side_by_side_html)
+        self.assertNotIn("文本结构复杂", result.files[0].side_by_side_html)
+        self.assertTrue(result.files[0].line_counts_complete)
 
     def test_known_size_does_not_turn_missing_raw_endpoint_into_empty_success(self):
         class MissingRaw(SizedBytesVCS):
@@ -147,6 +200,7 @@ class GitHistoryResourceTests(unittest.TestCase):
 
     def test_git_history_candidate_matrix_is_bounded_before_cartesian_set(self):
         vcs = self._bare_multi()
+        vcs.MAX_GIT_RENAME_PAIR_CANDIDATES = 50_000
         changes = [
             *(_HistoryChange("D", f"old/{i}.txt") for i in range(225)),
             *(_HistoryChange("A", f"new/{i}.txt") for i in range(225)),

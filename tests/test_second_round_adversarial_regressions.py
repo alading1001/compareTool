@@ -265,6 +265,24 @@ class PathAndSnapshotTests(unittest.TestCase):
 
 
 class DiffFidelityTests(unittest.TestCase):
+    def test_default_generation_policy_has_no_performance_caps(self):
+        self.assertIsNone(DiffResult.MAX_REPORT_MANIFEST_FILES)
+        self.assertIsNone(DiffResult.MAX_REPORT_MANIFEST_PATH_BYTES)
+        for name in (
+            "MAX_TEXT_DIFF_BYTES",
+            "MAX_TEXT_DIFF_LINES",
+            "MAX_TEXT_DIFF_LINE_BYTES",
+            "MAX_REPORT_TEXT_BYTES",
+            "MAX_REPORT_TEXT_LINES",
+            "MAX_REPORT_RENDER_ROWS",
+            "MAX_REPORT_DETAIL_FILES",
+            "MAX_REPORT_PATH_BYTES",
+            "MAX_REPORT_HTML_BYTES",
+            "MAX_RENAME_SIGNATURE_BYTES",
+        ):
+            self.assertIsNone(getattr(DiffEngine, name), name)
+        self.assertIsNone(ReportGenerator.MAX_REPORT_OUTPUT_BYTES)
+
     def test_final_newline_only_change_is_visible_as_format_change(self):
         result = DiffEngine(BytesVCS(b"line", b"line\n")).generate_diff("old", "new")
         file_diff = result.files[0]
@@ -289,25 +307,20 @@ class DiffFidelityTests(unittest.TestCase):
             self.assertNotIn("</script><script>alert(1)</script>", html)
             self.assertIn("\\u003c/script\\u003e", html)
 
-    def test_diff_line_product_limit_skips_quadratic_work(self):
-        with mock.patch.object(DiffEngine, "MAX_TEXT_DIFF_LINE_PRODUCT", 3):
+    def test_estimated_diff_time_does_not_skip_html_diff(self):
+        old_data = (b"a" * 101 + b"\n") * 2_500
+        new_data = (b"b" * 101 + b"\n") * 2_500
+        with mock.patch(
+            "diff_engine.difflib.HtmlDiff.make_table",
+            return_value='<table class="diff"></table>',
+        ) as make_table:
             result = DiffEngine(
-                BytesVCS(b"a\nb\n", b"c\nd\n")
+                BytesVCS(old_data, new_data)
             ).generate_diff("old", "new")
-        self.assertIn("新旧行数乘积 4", result.files[0].side_by_side_html)
-        self.assertIn("仍会完整包含", result.files[0].side_by_side_html)
 
-    def test_character_product_limit_skips_intraline_htmldiff(self):
-        with mock.patch.object(DiffEngine, "MAX_TEXT_DIFF_CHARACTER_PRODUCT", 3):
-            with mock.patch(
-                "diff_engine.difflib.HtmlDiff.make_table",
-                side_effect=AssertionError("不应进入 HtmlDiff"),
-            ):
-                result = DiffEngine(
-                    BytesVCS(b"aa\n", b"bb\n")
-                ).generate_diff("old", "new")
-        self.assertIn("最长行字符工作量 4", result.files[0].side_by_side_html)
-        self.assertFalse(result.summary["line_counts_complete"])
+        make_table.assert_called_once()
+        self.assertIn('<table class="diff"', result.files[0].side_by_side_html)
+        self.assertTrue(result.summary["line_counts_complete"])
 
     def test_shared_report_budget_is_not_reset_between_projects(self):
         shared = {}
@@ -323,8 +336,11 @@ class DiffFidelityTests(unittest.TestCase):
         self.assertEqual(1, second.summary["report_omitted_files"])
         self.assertEqual(1, second.summary["total_files"])
 
-    def test_line_product_budget_does_not_hide_format_only_semantics(self):
-        with mock.patch.object(DiffEngine, "MAX_TEXT_DIFF_LINE_PRODUCT", 3):
+    def test_format_only_semantics_do_not_enter_html_diff(self):
+        with mock.patch(
+            "diff_engine.difflib.HtmlDiff.make_table",
+            side_effect=AssertionError("格式变化不应进入 HtmlDiff"),
+        ):
             result = DiffEngine(
                 BytesVCS(b"a\r\nb\r\n", b"a\nb\n")
             ).generate_diff("old", "new")

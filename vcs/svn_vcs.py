@@ -31,6 +31,9 @@ def _decode_bytes(data: bytes) -> str:
 class SVNVCS(BaseVCS):
     """SVN版本控制实现"""
 
+    # 生成任务默认不设命令超时；慢网络不应被误判为失败。
+    COMMAND_TIMEOUT = None
+
     def __init__(self, project_path: str, svn_path: str = ""):
         super().__init__(project_path)
         self._svn = svn_path or self._find_svn()
@@ -182,7 +185,7 @@ class SVNVCS(BaseVCS):
                 full_cmd,
                 cwd=self.project_path,
                 capture_output=True,
-                timeout=30
+                timeout=self.COMMAND_TIMEOUT
             )
         except FileNotFoundError:
             raise RuntimeError(SVN_NOT_FOUND_MESSAGE)
@@ -347,7 +350,7 @@ class SVNVCS(BaseVCS):
                 ],
                 cwd=self.project_path,
                 capture_output=True,
-                timeout=30,
+                timeout=self.COMMAND_TIMEOUT,
             )
         except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
             raise RuntimeError(
@@ -458,7 +461,7 @@ class SVNVCS(BaseVCS):
                 ],
                 cwd=self.project_path,
                 capture_output=True,
-                timeout=30,
+                timeout=self.COMMAND_TIMEOUT,
             )
         except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
             raise RuntimeError(
@@ -483,7 +486,7 @@ class SVNVCS(BaseVCS):
                     cwd=self.project_path,
                     stdout=payload,
                     stderr=subprocess.PIPE,
-                    timeout=600,
+                    timeout=self.COMMAND_TIMEOUT,
                 )
                 if result.returncode != 0:
                     raise RuntimeError(_decode_bytes(result.stderr))
@@ -525,7 +528,7 @@ class SVNVCS(BaseVCS):
                     cwd=self.project_path,
                     stdout=target,
                     stderr=subprocess.PIPE,
-                    timeout=600,
+                    timeout=self.COMMAND_TIMEOUT,
                 )
         except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
             raise RuntimeError(f"无法流式导出 SVN 文件: {file_path}@{rev}\n{exc}") from exc
@@ -578,7 +581,7 @@ class SVNVCS(BaseVCS):
                 ],
                 cwd=self.project_path,
                 capture_output=True,
-                timeout=30,
+                timeout=self.COMMAND_TIMEOUT,
             )
         except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
             raise RuntimeError(

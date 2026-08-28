@@ -56,6 +56,9 @@ def _unescape_git_path(raw: str) -> str:
 class GitVCS(BaseVCS):
     """Git版本控制实现"""
 
+    # 生成任务默认不设命令超时；用户可以等待慢仓库/慢网络。
+    COMMAND_TIMEOUT = None
+
     def __init__(self, project_path: str):
         super().__init__(project_path)
         self._git = self._find_git()
@@ -128,7 +131,7 @@ class GitVCS(BaseVCS):
                 [self._git] + args,
                 cwd=self.project_path,
                 capture_output=True,
-                timeout=600,
+                timeout=self.COMMAND_TIMEOUT,
             )
         except FileNotFoundError:
             raise RuntimeError(GIT_NOT_FOUND_MESSAGE)
@@ -326,7 +329,7 @@ class GitVCS(BaseVCS):
                 [self._git, "show", f"{self._resolve_version(version)}:{file_path}"],
                 cwd=self.project_path,
                 capture_output=True,
-                timeout=30
+                timeout=self.COMMAND_TIMEOUT
             )
             if result.returncode != 0:
                 return ""
@@ -364,7 +367,7 @@ class GitVCS(BaseVCS):
                 [self._git, "show", f"{self._resolve_version(version)}:{file_path}"],
                 cwd=self.project_path,
                 capture_output=True,
-                timeout=30
+                timeout=self.COMMAND_TIMEOUT
             )
             if result.returncode != 0:
                 return None
@@ -416,7 +419,7 @@ class GitVCS(BaseVCS):
                     cwd=self.project_path,
                     stdout=target,
                     stderr=subprocess.PIPE,
-                    timeout=600,
+                    timeout=self.COMMAND_TIMEOUT,
                 )
         except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
             raise RuntimeError(f"无法流式导出 Git 文件: {file_path}\n{exc}") from exc
@@ -446,7 +449,7 @@ class GitVCS(BaseVCS):
             r = subprocess.run(
                 [self._git, "config", "--get", name],
                 cwd=self.project_path,
-                capture_output=True, text=True, timeout=5
+                capture_output=True, text=True, timeout=self.COMMAND_TIMEOUT
             )
         except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
             raise RuntimeError(f"无法读取 Git 配置 {name}，已中止导出: {exc}") from exc
@@ -504,7 +507,7 @@ class GitVCS(BaseVCS):
             cwd=self.project_path,
             input=stdin_payload,
             capture_output=True,
-            timeout=600,
+            timeout=self.COMMAND_TIMEOUT,
         )
         if result.returncode != 0:
             stderr = result.stderr.decode("utf-8", errors="replace")

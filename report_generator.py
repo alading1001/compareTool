@@ -10,7 +10,9 @@ from stage_ownership import mark_owned, remove_ownership_marker
 class ReportGenerator:
     """HTML报告生成器"""
 
-    MAX_REPORT_OUTPUT_BYTES = 80 * 1024 * 1024
+    # 默认完整流式写出报告，不因预计体积大而拒绝旧版本能够生成的任务。
+    # 数值上限仅保留为显式策略/测试注入点。
+    MAX_REPORT_OUTPUT_BYTES = None
 
     def __init__(self, template_dir: str = None):
         if template_dir is None:
@@ -82,7 +84,10 @@ class ReportGenerator:
                 for chunk in stream:
                     payload = str(chunk).encode("utf-8")
                     total += len(payload)
-                    if total > cls.MAX_REPORT_OUTPUT_BYTES:
+                    if (
+                        cls.MAX_REPORT_OUTPUT_BYTES is not None
+                        and total > cls.MAX_REPORT_OUTPUT_BYTES
+                    ):
                         raise RuntimeError(
                             "最终 HTML 报告超过统一大小上限: "
                             f"{total} > {cls.MAX_REPORT_OUTPUT_BYTES} 字节"
@@ -138,16 +143,25 @@ class ReportGenerator:
             project_name = project["project_name"]
             show_project_root = project["show_project_root"]
             for file_diff in project["diff_result"].files:
-                item_bytes = DiffResult._htmlsafe_json_bytes({
-                    "project": project_name,
-                    "showProjectRoot": bool(show_project_root),
-                    "path": file_diff.file_path.replace("\\", "/"),
-                    "oldPath": file_diff.old_path.replace("\\", "/"),
-                    "type": file_diff.report_type,
-                }) + 24
                 if (
-                    len(entries) >= DiffResult.MAX_REPORT_MANIFEST_FILES
-                    or json_bytes + item_bytes
+                    DiffResult.MAX_REPORT_MANIFEST_FILES is not None
+                    or DiffResult.MAX_REPORT_MANIFEST_PATH_BYTES is not None
+                ):
+                    item_bytes = DiffResult._htmlsafe_json_bytes({
+                        "project": project_name,
+                        "showProjectRoot": bool(show_project_root),
+                        "path": file_diff.file_path.replace("\\", "/"),
+                        "oldPath": file_diff.old_path.replace("\\", "/"),
+                        "type": file_diff.report_type,
+                    }) + 24
+                else:
+                    item_bytes = 0
+                if (
+                    DiffResult.MAX_REPORT_MANIFEST_FILES is not None
+                    and len(entries) >= DiffResult.MAX_REPORT_MANIFEST_FILES
+                ) or (
+                    DiffResult.MAX_REPORT_MANIFEST_PATH_BYTES is not None
+                    and json_bytes + item_bytes
                     > DiffResult.MAX_REPORT_MANIFEST_PATH_BYTES
                 ):
                     return entries

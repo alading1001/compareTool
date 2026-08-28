@@ -33,8 +33,10 @@ class ArchiveVCS(BaseVCS):
     MAX_TAR_METADATA_RECORDS = 4096
     MAX_TAR_PAX_FIELDS = 4096
     MAX_ZIP_CENTRAL_DIRECTORY_BYTES = 256 * 1024 * 1024
-    MAX_ARCHIVE_SOURCE_BYTES = 20 * 1024 * 1024 * 1024
-    MIN_WORKING_FREE_BYTES = 1024 * 1024 * 1024
+    # 源归档本身默认不限大小，能否执行只取决于真实可用磁盘空间。
+    # 解压成员、展开体积和压缩比限制仍是压缩包安全边界。
+    MAX_ARCHIVE_SOURCE_BYTES = None
+    MIN_WORKING_FREE_BYTES = 0
 
     _ZIP_EOCD_SIGNATURE = b"PK\x05\x06"
     _ZIP64_EOCD_SIGNATURE = b"PK\x06\x06"
@@ -56,7 +58,10 @@ class ArchiveVCS(BaseVCS):
             old_capture = self._capture_archive_source(old_archive)
             new_capture = self._capture_archive_source(new_archive)
             source_bytes = old_capture["size"] + new_capture["size"]
-            if source_bytes > self.MAX_ARCHIVE_SOURCE_BYTES:
+            if (
+                self.MAX_ARCHIVE_SOURCE_BYTES is not None
+                and source_bytes > self.MAX_ARCHIVE_SOURCE_BYTES
+            ):
                 raise RuntimeError(
                     f"压缩包源文件总大小超过上限: {source_bytes} > "
                     f"{self.MAX_ARCHIVE_SOURCE_BYTES}"

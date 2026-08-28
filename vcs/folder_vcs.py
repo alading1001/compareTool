@@ -20,10 +20,12 @@ from logger import warn
 class FolderVCS(BaseVCS):
     """文件夹直接比对实现"""
 
-    MAX_SNAPSHOT_FILES = 100_000
-    MAX_SNAPSHOT_ENTRIES = 200_000
-    MAX_SNAPSHOT_TOTAL_BYTES = 20 * 1024 * 1024 * 1024
-    MIN_SNAPSHOT_FREE_BYTES = 1024 * 1024 * 1024
+    # 默认不因规模预测拒绝本来可以完成的文件夹任务；实际可用磁盘空间
+    # 仍在复制前校验。数值仅作为显式策略/测试注入点。
+    MAX_SNAPSHOT_FILES = None
+    MAX_SNAPSHOT_ENTRIES = None
+    MAX_SNAPSHOT_TOTAL_BYTES = None
+    MIN_SNAPSHOT_FREE_BYTES = 0
 
     def __init__(self, old_dir: str, new_dir: str, snapshot: bool = True):
         source_old = os.path.realpath(os.path.abspath(old_dir))
@@ -61,12 +63,18 @@ class FolderVCS(BaseVCS):
                 new_capture = self._capture_directory(self.source_new_dir)
                 total_files = len(old_capture["files"]) + len(new_capture["files"])
                 total_bytes = old_capture["total_bytes"] + new_capture["total_bytes"]
-                if total_files > self.MAX_SNAPSHOT_FILES:
+                if (
+                    self.MAX_SNAPSHOT_FILES is not None
+                    and total_files > self.MAX_SNAPSHOT_FILES
+                ):
                     raise RuntimeError(
                         f"文件夹快照文件数超过上限: {total_files} > "
                         f"{self.MAX_SNAPSHOT_FILES}"
                     )
-                if total_bytes > self.MAX_SNAPSHOT_TOTAL_BYTES:
+                if (
+                    self.MAX_SNAPSHOT_TOTAL_BYTES is not None
+                    and total_bytes > self.MAX_SNAPSHOT_TOTAL_BYTES
+                ):
                     raise RuntimeError(
                         f"文件夹快照总字节数超过上限: {total_bytes} > "
                         f"{self.MAX_SNAPSHOT_TOTAL_BYTES}"
@@ -116,7 +124,10 @@ class FolderVCS(BaseVCS):
                     # 保留目录拓扑以正确识别“目录被文件替换”，但不进入或复制其内容。
                     directories.add(rel)
                     dirnames.remove(name)
-                    if len(files) + len(directories) > self.MAX_SNAPSHOT_ENTRIES:
+                    if (
+                        self.MAX_SNAPSHOT_ENTRIES is not None
+                        and len(files) + len(directories) > self.MAX_SNAPSHOT_ENTRIES
+                    ):
                         raise RuntimeError(
                             "文件夹快照目录和文件条目数超过上限: "
                             f"{self.MAX_SNAPSHOT_ENTRIES}"
@@ -125,7 +136,10 @@ class FolderVCS(BaseVCS):
                 if is_link_or_junction(full):
                     raise RuntimeError(f"比对目录包含符号链接或联接点，已拒绝读取: {full}")
                 directories.add(rel)
-                if len(files) + len(directories) > self.MAX_SNAPSHOT_ENTRIES:
+                if (
+                    self.MAX_SNAPSHOT_ENTRIES is not None
+                    and len(files) + len(directories) > self.MAX_SNAPSHOT_ENTRIES
+                ):
                     raise RuntimeError(
                         "文件夹快照目录和文件条目数超过上限: "
                         f"{self.MAX_SNAPSHOT_ENTRIES}"
@@ -138,11 +152,17 @@ class FolderVCS(BaseVCS):
                 if is_link_or_junction(full):
                     raise RuntimeError(f"比对目录包含符号链接，已拒绝读取: {full}")
                 files.add(rel)
-                if len(files) > self.MAX_SNAPSHOT_FILES:
+                if (
+                    self.MAX_SNAPSHOT_FILES is not None
+                    and len(files) > self.MAX_SNAPSHOT_FILES
+                ):
                     raise RuntimeError(
                         f"文件夹快照文件数超过上限: {self.MAX_SNAPSHOT_FILES}"
                     )
-                if len(files) + len(directories) > self.MAX_SNAPSHOT_ENTRIES:
+                if (
+                    self.MAX_SNAPSHOT_ENTRIES is not None
+                    and len(files) + len(directories) > self.MAX_SNAPSHOT_ENTRIES
+                ):
                     raise RuntimeError(
                         "文件夹快照目录和文件条目数超过上限: "
                         f"{self.MAX_SNAPSHOT_ENTRIES}"
