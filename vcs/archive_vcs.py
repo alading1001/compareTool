@@ -711,6 +711,19 @@ class ArchiveVCS(BaseVCS):
     def get_file_content_raw_bytes(self, version: str, file_path: str) -> bytes:
         return self._folder.get_file_content_raw_bytes(self._to_folder_ver(version), file_path)
 
+    def get_file_size(self, version: str, file_path: str):
+        return self._folder.get_file_size(self._to_folder_ver(version), file_path)
+
+    def get_file_signature(self, version: str, file_path: str):
+        return self._folder.get_file_signature(
+            self._to_folder_ver(version), file_path
+        )
+
+    def export_file_to_path(self, version: str, file_path: str, target_path: str):
+        return self._folder.export_file_to_path(
+            self._to_folder_ver(version), file_path, target_path
+        )
+
     def _to_folder_ver(self, version: str) -> str:
         """将外部版本标识（zip 路径）转为 FolderVCS 能识别的 'old'/'new'"""
         if version in ("old", "new"):

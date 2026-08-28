@@ -7,7 +7,12 @@ from unittest import mock
 
 from vcs.archive_vcs import ArchiveVCS
 from vcs.multi_version_vcs import _MultiVersionFolderDelegate
-from vcs.temp_storage import TEMP_DIR_ENV, candidate_temp_roots, create_temp_dir
+from vcs.temp_storage import (
+    TEMP_DIR_ENV,
+    candidate_temp_roots,
+    create_temp_dir,
+    open_temp_file,
+)
 
 
 def workspace_temp():
@@ -27,6 +32,14 @@ class TempStorageTests(unittest.TestCase):
                 os.path.normcase(os.path.dirname(created)),
             )
             shutil.rmtree(created)
+
+    def test_environment_override_controls_streaming_temp_file(self):
+        with workspace_temp() as root:
+            configured = os.path.join(root, "configured")
+            with mock.patch.dict(os.environ, {TEMP_DIR_ENV: configured}):
+                with open_temp_file("stream_") as stream:
+                    stream.write(b"payload")
+                    self.assertTrue(os.path.isdir(configured))
 
     @unittest.skipUnless(os.name == "nt", "Windows 盘符策略测试")
     def test_d_drive_precedes_system_temp_when_runtime_is_on_c(self):

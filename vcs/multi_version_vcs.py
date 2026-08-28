@@ -189,7 +189,13 @@ class _MultiVersionFolderDelegate(BaseVCS):
     # 文件身份已经由历史规划器判定，不能再按内容启发式合并删除和新增。
     merge_exact_renames = False
 
-    def __init__(self, source_project_path: str, selected_versions: List[str], prefix: str):
+    def __init__(
+        self,
+        source_project_path: str,
+        selected_versions: List[str],
+        prefix: str,
+        exclude_patterns: Optional[List[str]] = None,
+    ):
         if not selected_versions:
             raise ValueError("请选择至少一个版本")
         self.source_project_path = source_project_path
@@ -206,6 +212,8 @@ class _MultiVersionFolderDelegate(BaseVCS):
         self._raw_folder: Optional[FolderVCS] = None
         self._planned_files: List[ChangedFile] = []
         super().__init__(self._new_dir)
+        if exclude_patterns:
+            super().set_exclude_patterns(exclude_patterns)
 
     def _finish_plan(self, entities: List[_LogicalFile], content_getter, raw_content_getter):
         os.makedirs(self._old_dir, exist_ok=True)
@@ -221,24 +229,44 @@ class _MultiVersionFolderDelegate(BaseVCS):
             entities,
             key=lambda item: ((item.new_path or item.old_path or "").casefold(), item.number),
         )
+        effective = []
         for entity in ordered:
+            old_path = (
+                entity.old_path
+                if entity.old_path is not None and not self._is_excluded(entity.old_path)
+                else None
+            )
+            new_path = (
+                entity.new_path
+                if entity.new_path is not None and not self._is_excluded(entity.new_path)
+                else None
+            )
+            if old_path is None and new_path is None:
+                continue
+            effective.append((entity, old_path, new_path))
+
+        prepare_reads = getattr(self, "_prepare_endpoint_reads", None)
+        if prepare_reads is not None:
+            prepare_reads(effective)
+
+        for entity, old_path, new_path in effective:
             old_data = self._read_endpoint(
-                content_getter, entity.old_version, entity.old_path, "旧版本"
+                content_getter, entity.old_version, old_path, "旧版本"
             )
             new_data = self._read_endpoint(
-                content_getter, entity.new_version, entity.new_path, "新版本"
+                content_getter, entity.new_version, new_path, "新版本"
             )
             old_raw = self._read_endpoint(
-                raw_content_getter, entity.old_version, entity.old_path, "旧版本原始字节"
+                raw_content_getter, entity.old_version, old_path, "旧版本原始字节"
             )
             new_raw = self._read_endpoint(
-                raw_content_getter, entity.new_version, entity.new_path, "新版本原始字节"
+                raw_content_getter, entity.new_version, new_path, "新版本原始字节"
             )
             metadata = self._compare_endpoint_metadata(
                 entity.old_version,
-                entity.old_path,
+                old_path,
                 entity.new_version,
-                entity.new_path,
+                new_path,
             )
             metadata_changes = list(metadata.get("changes", []))
             metadata_kwargs = {
@@ -249,60 +277,58 @@ class _MultiVersionFolderDelegate(BaseVCS):
                 "new_mode": metadata.get("new_mode", ""),
             }
 
-            if entity.old_path is None and entity.new_path is None:
-                continue
             if (
-                entity.old_path is not None
-                and entity.new_path is not None
-                and entity.old_path == entity.new_path
+                old_path is not None
+                and new_path is not None
+                and old_path == new_path
                 and old_data == new_data
                 and old_raw == new_raw
                 and not metadata_changes
             ):
                 continue
 
-            if entity.old_path is None:
-                self._write_endpoint(self._new_dir, entity.new_path, new_data, new_targets)
+            if old_path is None:
+                self._write_endpoint(self._new_dir, new_path, new_data, new_targets)
                 self._write_endpoint(
-                    self._new_raw_dir, entity.new_path, new_raw, new_raw_targets
+                    self._new_raw_dir, new_path, new_raw, new_raw_targets
                 )
                 self._planned_files.append(ChangedFile(
-                    entity.new_path, ChangeType.ADDED, **metadata_kwargs
+                    new_path, ChangeType.ADDED, **metadata_kwargs
                 ))
-            elif entity.new_path is None:
-                self._write_endpoint(self._old_dir, entity.old_path, old_data, old_targets)
+            elif new_path is None:
+                self._write_endpoint(self._old_dir, old_path, old_data, old_targets)
                 self._write_endpoint(
-                    self._old_raw_dir, entity.old_path, old_raw, old_raw_targets
+                    self._old_raw_dir, old_path, old_raw, old_raw_targets
                 )
                 self._planned_files.append(ChangedFile(
-                    entity.old_path, ChangeType.DELETED, **metadata_kwargs
+                    old_path, ChangeType.DELETED, **metadata_kwargs
                 ))
-            elif entity.old_path != entity.new_path:
-                self._write_endpoint(self._old_dir, entity.old_path, old_data, old_targets)
-                self._write_endpoint(self._new_dir, entity.new_path, new_data, new_targets)
+            elif old_path != new_path:
+                self._write_endpoint(self._old_dir, old_path, old_data, old_targets)
+                self._write_endpoint(self._new_dir, new_path, new_data, new_targets)
                 self._write_endpoint(
-                    self._old_raw_dir, entity.old_path, old_raw, old_raw_targets
+                    self._old_raw_dir, old_path, old_raw, old_raw_targets
                 )
                 self._write_endpoint(
-                    self._new_raw_dir, entity.new_path, new_raw, new_raw_targets
+                    self._new_raw_dir, new_path, new_raw, new_raw_targets
                 )
                 self._planned_files.append(ChangedFile(
-                    entity.new_path,
+                    new_path,
                     ChangeType.RENAMED,
-                    old_path=entity.old_path,
+                    old_path=old_path,
                     **metadata_kwargs,
                 ))
             else:
-                self._write_endpoint(self._old_dir, entity.old_path, old_data, old_targets)
-                self._write_endpoint(self._new_dir, entity.new_path, new_data, new_targets)
+                self._write_endpoint(self._old_dir, old_path, old_data, old_targets)
+                self._write_endpoint(self._new_dir, new_path, new_data, new_targets)
                 self._write_endpoint(
-                    self._old_raw_dir, entity.old_path, old_raw, old_raw_targets
+                    self._old_raw_dir, old_path, old_raw, old_raw_targets
                 )
                 self._write_endpoint(
-                    self._new_raw_dir, entity.new_path, new_raw, new_raw_targets
+                    self._new_raw_dir, new_path, new_raw, new_raw_targets
                 )
                 self._planned_files.append(ChangedFile(
-                    entity.new_path, ChangeType.MODIFIED, **metadata_kwargs
+                    new_path, ChangeType.MODIFIED, **metadata_kwargs
                 ))
 
         self._folder = FolderVCS(self._old_dir, self._new_dir, snapshot=False)
@@ -369,6 +395,19 @@ class _MultiVersionFolderDelegate(BaseVCS):
             self._to_folder_ver(version), file_path
         )
 
+    def get_file_size(self, version: str, file_path: str):
+        return self._folder.get_file_size(self._to_folder_ver(version), file_path)
+
+    def get_file_signature(self, version: str, file_path: str):
+        return self._folder.get_file_signature(
+            self._to_folder_ver(version), file_path
+        )
+
+    def export_file_to_path(self, version: str, file_path: str, target_path: str):
+        return self._folder.export_file_to_path(
+            self._to_folder_ver(version), file_path, target_path
+        )
+
     def get_file_content_working(self, file_path: str) -> str:
         return self._folder.get_file_content_working(file_path)
 
@@ -394,12 +433,22 @@ class _MultiVersionFolderDelegate(BaseVCS):
 class GitMultiVersionVCS(_MultiVersionFolderDelegate):
     """Git 多版本：按当前分支第一父历史生成每个文件自己的首尾端点。"""
 
-    def __init__(self, project_path: str, selected_versions: List[str]):
+    def __init__(
+        self,
+        project_path: str,
+        selected_versions: List[str],
+        exclude_patterns: Optional[List[str]] = None,
+    ):
         self._git_exe = GitVCS._find_git()
         self._content_vcs = GitVCS(project_path)
         self._content_vcs._git = self._git_exe
         self._git_mode_cache = {}
-        super().__init__(project_path, selected_versions, "comparetool_git_multi_")
+        super().__init__(
+            project_path,
+            selected_versions,
+            "comparetool_git_multi_",
+            exclude_patterns=exclude_patterns,
+        )
         try:
             self._prepare()
         except Exception:
@@ -454,6 +503,7 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
         return versions
 
     def _prepare(self):
+        self._content_vcs._snapshot_git_config()
         history = self._git("rev-list", "--first-parent", "HEAD").splitlines()
         if not history:
             raise RuntimeError("当前 Git 分支没有可用提交")
@@ -853,6 +903,15 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
             "new_mode": new_mode,
         }
 
+    def _prepare_endpoint_reads(self, effective_entities):
+        endpoints = []
+        for entity, old_path, new_path in effective_entities:
+            if old_path is not None:
+                endpoints.append((entity.old_version, old_path))
+            if new_path is not None:
+                endpoints.append((entity.new_version, new_path))
+        self._content_vcs._snapshot_checkout_policy(endpoints)
+
 
 @dataclass(frozen=True)
 class _SVNPathChange:
@@ -930,9 +989,20 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
             revisions.append(f"{rev} {message[:60]}{suffix}".strip())
         return revisions
 
-    def __init__(self, project_path: str, selected_versions: List[str], svn_path: str = ""):
+    def __init__(
+        self,
+        project_path: str,
+        selected_versions: List[str],
+        svn_path: str = "",
+        exclude_patterns: Optional[List[str]] = None,
+    ):
         self._svn = svn_path or SVNVCS._find_svn()
-        super().__init__(project_path, selected_versions, "comparetool_svn_multi_")
+        super().__init__(
+            project_path,
+            selected_versions,
+            "comparetool_svn_multi_",
+            exclude_patterns=exclude_patterns,
+        )
         try:
             self._prepare()
         except Exception:
@@ -987,32 +1057,54 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         first_revision = min(revisions)
         last_revision = max(revisions)
 
-        self._project_url = self._run(
-            ["info", "--non-interactive", "--show-item", "url"]
-        ).strip()
-        self._repo_root_url = self._run(
-            ["info", "--non-interactive", "--show-item", "repos-root-url"]
-        ).strip()
-        relative_url = self._run(
-            ["info", "--non-interactive", "--show-item", "relative-url"]
-        ).strip()
-        if not self._project_url or not self._repo_root_url or not relative_url.startswith("^"):
-            raise RuntimeError("无法获取 SVN 项目 URL、仓库根 URL 或仓库相对路径")
-        self._project_repo_path = "/" + unquote(relative_url[1:]).strip("/")
+        identity_xml = self._run([
+            "info", "--xml", "--non-interactive", "-r", "HEAD", ".",
+        ])
+        (
+            self._project_url,
+            self._repo_root_url,
+            self._repo_uuid,
+            self._pinned_peg_revision,
+        ) = SVNVCS._parse_info_identity(identity_xml, self.source_project_path)
+        if last_revision > int(self._pinned_peg_revision):
+            raise RuntimeError(
+                "SVN 多版本选择包含任务开始后才存在的 revision，已中止生成: "
+                f"r{last_revision} > r{self._pinned_peg_revision}"
+            )
+        root_prefix = self._repo_root_url.rstrip("/")
+        project_url = self._project_url.rstrip("/")
+        if project_url == root_prefix:
+            relative_path = ""
+        elif project_url.startswith(root_prefix + "/"):
+            relative_path = project_url[len(root_prefix):]
+        else:
+            raise RuntimeError("SVN 项目 URL 不属于固定仓库根 URL，已中止生成")
+        self._project_repo_path = "/" + unquote(relative_path).strip("/")
+        if self._project_repo_path == "/":
+            self._project_repo_path = ""
         self._project_root_transitions = []
         self._svn_raw_cache = {}
         self._svn_eol_cache = {}
         self._svn_property_cache = {}
 
         self._content_vcs = SVNVCS(self.source_project_path, self._svn)
+        self._content_vcs._source_identity_pinned = True
+        self._content_vcs._pinned_project_url = self._project_url
+        self._content_vcs._pinned_repo_root_url = self._repo_root_url
+        self._content_vcs._pinned_repo_uuid = self._repo_uuid
+        self._content_vcs._pinned_peg_revision = self._pinned_peg_revision
         self._content_vcs._cached_repo_url = self._project_url
+        self._content_vcs._project_url_cache = {
+            self._pinned_peg_revision: self._project_url
+        }
         self._content_vcs._eol_cache = {}
 
         output = self._run([
             "log", "--xml", "-v", "--non-interactive",
             # 需要看到最后选中版之后的项目根移动，才能把 HEAD URL 映射回
             # 选中 revision；这些后续记录只用于路径映射，不参与端点规划。
-            "-r", f"{first_revision}:HEAD", f"{self._project_url}@HEAD",
+            "-r", f"{first_revision}:{self._pinned_peg_revision}",
+            f"{self._project_url}@{self._pinned_peg_revision}",
         ])
         history = self._parse_svn_history(output)
         planner = _EndpointPlanner()
@@ -1235,9 +1327,23 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                     item.copyfrom_rev, item.copyfrom_historical,
                     item.props_modified, item.project_root_transition,
                 ))
+            elif (
+                item.action == "R"
+                and item.copyfrom_path
+                and not self._svn_node_exists(item.path, revision - 1)
+            ):
+                # 同 revision 的祖先移动可能先继承出目标目录，随后 XML 把
+                # copyfrom 覆盖记录成 R；目标在真实 r-1 不存在，应按带来源的
+                # A 交给目录 move/copy 展开，不能查询不存在的 target@r-1。
+                normalized_directories.append(_SVNPathChange(
+                    "A", item.kind, item.path, item.copyfrom_path,
+                    item.copyfrom_rev, item.copyfrom_historical,
+                    item.props_modified, item.project_root_transition,
+                ))
             else:
                 normalized_directories.append(item)
         directories = normalized_directories
+        included_directories = []
         if selected:
             for item in directories:
                 if item.project_root_transition:
@@ -1252,12 +1358,20 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                     old_path, old_revision = predecessor_endpoint(item)
                 else:
                     old_path, old_revision = "", 0
+                new_path = item.path if item.action in ("A", "M", "R") else None
+                if old_revision and old_path and self._is_excluded_tree(old_path):
+                    old_path, old_revision = "", 0
+                if new_path and self._is_excluded_tree(new_path):
+                    new_path = None
+                if not old_revision and new_path is None and not item.project_root_transition:
+                    continue
+                included_directories.append(item)
                 old_props = self._get_svn_properties(
                     str(old_revision), old_path
                 ) if old_revision else {}
                 new_props = (
-                    self._get_svn_properties(str(revision), item.path)
-                    if item.action in ("A", "M", "R") else {}
+                    self._get_svn_properties(str(revision), new_path)
+                    if new_path is not None else {}
                 )
                 if "svn:externals" in old_props or "svn:externals" in new_props:
                     raise RuntimeError(
@@ -1265,11 +1379,12 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                         f"已中止生成: {item.path}@{revision}"
                     )
         if selected and any(
-            item.action == "M" or item.props_modified for item in directories
+            item.action == "M" or item.props_modified
+            for item in included_directories
         ):
             paths = ", ".join(
                 sorted(
-                    item.path or "<项目根>" for item in directories
+                    item.path or "<项目根>" for item in included_directories
                     if item.action == "M" or item.props_modified
                 )
             )

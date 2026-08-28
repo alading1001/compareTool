@@ -35,6 +35,9 @@ class FileExporter:
         re.compile(r"^\.comparetool_report_[A-Za-z0-9_-]{8,}\.html$"),
         re.compile(r"^\.comparetool_delivery_[A-Za-z0-9_-]{8,}\.txt$"),
     )
+    _MULTI_RUN_DIRECTORY_PATTERN = re.compile(
+        r"^multi_run_\d{8}_\d{6}_\d{3}(?:_[0-9a-f]{8})?$"
+    )
 
     def __init__(self, diff_result: DiffResult, vcs):
         self.diff_result = diff_result
@@ -149,7 +152,20 @@ class FileExporter:
         file_path = self._safe_join(base_dir, rel_path)
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
 
-        # 所有正式 VCS 都支持原始字节读取；失败必须中止，不能静默漏包。
+        # 正式 VCS 使用流式接口，避免大文件在内存中形成完整 bytes 副本。
+        stream_export = getattr(self.vcs, "export_file_to_path", None)
+        if stream_export is not None:
+            try:
+                stream_export(version, rel_path, file_path)
+                return
+            except Exception:
+                try:
+                    os.remove(file_path)
+                except OSError:
+                    pass
+                raise
+
+        # 兼容测试桩和旧扩展；正式内置 VCS 均不会走到这里。
         raw = self.vcs.get_file_content_bytes(version, rel_path)
         if raw is None:
             raise RuntimeError(f"无法读取版本 {version} 中的文件，已中止导出: {rel_path}")
@@ -602,6 +618,7 @@ class FileExporter:
         raise_on_error: bool = False,
         protected_stages=None,
         acquire_locks: bool = True,
+        include_nested_multi_runs: bool = False,
     ):
         """恢复上次非正常中断的输出事务。"""
         if not output_root:
@@ -610,17 +627,35 @@ class FileExporter:
         if not os.path.isdir(root) or os.path.islink(root):
             return []
         directories = [root]
+        direct_children = []
         if include_direct_children:
             try:
-                directories.extend(
+                direct_children = [
                     entry.path for entry in os.scandir(root)
                     if (
                         entry.is_dir(follow_symlinks=False)
                         and entry.name.casefold() not in ("oldversion", "newversion")
+                        and not is_link_or_junction(entry.path)
                     )
-                )
+                ]
+                directories.extend(direct_children)
             except OSError as exc:
                 warn(f"扫描输出事务日志失败: {root}: {exc}")
+        if include_nested_multi_runs:
+            # 配置输出根下可能先有批次目录，再有本次独立的 multi_run 目录。
+            # 只多扫这一层且严格校验内部目录名，绝不递归普通项目/源码树。
+            for child in direct_children:
+                try:
+                    directories.extend(
+                        entry.path for entry in os.scandir(child)
+                        if (
+                            entry.is_dir(follow_symlinks=False)
+                            and cls._MULTI_RUN_DIRECTORY_PATTERN.fullmatch(entry.name)
+                            and not is_link_or_junction(entry.path)
+                        )
+                    )
+                except OSError as exc:
+                    warn(f"扫描多项目输出事务日志失败: {child}: {exc}")
 
         recovered = []
         failures = []
@@ -639,6 +674,7 @@ class FileExporter:
                         recovered.extend(cls.recover_transactions(
                             directory,
                             include_direct_children=False,
+                            include_nested_multi_runs=False,
                             raise_on_error=raise_on_error,
                             protected_stages=protected_stages,
                             acquire_locks=False,

@@ -140,6 +140,7 @@ class GitVCS(BaseVCS):
     def get_changed_files(self, old_version: str, new_version: str) -> List[ChangedFile]:
         old_endpoint = self._pin_version(old_version)
         new_endpoint = self._pin_version(new_version)
+        self._snapshot_git_config()
         output = self._run_bytes([
             "diff", "--raw", "-z", "--find-renames", old_endpoint, new_endpoint, "--"
         ])
@@ -176,19 +177,42 @@ class GitVCS(BaseVCS):
                 old_path = ""
                 index += 1
 
+            old_excluded = False
+            new_excluded = False
+            if code == "R":
+                old_excluded = self._is_excluded(old_path)
+                new_excluded = self._is_excluded(path)
+                if old_excluded and new_excluded:
+                    continue
+            elif code == "C":
+                if self._is_excluded(path):
+                    continue
+                old_excluded = True
+            elif self._is_excluded(path):
+                continue
+            else:
+                old_excluded = code == "A"
+                new_excluded = code == "D"
+
             if code == "T":
                 raise RuntimeError(
                     f"Git 文件类型发生变化（如普通文件与符号链接互换），"
                     f"已中止生成以避免导出错误文件: {path}"
                 )
-            self._validate_regular_modes(old_mode, new_mode, path)
-            metadata = self._mode_metadata(old_mode, new_mode)
+            effective_old_mode = "000000" if old_excluded else old_mode
+            effective_new_mode = "000000" if new_excluded else new_mode
+            self._validate_regular_modes(
+                effective_old_mode, effective_new_mode, path
+            )
+            metadata = self._mode_metadata(
+                effective_old_mode, effective_new_mode
+            )
             kwargs = {
                 "metadata_changes": metadata,
-                "old_executable": self._mode_executable(old_mode),
-                "new_executable": self._mode_executable(new_mode),
-                "old_mode": "" if old_mode == "000000" else old_mode,
-                "new_mode": "" if new_mode == "000000" else new_mode,
+                "old_executable": self._mode_executable(effective_old_mode),
+                "new_executable": self._mode_executable(effective_new_mode),
+                "old_mode": "" if effective_old_mode == "000000" else effective_old_mode,
+                "new_mode": "" if effective_new_mode == "000000" else effective_new_mode,
             }
 
             if code == "R":
@@ -213,7 +237,17 @@ class GitVCS(BaseVCS):
                 files.append(ChangedFile(path=path, change_type=change_type, **kwargs))
             else:
                 raise RuntimeError(f"暂不支持的 Git 变更类型 {code}: {path}")
-        return self._filter_files(files)
+        files = self._filter_files(files)
+        checkout_endpoints = []
+        for item in files:
+            if item.change_type != ChangeType.ADDED:
+                checkout_endpoints.append((
+                    old_endpoint, item.old_path or item.path
+                ))
+            if item.change_type != ChangeType.DELETED:
+                checkout_endpoints.append((new_endpoint, item.path))
+        self._snapshot_checkout_policy(checkout_endpoints)
+        return files
 
     def _pin_version(self, version: str) -> str:
         """把可变分支/标签固定到本次任务开始时的 commit。"""
@@ -314,6 +348,56 @@ class GitVCS(BaseVCS):
         except (subprocess.TimeoutExpired, RuntimeError, FileNotFoundError):
             return None
 
+    def get_file_size(self, version: str, file_path: str):
+        endpoint = self._resolve_version(version)
+        try:
+            output = self._run_bytes(["cat-file", "-s", f"{endpoint}:{file_path}"])
+            value = output.decode("ascii", errors="strict").strip()
+        except (RuntimeError, UnicodeDecodeError):
+            return None
+        return int(value) if value.isdigit() else None
+
+    def get_file_signature(self, version: str, file_path: str):
+        endpoint = self._resolve_version(version)
+        size = self.get_file_size(endpoint, file_path)
+        if size is None:
+            return None
+        try:
+            object_id = self._run_bytes([
+                "rev-parse", "--verify", f"{endpoint}:{file_path}"
+            ]).decode("ascii", errors="strict").strip().lower()
+        except (RuntimeError, UnicodeDecodeError):
+            return None
+        if not re.fullmatch(r"[0-9a-f]{40,64}", object_id):
+            return None
+        return size, f"git-object:{object_id}"
+
+    def export_file_to_path(self, version: str, file_path: str, target_path: str):
+        endpoint = self._resolve_version(version)
+        attrs = self._get_checkout_attributes(endpoint, file_path)
+        self._validate_checkout_attributes(file_path, attrs)
+        try:
+            with open(target_path, "wb") as target:
+                result = subprocess.run(
+                    [self._git, "show", f"{endpoint}:{file_path}"],
+                    cwd=self.project_path,
+                    stdout=target,
+                    stderr=subprocess.PIPE,
+                    timeout=600,
+                )
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
+            raise RuntimeError(f"无法流式导出 Git 文件: {file_path}\n{exc}") from exc
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"无法流式导出 Git 文件: {file_path}\n"
+                + result.stderr.decode("utf-8", errors="replace")
+            )
+        if (
+            not self._file_contains_null(target_path)
+            and self._checkout_uses_crlf(endpoint, file_path, b"text")
+        ):
+            self._rewrite_file_lf_to_crlf(target_path)
+
     def _autocrlf_effective(self) -> bool:
         """检查 core.autocrlf 是否为 true（缓存结果）"""
         return self._git_config_value("core.autocrlf") == "true"
@@ -325,6 +409,11 @@ class GitVCS(BaseVCS):
             cache = self._config_cache
         if name in cache:
             return cache[name]
+        value = self._read_git_config_value(name)
+        cache[name] = value
+        return value
+
+    def _read_git_config_value(self, name: str) -> str:
         try:
             r = subprocess.run(
                 [self._git, "config", "--get", name],
@@ -342,18 +431,19 @@ class GitVCS(BaseVCS):
             raise RuntimeError(
                 f"读取 Git 配置失败，已中止导出: {name}\n{stderr}"
             )
-        cache[name] = value
         return value
 
     @staticmethod
-    def _parse_check_attr_output(data: bytes) -> dict:
+    def _parse_check_attr_records(data: bytes) -> dict:
+        """解析 ``check-attr -z --stdin`` 的 path/name/value 三元组。"""
         parts = data.split(b"\x00")
-        attrs = {}
+        records = {}
         for index in range(0, len(parts) - 2, 3):
+            path = parts[index].decode("utf-8", errors="surrogateescape")
             name = parts[index + 1].decode("utf-8", errors="replace")
             value = parts[index + 2].decode("utf-8", errors="replace")
-            attrs[name] = value.lower()
-        return attrs
+            records.setdefault(path, {})[name] = value.lower()
+        return records
 
     def _get_checkout_attributes(self, version: str, file_path: str) -> dict:
         cache = getattr(self, "_attribute_cache", None)
@@ -365,22 +455,100 @@ class GitVCS(BaseVCS):
         if cache_key in cache:
             return cache[cache_key]
 
+        attrs = self._read_checkout_attributes(endpoint, file_path)
+        cache[cache_key] = attrs
+        return attrs
+
+    def _read_checkout_attributes(self, endpoint: str, file_path: str) -> dict:
+        return self._read_checkout_attributes_bulk(endpoint, [file_path])[file_path]
+
+    def _read_checkout_attributes_bulk(self, endpoint: str, file_paths) -> dict:
+        paths = sorted(set(file_paths))
+        if not paths:
+            return {}
+        stdin_payload = b"\x00".join(
+            path.encode("utf-8", errors="surrogateescape") for path in paths
+        ) + b"\x00"
         result = subprocess.run(
             [self._git, "check-attr", "-z", f"--source={endpoint}",
              "text", "eol", "filter", "working-tree-encoding", "ident", "crlf",
-             "--", file_path],
+             "--stdin"],
             cwd=self.project_path,
+            input=stdin_payload,
             capture_output=True,
-            timeout=30,
+            timeout=600,
         )
         if result.returncode != 0:
             stderr = result.stderr.decode("utf-8", errors="replace")
             raise RuntimeError(
-                f"无法读取 Git 属性，已中止导出: {file_path}\n{stderr.strip()}"
+                f"无法批量读取 Git 属性，已中止导出\n{stderr.strip()}"
             )
-        attrs = self._parse_check_attr_output(result.stdout)
-        cache[cache_key] = attrs
-        return attrs
+        records = self._parse_check_attr_records(result.stdout)
+        missing = [path for path in paths if path not in records]
+        if missing:
+            preview = ", ".join(missing[:3])
+            raise RuntimeError(
+                f"Git 属性查询结果不完整，已中止导出: {preview}"
+            )
+        return {path: records[path] for path in paths}
+
+    @staticmethod
+    def _validate_checkout_attributes(file_path: str, attrs: dict):
+        unsupported = []
+        for name in ("filter", "working-tree-encoding", "ident", "crlf"):
+            value = attrs.get(name, "unspecified")
+            if value not in ("unspecified", "unset"):
+                unsupported.append(f"{name}={value}")
+        if unsupported:
+            raise RuntimeError(
+                "Git 文件启用了当前无法可靠复现的检出属性，已中止导出: "
+                f"{file_path}\n属性: {', '.join(unsupported)}"
+            )
+
+    def _snapshot_checkout_policy(self, endpoints):
+        """一次性固定本次任务使用的 config 与端点有效属性。"""
+        unique = sorted(set((str(version), path) for version, path in endpoints))
+        if not unique or not hasattr(self, "_git"):
+            return
+        config_names = ("core.autocrlf", "core.eol")
+        first_config = dict(getattr(self, "_config_cache", {}))
+        if any(name not in first_config for name in config_names):
+            self._snapshot_git_config()
+            first_config = dict(self._config_cache)
+        grouped = {}
+        for version, path in unique:
+            grouped.setdefault(self._resolve_version(version), []).append(path)
+
+        def read_all():
+            snapshot = {}
+            for endpoint, paths in sorted(grouped.items()):
+                for path, attrs in self._read_checkout_attributes_bulk(
+                    endpoint, paths
+                ).items():
+                    snapshot[(endpoint, path)] = attrs
+            return snapshot
+
+        first_attrs = read_all()
+        second_config = {
+            name: self._read_git_config_value(name) for name in config_names
+        }
+        second_attrs = read_all()
+        if first_config != second_config or first_attrs != second_attrs:
+            raise RuntimeError(
+                "Git 检出配置或属性在任务快照期间发生变化，已中止生成"
+            )
+        self._config_cache = first_config
+        self._attribute_cache = first_attrs
+
+    def _snapshot_git_config(self):
+        if not hasattr(self, "_git"):
+            return
+        names = ("core.autocrlf", "core.eol")
+        first = {name: self._read_git_config_value(name) for name in names}
+        second = {name: self._read_git_config_value(name) for name in names}
+        if first != second:
+            raise RuntimeError("Git 检出配置在任务快照期间发生变化，已中止生成")
+        self._config_cache = first
 
     def _checkout_uses_crlf(self, version: str, file_path: str, data: bytes) -> bool:
         if not self._is_text_bytes(data):

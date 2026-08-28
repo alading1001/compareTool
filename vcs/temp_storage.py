@@ -22,6 +22,7 @@ _KNOWN_PREFIXES = (
     "comparetool_svn_multi_",
 )
 _CLEANED_ROOTS = set()
+_WARNED_TEMP_FILE_ROOTS = set()
 
 
 def _runtime_base_dir() -> str:
@@ -102,6 +103,35 @@ def create_temp_dir(prefix: str) -> str:
             f"无法使用环境变量 {TEMP_DIR_ENV} 指定的临时目录。\n{detail}"
         )
     raise RuntimeError(f"无法创建 CompareTool 临时工作目录。\n{detail}")
+
+
+def open_temp_file(prefix: str = "comparetool_"):
+    """在 CompareTool 临时根中打开自动删除的二进制临时文件。"""
+    errors = []
+    configured = bool(os.environ.get(TEMP_DIR_ENV, "").strip())
+    for root in candidate_temp_roots():
+        try:
+            os.makedirs(root, exist_ok=True)
+            stream = tempfile.TemporaryFile(prefix=prefix, dir=root)
+            normalized_root = os.path.normcase(os.path.abspath(root))
+            if (
+                os.name == "nt"
+                and _drive(root) == _system_drive()
+                and normalized_root not in _WARNED_TEMP_FILE_ROOTS
+            ):
+                _WARNED_TEMP_FILE_ROOTS.add(normalized_root)
+                warn(f"CompareTool 临时文件回退到系统盘: {root}")
+            return stream
+        except OSError as exc:
+            errors.append(f"{root}: {exc}")
+            if configured:
+                break
+    detail = "\n".join(errors)
+    if configured:
+        raise RuntimeError(
+            f"无法使用环境变量 {TEMP_DIR_ENV} 指定的临时目录。\n{detail}"
+        )
+    raise RuntimeError(f"无法创建 CompareTool 临时文件。\n{detail}")
 
 
 def remove_temp_dir(path: str):

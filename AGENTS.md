@@ -45,7 +45,7 @@ main.py                  # tkinter GUI 入口，线程管理，配置持久化�
 2. 根据 VCS 类型创建 `GitVCS` / `SVNVCS` / `FolderVCS` / `ArchiveVCS` / `GitMultiVersionVCS` / `SVNMultiVersionVCS` → `get_changed_files()` 获取变更文件列表
 3. `DiffEngine.generate_diff()` 遍历文件，对文本文件用 `difflib.HtmlDiff.make_table()` 生成 side-by-side HTML；二进制文件跳过内容只设占位标记；内容完全一致且唯一匹配的删除+新增会合并为重命名
 4. `ReportGenerator` 用 Jinja2 渲染模板 → 单文件 HTML
-5. `FileExporter` 导出变更文件：统一通过 `vcs.get_file_content_bytes()` 读取原始字节（失败返回 `None`，空文件返回 `b""`），以 `wb` 模式写入保留原始编码。`None` 必须使本次导出失败，不能静默漏文件或用不可靠的空文本兜底。单项目的报告、`<项目名>_上线操作说明.txt` 和 old/new 目录在各自同盘暂存后一次成组提交；正式单项目源码 stage 必须放在批次根内部随机 wrapper，不得混进 `oldVersion/newVersion`，多项目内层导出则显式标记目标已是外层 stage。多项目全部成功后整体替换 old/new 根及另外两类产物，任一步失败都恢复原有输出。提交前取得批次级进程锁，写 `.comparetool_transaction_*.json` 恢复日志和 commit/rollback 决策标记；journal 和决策标记必须由输出根之外的每用户私钥做 HMAC-SHA256 验签，未通过验证时只保留现场，禁止自动删除或替换。stage 所有权标记记录持有 PID，活进程的暂存物不得被另一实例清理。启动扫描先只读识别真实候选，再只对候选目录加锁，不得向普通输出子目录写锁文件。重命名文件导出时 oldVersion 使用 `old_path`，newVersion 使用 `file_path`。
+5. `FileExporter` 导出变更文件：内置 VCS 统一通过 `export_file_to_path()` 流式写入暂存目标，避免大文件形成整块内存副本；无法流式导出的旧扩展只允许在大小已知且受限时回退。读取或转换失败必须使本次导出失败，不能静默漏文件或用不可靠的空文本兜底。单项目的报告、`<项目名>_上线操作说明.txt` 和 old/new 目录在各自同盘暂存后一次成组提交；正式单项目源码 stage 必须放在批次根内部随机 wrapper，不得混进 `oldVersion/newVersion`，多项目内层导出则显式标记目标已是外层 stage。多项目全部成功后整体替换 old/new 根及另外两类产物，任一步失败都恢复原有输出。提交前取得批次级进程锁，写 `.comparetool_transaction_*.json` 恢复日志和 commit/rollback 决策标记；journal 和决策标记必须由输出根之外的每用户私钥做 HMAC-SHA256 验签，未通过验证时只保留现场，禁止自动删除或替换。stage 所有权标记记录持有 PID，活进程的暂存物不得被另一实例清理。启动扫描先只读识别真实候选，再只对候选目录加锁；只额外识别批次目录下一层严格命名的 `multi_run_*`，不得递归用户源码树或向普通输出子目录写锁文件。重命名文件导出时 oldVersion 使用 `old_path`，newVersion 使用 `file_path`。
 
 项目名只在能从有效项目目录、新版本文件夹或新版本压缩包推断出真实名称时自动填充。推断不到且用户未手工填写时，生成报告或添加多项目任务应直接提示失败，不使用 `project` 之类的假兜底名称。Git/SVN/Git多版本/SVN多版本模式下，项目名输入框是可编辑下拉框，会按 Git/SVN 家族记忆最近 10 个有效项目；选择最近项目时必须同步回填项目目录和项目名，并触发项目路径变化逻辑清空版本选择和版本列表，避免跨项目复用版本号；多版本只读的“生成结果”仍须显示“文件级首尾端点”。
 
@@ -58,7 +58,7 @@ oldVersion/项目名/...
 newVersion/项目名/...
 ```
 
-若填写了输出批次名称，批次根目录会变成 `输出目录/输出批次名称/`。单项目报告和导出仍生成在批次根；每次多项目生成则必须在批次根下创建独立的 `multi_run_yyyyMMdd_HHmmss_SSS/` 运行目录，报告、`上线操作说明.txt`、`oldVersion` 和 `newVersion` 全部位于该运行目录内。这样历史多项目报告不会引用后一次运行的说明或源码包，也不会与同批次单项目导出互相覆盖。生成前提示的“实际输出目录”必须是本次真正写入的批次根或 multi run 目录。
+若填写了输出批次名称，批次根目录会变成 `输出目录/输出批次名称/`。单项目报告和导出仍生成在批次根；每次多项目生成则必须在批次根下创建独立的 `multi_run_yyyyMMdd_HHmmss_SSS_<8位随机十六进制>/` 运行目录，报告、`上线操作说明.txt`、`oldVersion` 和 `newVersion` 全部位于该运行目录内。随机后缀用于消除同一毫秒并发碰撞；恢复逻辑仍兼容旧的纯时间戳目录。这样历史多项目报告不会引用后一次运行的说明或源码包，也不会与同批次单项目导出互相覆盖。生成前提示的“实际输出目录”必须是本次真正写入的批次根或 multi run 目录。
 
 多项目任务允许混用 Git/SVN/文件夹/压缩包/Git多版本/SVN多版本。任一任务失败时本次生成失败，不跳过项目，也不提交任何项目的新导出目录、新说明文件或新报告。总报告文件名格式为 `multi_compare_report_yyyyMMdd_HHmmss_SSS.html`，并与该次运行的说明和源码包共同保存在独立 multi run 目录。任务列表保存到 `compareTool_config.json`。多项目项目名按 Windows 大小写不敏感规则判重，避免 `Demo` / `demo` 写入同一目录。多项目变更清单是纯文本页面，按新增/修改/格式变化/删除/重命名汇总；每条路径是否带项目名由该任务自己的 `show_project_root` 决定。生成总报告前会检测最终展示路径冲突，若同一展示路径来自多个项目，则失败并提示开启相关任务的项目名展示。`上线操作说明.txt` 中的路径始终带项目名。
 
@@ -89,7 +89,7 @@ Git多版本/SVN多版本使用“文件级首尾端点”语义：选中版本�
 
 - `GitMultiVersionVCS` 只接受当前分支第一父历史的选中提交，合并提交相对第一父提交计算；浅克隆缺少父对象时失败。历史按正常阈值追踪重命名、低阈值检测疑似重命名；同提交 `D/R → A/R/M` 竞争矩阵和跨提交待定删除源到后续 `A/R/M` 目标，必须用隔离 source/target blob 的 Git 原生 rename score 复核，候选身份跨选中端点且不唯一时 fail closed。
 - `SVNMultiVersionVCS` 解析当前项目 URL 的 `svn log --xml -v`，按 revision 映射项目根/祖先移动前缀，用 `copyfrom-path` 和删除覆盖关系追踪文件身份；同 revision 根移动加子文件改名、嵌套目录移动、子文件移出目录或覆盖已有目标、延迟 copyfrom、移动后删除源祖先都必须保持身份。目录移动同 revision 又从继承后的原后缀复制新文件时，只要原后缀仍存在，就必须视为普通 copy；同一个源分叉到多个目标且自然后缀消失时，安全降级为删除源和新增各目标，不猜测唯一 rename。
-- 两种模式均不执行 cherry-pick 或 SVN merge；导出快照与仓库原始字节快照分离，后者用于格式净差异。Git 多版本历史中的类型变化只延续同路径身份；最终选中端点出现非普通 mode、`svn:special` 或其它非普通文件时，必须在净零过滤前中止。成功或失败后必须清理临时目录。
+- 两种模式均不执行 cherry-pick 或 SVN merge；排除规则必须在历史端点准备前生效，命中新旧两侧时跳过，单侧命中时安全降级为新增或删除。导出快照与仓库原始字节快照分离，后者用于格式净差异。Git 多版本历史中的类型变化只延续同路径身份；最终选中端点出现非普通 mode、`svn:special` 或其它非普通文件时，必须在净零过滤前中止。成功或失败后必须清理临时目录。
 - 用户切换 Git/SVN/Git多版本/SVN多版本的项目目录时，若路径实际变化，必须清空可选版本输入和版本列表；Git多版本/SVN多版本的只读“生成结果”恢复为“文件级首尾端点”。异步获取版本列表返回时也要校验项目路径和 VCS 类型仍一致。
 - 唯一语义规格和验收场景见 [`docs/multi-version-file-endpoints.md`](docs/multi-version-file-endpoints.md)。
 
@@ -103,7 +103,7 @@ SVN 对**已删除文件**必须使用仓库 URL + peg revision 语法，工作�
 错误: svn cat -r 240814 https://.../file.txt     # E200009: illegal target (HEAD 中路径不存在)
 ```
 
-普通 `SVNVCS` 在任务开始时同时固定项目 URL、仓库 UUID、HEAD peg revision 和两个数字 revision；summarize、属性、内容与导出必须复用这组身份，不能在工作副本被 `svn switch` 后重新读取 URL。项目根历史移动时，旧端点 URL 要按 revision 沿 copyfrom 历史解析。路径中的反斜杠需统一转正斜杠（Windows `os.path.relpath` 输出反斜杠）。
+普通 `SVNVCS` 在任务开始时通过同一次 `svn info --xml -r HEAD` 同时固定项目 URL、仓库根、仓库 UUID 和 HEAD peg revision，再把两个输入固定为不晚于该 peg 的数字 revision；summarize、属性、大小、内容与导出必须复用这组身份，不能在工作副本被 `svn switch` 后重新读取 URL。SVN 多版本也必须使用一次原子身份快照，并把历史查询上界固定到该 peg。项目根历史移动时，旧端点 URL 要按 revision 沿 copyfrom 历史解析。路径中的反斜杠需统一转正斜杠（Windows `os.path.relpath` 输出反斜杠）。
 
 Git/SVN 可执行文件路径均自动探测：先查 `shutil.which`，再查 Windows 注册表中的用户/系统 PATH，最后搜常见安装目录。Git 常见目录包括 Git for Windows 的 `cmd/git.exe` / `bin/git.exe`；SVN 常见目录包括 TortoiseSVN、VisualSVN、SlikSVN 等。GUI 不再提供 SVN 可执行文件路径输入框，若最终找不到 `git.exe` / `svn.exe`，应提示用户安装 Git for Windows 或 SVN 命令行工具（TortoiseSVN 需勾选 command line client tools）。
 
@@ -122,20 +122,20 @@ Git/SVN 可执行文件路径均自动探测：先查 `shutil.which`，再查 Wi
 
 **报告路径修正**：`main.py` 在生成 diff 后，对压缩包模式将 `diff_result.project_path` 覆写为压缩包文件名（而非临时目录），避免报告头部泄露临时路径。
 
-**版本标识翻译**：`ArchiveVCS._to_folder_ver()` 将外部版本标识（zip 路径）映射为 `"old"`/`"new"` 后再委托给 `FolderVCS`。`FolderVCS._resolve_version_dir()` 只识别 `"old"`/`"new"` 和临时目录路径，不识别 zip 路径，必须经翻译层转换。`get_file_content` 和 `get_file_content_bytes` 均使用此翻译。
+**版本标识翻译**：`ArchiveVCS._to_folder_ver()` 将外部版本标识（zip 路径）映射为 `"old"`/`"new"` 后再委托给 `FolderVCS`。`FolderVCS._resolve_version_dir()` 只识别 `"old"`/`"new"` 和临时目录路径，不识别 zip 路径，必须经翻译层转换。内容、大小、摘要和流式导出均使用此翻译。
 
 ### 差异展示
 
 `DiffEngine.__init__` 接收 `show_full_context` 参数（由 GUI 单选按钮控制）。`True` 时展示文件全部行（`context=False`），`False` 时仅展示差异上下文（`context=True, numlines=3`）。默认为全部内容。
 
-逐行差异同时受单文件字节/行/最长行/新旧行数乘积和整份报告累计字节、行数、预计渲染行数预算保护；超限只降级为占位说明，文件仍完整导出。纯格式变化和纯重命名仍须保留 F/R 语义，但占位后不得在 `FileDiff` 中长期持有整份文本。
+逐行差异同时受单文件字节/行/最长行/字符工作量、新旧行数乘积，以及整份报告共享的明细数、路径字节、文本字节、行数、预计渲染行数和 HTML 字节预算保护；多项目不得按项目重置预算。超限只降级或省略报告明细，全部变更仍进入导出与上线说明，并明确提示未统计行数/未展开明细数量。Jinja2 必须流式写报告，不能先在内存中生成完整 HTML。纯格式变化和纯重命名仍须保留 F/R 语义，但占位后不得在 `FileDiff` 中长期持有整份文本。
 
 ### 二进制文件处理
 
 - `DiffEngine.BINARY_EXTS` 定义二进制扩展名集合（`.jar`, `.war`, `.class`, `.dll` 等）
 - `DiffEngine._diff_file()` 对二进制文件提前返回，不读内容，`side_by_side_html` 设为占位提示
-- 导出时所有文件（含二进制）统一调用 `vcs.get_file_content_bytes()` 读取原始字节，以 `wb` 模式写入，保留原始编码。返回 `None` 表示获取失败（回退到文本内容），返回 `b""` 表示空文件（正常写入）
-- 各 VCS 实现覆写 `get_file_content_bytes()`：Git 用 `git show` + autocrlf 转换返回原始 stdout，SVN 用 `svn cat` URL + eol-style 转换返回原始字节，Folder 直接 `open(full_path, "rb")`
+- 导出时所有文件（含二进制）统一走 `export_file_to_path()` 分块或子进程直写目标；Git/SVN 的换行转换也在同目录临时文件中分块完成，空文件正常成功，读取失败必须中止事务。
+- Git 用固定 commit 的 `git show` 直写，SVN 用固定 URL/revision 的 `svn cat` 直写，Folder/Archive/多版本快照用分块复制；精确重命名匹配使用 blob OID 或分块 SHA-256，不得整文件载入内存。SVN 哈希临时文件必须使用 CompareTool 专用临时根，避免大型内容落到系统盘默认临时目录。
 - Git 和 SVN 导出时自动检测 VCS 换行符策略，对文本文件将 LF 转为 CRLF，使导出文件与 Windows 工作副本字节一致（见换行符处理章节）
 
 ### 排除规则
@@ -152,7 +152,7 @@ Git/SVN 可执行文件路径均自动探测：先查 `shutil.which`，再查 Wi
 
 Windows 上 `core.autocrlf=true`（Git）或 `svn:eol-style=native`（SVN）会导致仓库存储 LF、工作副本为 CRLF。`git show` / `svn cat` 返回仓库原始字节（LF），若直接导出会与工作副本文件字节级不一致。
 
-- **Git**：先对所选版本执行 `git check-attr --source=<version> text eol`，`.gitattributes` 中 `-text` / `eol=lf` / `eol=crlf` 优先；未指定时再按 `core.autocrlf` 和 `core.eol` 处理。属性无法可靠读取时中止导出。
+- **Git**：先对固定 commit 批量执行 `git check-attr -z --source=<version> ... --stdin`，并在任务快照前后复核有效属性与 `core.autocrlf/core.eol`；`.gitattributes` 中 `-text` / `eol=lf` / `eol=crlf` 优先，未指定时再按固定配置处理。属性无法可靠读取或快照期间变化时中止生成。
 - **SVN**：`SVNVCS._get_eol_style()` 对每个文件按所选 revision 执行 `svn propget svn:eol-style`，完整支持 `native` / `LF` / `CR` / `CRLF`。
 - **文件夹**：直接从磁盘读取，不存在换行符差异
 - **公共逻辑**：`BaseVCS._is_text_bytes()` 判断文本文件（不含 `\x00`），`BaseVCS._apply_crlf()` 用正则 `(?<!\r)\n` → `\r\n` 转换，避免重复转换已有的 CRLF

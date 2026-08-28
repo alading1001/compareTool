@@ -127,6 +127,8 @@ table.diff span { white-space: pre; }
 
 <div class="delivery-note">
     上线说明：删除文件 {{ summary.deleted_files }} 个、删除旧目录 {{ summary.required_directory_deletions }} 个、重命名 {{ summary.renamed_files }} 个；完整旧路径清单见报告同目录《{{ delivery_instructions_name | default('上线操作说明.txt') }}》。
+{% if summary.report_omitted_files %}<br>为控制报告体积，另有 {{ summary.report_omitted_files }} 个文件未展开到左侧明细；总文件数仍完整，全部删除/重命名仍写入上线说明，源码包仍包含所有应交付文件，但这些省略的修改项未继续细分是否仅格式变化。{% endif %}
+{% if summary.skipped_line_count_files %}<br>有 {{ summary.skipped_line_count_files }} 个文件因二进制、体积或复杂度限制未统计行数，当前行数合计仅代表已完成统计的文件。{% endif %}
 </div>
 
 <div class="project-strip">
@@ -181,20 +183,17 @@ table.diff span { white-space: pre; }
 <div style="display:none;">
 {% for project in projects %}
 {% set project_loop = loop %}
-{% for file in project.diff_result.files %}
+{% for file in project.diff_result.report_files %}
 <div id="sbs-{{ project_loop.index }}-{{ loop.index }}" data-path="{{ file.file_path | e }}" data-type="{{ file.report_type }}">{{ file.side_by_side_html | safe }}</div>
 {% endfor %}
 {% endfor %}
-var currentDiffAnchors = [];
-var currentDiffGroups = [];
-var currentDiffIndex = -1;
 </div>
 
 <script>
 var fileData = [];
 {% for project in projects %}
 {% set project_loop = loop %}
-{% for file in project.diff_result.files %}
+{% for file in project.diff_result.report_files %}
 fileData.push({
     project: {{ project.project_name | tojson }},
     showProjectRoot: {{ project.show_project_root | tojson }},
@@ -207,6 +206,9 @@ fileData.push({
 });
 {% endfor %}
 {% endfor %}
+var currentDiffAnchors = [];
+var currentDiffGroups = [];
+var currentDiffIndex = -1;
 
 function typeLabel(t) { return t === 'A' ? '新增' : t === 'M' ? '修改' : t === 'F' ? '格式变化' : t === 'D' ? '删除' : t === 'R' ? '重命名' : ''; }
 function typeClass(t) { return t === 'A' ? 'added' : t === 'M' ? 'modified' : t === 'F' ? 'format' : t === 'D' ? 'deleted' : t === 'R' ? 'renamed' : ''; }

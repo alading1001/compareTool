@@ -10,11 +10,12 @@ import zipfile
 from unittest import mock
 
 from delivery_instructions import write_delivery_instructions
-from diff_engine import DiffEngine, DiffResult
+from diff_engine import DiffEngine, DiffResult, FileDiff
 from file_exporter import FileExporter
 from main import CompareToolApp
 from path_safety import sanitize_windows_component, split_safe_relative_path
 from report_generator import ReportGenerator
+from stage_ownership import mark_owned
 from vcs.archive_vcs import ArchiveVCS
 from vcs.base import BaseVCS, ChangedFile, ChangeType
 from vcs.folder_vcs import FolderVCS
@@ -296,6 +297,32 @@ class DiffFidelityTests(unittest.TestCase):
         self.assertIn("新旧行数乘积 4", result.files[0].side_by_side_html)
         self.assertIn("仍会完整包含", result.files[0].side_by_side_html)
 
+    def test_character_product_limit_skips_intraline_htmldiff(self):
+        with mock.patch.object(DiffEngine, "MAX_TEXT_DIFF_CHARACTER_PRODUCT", 3):
+            with mock.patch(
+                "diff_engine.difflib.HtmlDiff.make_table",
+                side_effect=AssertionError("不应进入 HtmlDiff"),
+            ):
+                result = DiffEngine(
+                    BytesVCS(b"aa\n", b"bb\n")
+                ).generate_diff("old", "new")
+        self.assertIn("最长行字符工作量 4", result.files[0].side_by_side_html)
+        self.assertFalse(result.summary["line_counts_complete"])
+
+    def test_shared_report_budget_is_not_reset_between_projects(self):
+        shared = {}
+        with mock.patch.object(DiffEngine, "MAX_REPORT_DETAIL_FILES", 1):
+            first = DiffEngine(
+                BytesVCS(b"a", b"b"), report_budget=shared
+            ).generate_diff("old", "new")
+            second = DiffEngine(
+                BytesVCS(b"c", b"d"), report_budget=shared
+            ).generate_diff("old", "new")
+        self.assertEqual(1, len(first.report_files))
+        self.assertEqual(0, len(second.report_files))
+        self.assertEqual(1, second.summary["report_omitted_files"])
+        self.assertEqual(1, second.summary["total_files"])
+
     def test_line_product_budget_does_not_hide_format_only_semantics(self):
         with mock.patch.object(DiffEngine, "MAX_TEXT_DIFF_LINE_PRODUCT", 3):
             result = DiffEngine(
@@ -415,6 +442,19 @@ class DiffFidelityTests(unittest.TestCase):
                 source,
             )
 
+    def test_multi_report_diff_navigation_state_is_inside_script(self):
+        generator = ReportGenerator()
+        source, _filename, _uptodate = generator.env.loader.get_source(
+            generator.env, "multi_report.html"
+        )
+        script_start = source.index("<script>")
+        for declaration in (
+            "var currentDiffAnchors = [];",
+            "var currentDiffGroups = [];",
+            "var currentDiffIndex = -1;",
+        ):
+            self.assertGreater(source.index(declaration), script_start)
+
 
 class VCSHardeningTests(unittest.TestCase):
     def test_git_diff_and_later_reads_share_pinned_commit_ids(self):
@@ -454,11 +494,62 @@ class VCSHardeningTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "读取 Git 配置失败"):
                 vcs._git_config_value("core.autocrlf")
 
+    def test_git_checkout_policy_batches_paths_and_rejects_changed_snapshot(self):
+        vcs = GitVCS.__new__(GitVCS)
+        vcs._git = "git"
+        vcs._version_pins = {}
+        vcs._config_cache = {"core.autocrlf": "true", "core.eol": ""}
+        vcs._read_git_config_value = mock.Mock(
+            side_effect=lambda name: vcs._config_cache[name]
+        )
+        first = {
+            "a.txt": {"text": "set"},
+            "b.txt": {"text": "set"},
+        }
+        second = {
+            "a.txt": {"text": "set"},
+            "b.txt": {"text": "unset"},
+        }
+        vcs._read_checkout_attributes_bulk = mock.Mock(
+            side_effect=[first, second]
+        )
+        with self.assertRaisesRegex(RuntimeError, "快照期间发生变化"):
+            vcs._snapshot_checkout_policy([
+                ("endpoint", "a.txt"),
+                ("endpoint", "b.txt"),
+            ])
+        self.assertEqual(2, vcs._read_checkout_attributes_bulk.call_count)
+        self.assertEqual(
+            ["a.txt", "b.txt"],
+            vcs._read_checkout_attributes_bulk.call_args_list[0].args[1],
+        )
+
     def test_svn_log_paths_keep_literal_percent_sequences(self):
         self.assertEqual(
             "/project/name%41.txt",
             SVNMultiVersionVCS._normalize_repo_path("/project/name%41.txt"),
         )
+
+    def test_svn_head_and_future_revision_are_bounded_by_pinned_head(self):
+        vcs = SVNVCS.__new__(SVNVCS)
+        vcs._version_pins = {}
+        vcs._pinned_peg_revision = "10"
+        vcs._pin_source_identity = mock.Mock()
+        self.assertEqual("10", vcs._pin_version("HEAD"))
+        with self.assertRaisesRegex(RuntimeError, "晚于任务开始"):
+            vcs._pin_version("11")
+
+    def test_svn_file_size_uses_repository_size_show_item(self):
+        vcs = SVNVCS.__new__(SVNVCS)
+        vcs._svn = "svn"
+        vcs.project_path = "."
+        vcs._resolve_version = mock.Mock(return_value="10")
+        vcs._file_url = mock.Mock(return_value="https://example.invalid/a.txt@10")
+        completed = subprocess.CompletedProcess([], 0, b"42\n", b"")
+        with mock.patch("vcs.svn_vcs.subprocess.run", return_value=completed) as run:
+            self.assertEqual(42, vcs.get_file_size("10", "a.txt"))
+        self.assertIn("repos-size", run.call_args.args[0])
+        self.assertNotIn("size", run.call_args.args[0])
 
     def test_svn_node_exists_distinguishes_not_found_from_network_failure(self):
         vcs = SVNMultiVersionVCS.__new__(SVNMultiVersionVCS)
@@ -709,6 +800,38 @@ class ArchiveAndTransactionTests(unittest.TestCase):
                 os.path.join(root, ".comparetool_transaction.lock")
             ))
 
+    def test_startup_recovery_scans_only_strict_nested_multi_run_directories(self):
+        with project_temp_dir() as root:
+            batch = os.path.join(root, "20260828")
+            run_dir = os.path.join(batch, "multi_run_20260828_010203_456")
+            unrelated = os.path.join(batch, "user-project")
+            os.makedirs(run_dir)
+            os.makedirs(unrelated)
+
+            nested_orphan = tempfile.mkdtemp(
+                prefix=".comparetool_stage_", dir=run_dir
+            )
+            unrelated_orphan = tempfile.mkdtemp(
+                prefix=".comparetool_stage_", dir=unrelated
+            )
+            mark_owned(nested_orphan, owner_pid=-1)
+            mark_owned(unrelated_orphan, owner_pid=-1)
+
+            FileExporter.recover_transactions(
+                root,
+                include_direct_children=True,
+                include_nested_multi_runs=True,
+            )
+
+            self.assertFalse(os.path.exists(nested_orphan))
+            self.assertTrue(os.path.isdir(unrelated_orphan))
+            self.assertFalse(os.path.exists(os.path.join(
+                unrelated, ".comparetool_transaction.lock"
+            )))
+            self.assertFalse(os.path.exists(os.path.join(
+                batch, ".comparetool_transaction.lock"
+            )))
+
     def test_transaction_lock_rejects_second_writer(self):
         with project_temp_dir() as root:
             with FileExporter._transaction_lock(root):
@@ -724,6 +847,73 @@ class ArchiveAndTransactionTests(unittest.TestCase):
                 CompareToolApp._validate_source_output_separation(
                     [archive], [os.path.join(root, "batch")], []
                 )
+
+    def test_streaming_export_does_not_call_whole_file_getter(self):
+        class StreamingVCS:
+            def export_file_to_path(self, version, path, target_path):
+                with open(target_path, "wb") as stream:
+                    stream.write(b"first-")
+                    stream.write(b"second")
+
+            def get_file_content_bytes(self, version, path):
+                raise AssertionError("不应整文件读取")
+
+        with project_temp_dir() as root:
+            result = DiffResult(
+                "demo", "demo", "Fake", "old", "new",
+                files=[FileDiff("large.bin", ChangeType.ADDED)],
+            )
+            FileExporter(result, StreamingVCS()).export(
+                os.path.join(root, "old"), os.path.join(root, "new")
+            )
+            with open(os.path.join(root, "new", "large.bin"), "rb") as stream:
+                self.assertEqual(b"first-second", stream.read())
+
+    def test_inherited_export_rejects_unknown_size_before_whole_file_read(self):
+        vcs = BytesVCS(new_data=b"payload", change_type=ChangeType.ADDED)
+        vcs.get_file_content_bytes = mock.Mock(
+            side_effect=AssertionError("不应整文件读取")
+        )
+        result = DiffResult(
+            "demo", "demo", "Fake", "old", "new",
+            files=[FileDiff("unknown.bin", ChangeType.ADDED)],
+        )
+        with project_temp_dir() as root:
+            with self.assertRaisesRegex(RuntimeError, "不支持安全流式导出"):
+                FileExporter(result, vcs).export(
+                    os.path.join(root, "old"), os.path.join(root, "new")
+                )
+        vcs.get_file_content_bytes.assert_not_called()
+
+    def test_streaming_eol_rewrite_handles_crlf_across_chunk_boundary(self):
+        with project_temp_dir() as root:
+            target = os.path.join(root, "boundary.txt")
+            payload = b"a" * (1024 * 1024 - 1) + b"\r\nnext\rlast\n"
+            write_bytes(target, payload)
+            BaseVCS._rewrite_file_eol(target, b"\n")
+            with open(target, "rb") as stream:
+                converted = stream.read()
+            self.assertEqual(
+                b"a" * (1024 * 1024 - 1) + b"\nnext\nlast\n",
+                converted,
+            )
+
+    def test_git_streaming_lf_conversion_preserves_existing_cr_and_crlf(self):
+        with project_temp_dir() as root:
+            target = os.path.join(root, "git-boundary.txt")
+            payload = (
+                b"a" * (1024 * 1024 - 1)
+                + b"\r\nexisting\ronly\nnew\n"
+            )
+            write_bytes(target, payload)
+            BaseVCS._rewrite_file_lf_to_crlf(target)
+            with open(target, "rb") as stream:
+                converted = stream.read()
+            self.assertEqual(
+                b"a" * (1024 * 1024 - 1)
+                + b"\r\nexisting\ronly\r\nnew\r\n",
+                converted,
+            )
 
     def test_directory_delete_instruction_is_explicit(self):
         with project_temp_dir() as root:

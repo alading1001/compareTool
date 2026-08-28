@@ -4,7 +4,7 @@ import html
 import os
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional
-from vcs.base import ChangedFile, ChangeType
+from vcs.base import BaseVCS, ChangedFile, ChangeType
 
 
 @dataclass
@@ -26,6 +26,8 @@ class FileDiff:
     new_executable: Optional[bool] = None
     old_mode: str = ""
     new_mode: str = ""
+    line_counts_complete: bool = True
+    report_detail_omitted: bool = False
 
     @property
     def total_changes(self) -> int:
@@ -58,6 +60,10 @@ class DiffResult:
     required_directory_deletions: List[str] = field(default_factory=list)
 
     @property
+    def report_files(self) -> List[FileDiff]:
+        return [item for item in self.files if not item.report_detail_omitted]
+
+    @property
     def summary(self) -> Dict:
         added = sum(1 for f in self.files if f.change_type == ChangeType.ADDED)
         format_changed = sum(1 for f in self.files if f.report_type == "F")
@@ -69,6 +75,12 @@ class DiffResult:
         renamed = sum(1 for f in self.files if f.change_type == ChangeType.RENAMED)
         total_added_lines = sum(f.added_lines for f in self.files)
         total_deleted_lines = sum(f.deleted_lines for f in self.files)
+        skipped_line_count_files = sum(
+            1 for f in self.files if not f.line_counts_complete
+        )
+        report_omitted_files = sum(
+            1 for f in self.files if f.report_detail_omitted
+        )
         return {
             "total_files": len(self.files),
             "added_files": added,
@@ -79,6 +91,9 @@ class DiffResult:
             "required_directory_deletions": len(self.required_directory_deletions),
             "total_added_lines": total_added_lines,
             "total_deleted_lines": total_deleted_lines,
+            "line_counts_complete": skipped_line_count_files == 0,
+            "skipped_line_count_files": skipped_line_count_files,
+            "report_omitted_files": report_omitted_files,
         }
 
 
@@ -97,21 +112,36 @@ class DiffEngine:
     }
     MAX_TEXT_DIFF_BYTES = 5 * 1024 * 1024
     MAX_TEXT_DIFF_LINES = 10_000
-    MAX_TEXT_DIFF_LINE_BYTES = 256 * 1024
+    MAX_TEXT_DIFF_LINE_BYTES = 64 * 1024
     MAX_TEXT_DIFF_LINE_PRODUCT = 25_000_000
+    MAX_TEXT_DIFF_CHARACTER_PRODUCT = 25_000_000
     MAX_REPORT_TEXT_BYTES = 50 * 1024 * 1024
     MAX_REPORT_TEXT_LINES = 100_000
     MAX_REPORT_RENDER_ROWS = 60_000
+    MAX_REPORT_DETAIL_FILES = 5_000
+    MAX_REPORT_PATH_BYTES = 5 * 1024 * 1024
+    MAX_REPORT_HTML_BYTES = 80 * 1024 * 1024
+    MAX_RENAME_SIGNATURE_BYTES = 16 * 1024 * 1024
 
-    def __init__(self, vcs, show_full_context: bool = True):
+    def __init__(
+        self,
+        vcs,
+        show_full_context: bool = True,
+        report_budget: Optional[dict] = None,
+    ):
         self.vcs = vcs
         self.show_full_context = show_full_context
-        self._reset_report_budget()
+        self._owns_report_budget = report_budget is None
+        self._report_budget = report_budget if report_budget is not None else {}
+        self._initialize_report_budget(reset=self._owns_report_budget)
 
-    def _reset_report_budget(self):
-        self._report_text_bytes = 0
-        self._report_text_lines = 0
-        self._report_render_rows = 0
+    def _initialize_report_budget(self, reset: bool = False):
+        for key in (
+            "text_bytes", "text_lines", "render_rows", "detail_files",
+            "path_bytes", "html_bytes",
+        ):
+            if reset or key not in self._report_budget:
+                self._report_budget[key] = 0
 
     def _is_binary(self, file_path: str) -> bool:
         ext = os.path.splitext(file_path)[1].lower()
@@ -119,7 +149,8 @@ class DiffEngine:
 
     def generate_diff(self, old_version: str, new_version: str) -> DiffResult:
         """生成两个版本之间的完整差异"""
-        self._reset_report_budget()
+        if self._owns_report_budget:
+            self._initialize_report_budget(reset=True)
         changed_files = self.vcs.get_changed_files(old_version, new_version)
         if getattr(self.vcs, "merge_exact_renames", True):
             changed_files = self._merge_exact_renames(changed_files, old_version, new_version)
@@ -170,7 +201,23 @@ class DiffEngine:
         )
 
         for cf in changed_files:
-            file_diff = self._diff_file(old_version, new_version, cf)
+            entry_reason = self._reserve_report_entry(cf)
+            if entry_reason:
+                file_diff = FileDiff(
+                    file_path=cf.path,
+                    change_type=cf.change_type,
+                    old_path=cf.old_path,
+                    metadata_changes=list(cf.metadata_changes),
+                    old_executable=cf.old_executable,
+                    new_executable=cf.new_executable,
+                    old_mode=cf.old_mode,
+                    new_mode=cf.new_mode,
+                    line_counts_complete=False,
+                    report_detail_omitted=True,
+                )
+            else:
+                file_diff = self._diff_file(old_version, new_version, cf)
+                self._finalize_report_entry(file_diff)
             result.files.append(file_diff)
 
         return result
@@ -194,6 +241,25 @@ class DiffEngine:
         # 二进制文件：只标记变更，不展示内容差异
         if self._is_binary(cf.path) or (cf.old_path and self._is_binary(cf.old_path)):
             file_diff.side_by_side_html = self._binary_placeholder(cf)
+            file_diff.line_counts_complete = False
+            self._prepend_metadata(file_diff)
+            return file_diff
+
+        endpoint_sizes = []
+        if cf.change_type != ChangeType.ADDED:
+            endpoint_sizes.append(self._get_file_size(old_version, old_path))
+        if cf.change_type != ChangeType.DELETED:
+            endpoint_sizes.append(self._get_file_size(new_version, cf.path))
+        known_sizes = [size for size in endpoint_sizes if size is not None]
+        if self._has_reliable_file_size() and len(known_sizes) != len(endpoint_sizes):
+            raise RuntimeError(
+                f"无法在读取前确认文件大小，已中止以避免不受限内存占用: {cf.path}"
+            )
+        if any(size > self.MAX_TEXT_DIFF_BYTES for size in known_sizes):
+            file_diff.side_by_side_html = self._large_file_placeholder_from_size(
+                cf, max(known_sizes)
+            )
+            file_diff.line_counts_complete = False
             self._prepend_metadata(file_diff)
             return file_diff
 
@@ -204,10 +270,12 @@ class DiffEngine:
         raw_values = [data for data in (old_raw, new_raw) if data is not None]
         if any(len(data) > self.MAX_TEXT_DIFF_BYTES for data in raw_values):
             file_diff.side_by_side_html = self._large_file_placeholder(cf, raw_values)
+            file_diff.line_counts_complete = False
             self._prepend_metadata(file_diff)
             return file_diff
         if any(self._content_is_binary(data) for data in raw_values):
             file_diff.side_by_side_html = self._binary_placeholder(cf)
+            file_diff.line_counts_complete = False
             self._prepend_metadata(file_diff)
             return file_diff
         complexity_reason = next(
@@ -221,6 +289,7 @@ class DiffEngine:
             file_diff.side_by_side_html = self._complexity_placeholder(
                 cf, complexity_reason
             )
+            file_diff.line_counts_complete = False
             self._prepend_metadata(file_diff)
             return file_diff
 
@@ -255,6 +324,18 @@ class DiffEngine:
 
         old_line_count = self._line_count_for_budget(old_raw)
         new_line_count = self._line_count_for_budget(new_raw)
+        character_product = self._character_diff_product(old_raw, new_raw)
+        if character_product > self.MAX_TEXT_DIFF_CHARACTER_PRODUCT:
+            file_diff.side_by_side_html = self._complexity_placeholder(
+                cf,
+                (
+                    f"最长行字符工作量 {character_product:,} 超过计算上限 "
+                    f"{self.MAX_TEXT_DIFF_CHARACTER_PRODUCT:,}"
+                ),
+            )
+            file_diff.line_counts_complete = False
+            self._prepend_metadata(file_diff)
+            return file_diff
         if (
             old_line_count
             and new_line_count
@@ -267,6 +348,7 @@ class DiffEngine:
                     f"{self.MAX_TEXT_DIFF_LINE_PRODUCT:,}"
                 ),
             )
+            file_diff.line_counts_complete = False
             self._prepend_metadata(file_diff)
             return file_diff
 
@@ -277,6 +359,7 @@ class DiffEngine:
             file_diff.side_by_side_html = self._report_budget_placeholder(
                 cf, budget_reason
             )
+            file_diff.line_counts_complete = False
             self._prepend_metadata(file_diff)
             return file_diff
 
@@ -414,6 +497,68 @@ class DiffEngine:
         return ""
 
     @classmethod
+    def _character_diff_product(
+        cls, old_data: Optional[bytes], new_data: Optional[bytes]
+    ) -> int:
+        """保守估算 HtmlDiff 逐行字符匹配的最坏工作量。"""
+        if old_data is None or new_data is None:
+            return 0
+        old_lines = old_data.splitlines()
+        new_lines = new_data.splitlines()
+        if not old_lines or not new_lines:
+            return 0
+        old_longest = max((len(line) for line in old_lines), default=0)
+        new_longest = max((len(line) for line in new_lines), default=0)
+        paired_lines = min(len(old_lines), len(new_lines))
+        return old_longest * new_longest * paired_lines
+
+    def _reserve_report_entry(self, cf: ChangedFile) -> str:
+        path_bytes = len(cf.path.encode("utf-8", errors="replace"))
+        if cf.old_path:
+            path_bytes += len(cf.old_path.encode("utf-8", errors="replace"))
+        projected_files = self._report_budget["detail_files"] + 1
+        projected_paths = self._report_budget["path_bytes"] + path_bytes
+        if projected_files > self.MAX_REPORT_DETAIL_FILES:
+            return (
+                f"报告文件明细数 {projected_files:,} 超过上限 "
+                f"{self.MAX_REPORT_DETAIL_FILES:,}"
+            )
+        if projected_paths > self.MAX_REPORT_PATH_BYTES:
+            return (
+                f"报告路径文本 {projected_paths:,} 字节超过上限 "
+                f"{self.MAX_REPORT_PATH_BYTES:,} 字节"
+            )
+        self._report_budget["detail_files"] = projected_files
+        self._report_budget["path_bytes"] = projected_paths
+        return ""
+
+    def _finalize_report_entry(self, file_diff: FileDiff):
+        html_bytes = len(file_diff.side_by_side_html.encode("utf-8"))
+        projected = self._report_budget["html_bytes"] + html_bytes
+        if projected <= self.MAX_REPORT_HTML_BYTES:
+            self._report_budget["html_bytes"] = projected
+            return
+        file_diff.report_detail_omitted = True
+        file_diff.old_content = ""
+        file_diff.new_content = ""
+        file_diff.unified_diff = ""
+        file_diff.side_by_side_html = ""
+
+    def _get_file_size(self, version: str, file_path: str) -> Optional[int]:
+        getter = getattr(self.vcs, "get_file_size", None)
+        if getter is None:
+            return None
+        try:
+            size = getter(version, file_path)
+        except (OSError, RuntimeError, ValueError):
+            return None
+        return size if isinstance(size, int) and size >= 0 else None
+
+    def _has_reliable_file_size(self) -> bool:
+        method = getattr(type(self.vcs), "get_file_size", None)
+        return method is not None and method is not BaseVCS.get_file_size
+
+    @classmethod
     def _line_count_for_budget(cls, data: Optional[bytes]) -> int:
         if data is None:
             return 0
@@ -433,19 +578,19 @@ class DiffEngine:
         render_rows = max(old_line_count, new_line_count)
         checks = (
             (
-                self._report_text_bytes + text_bytes,
+                self._report_budget["text_bytes"] + text_bytes,
                 self.MAX_REPORT_TEXT_BYTES,
                 "文本总字节",
                 "字节",
             ),
             (
-                self._report_text_lines + text_lines,
+                self._report_budget["text_lines"] + text_lines,
                 self.MAX_REPORT_TEXT_LINES,
                 "文本总行数",
                 "行",
             ),
             (
-                self._report_render_rows + render_rows,
+                self._report_budget["render_rows"] + render_rows,
                 self.MAX_REPORT_RENDER_ROWS,
                 "预计渲染行数",
                 "行",
@@ -454,9 +599,9 @@ class DiffEngine:
         for projected, limit, label, unit in checks:
             if projected > limit:
                 return f"{label} {projected:,} {unit}超过报告上限 {limit:,} {unit}"
-        self._report_text_bytes += text_bytes
-        self._report_text_lines += text_lines
-        self._report_render_rows += render_rows
+        self._report_budget["text_bytes"] += text_bytes
+        self._report_budget["text_lines"] += text_lines
+        self._report_budget["render_rows"] += render_rows
         return ""
 
     def _prepend_metadata(self, file_diff: FileDiff):
@@ -477,6 +622,11 @@ class DiffEngine:
 
     def _large_file_placeholder(self, cf: ChangedFile, raw_values: List[bytes]) -> str:
         largest = max((len(data) for data in raw_values), default=0)
+        return self._large_file_placeholder_from_size(cf, largest)
+
+    def _large_file_placeholder_from_size(
+        self, cf: ChangedFile, largest: int
+    ) -> str:
         display_path = html.escape(cf.path)
         return (
             '<div style="padding:40px;text-align:center;color:#666;font-size:15px;">'
@@ -576,8 +726,25 @@ class DiffEngine:
         return result
 
     def _file_bytes_signature(self, version: str, file_path: str):
+        signature_getter = getattr(self.vcs, "get_file_signature", None)
+        signature_method = getattr(type(self.vcs), "get_file_signature", None)
+        if (
+            signature_getter is not None
+            and signature_method is not None
+            and signature_method is not BaseVCS.get_file_signature
+        ):
+            return signature_getter(version, file_path)
+        size = self._get_file_size(version, file_path)
+        if size is not None and size > self.MAX_RENAME_SIGNATURE_BYTES:
+            return None
+        # 对正式 VCS，无法取得大小就不能冒险整块读取未知体积文件。测试桩
+        # 和旧扩展没有 size 接口时保留兼容回退。
+        if size is None and self._has_reliable_file_size():
+            return None
         data = self._get_raw_bytes(version, file_path)
         if data is None:
+            return None
+        if len(data) > self.MAX_RENAME_SIGNATURE_BYTES:
             return None
         return len(data), hashlib.sha256(data).hexdigest()
 

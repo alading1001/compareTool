@@ -1,5 +1,6 @@
 import os
 import re
+import tempfile
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
@@ -47,6 +48,17 @@ class BaseVCS(ABC):
             if self._match_glob(file_path, pattern):
                 return True
         return False
+
+    def _is_excluded_tree(self, directory: str) -> bool:
+        """判断目录本身或任意深度后代是否被同一规则完整覆盖。"""
+        directory = directory.replace("\\", "/").rstrip("/")
+        if self._is_excluded(directory):
+            return True
+        direct_probe = f"{directory}/__comparetool_probe__"
+        nested_probe = (
+            f"{directory}/__comparetool_probe_dir__/__comparetool_probe__"
+        )
+        return self._is_excluded(direct_probe) and self._is_excluded(nested_probe)
 
     def _match_glob(self, path: str, pattern: str) -> bool:
         """将 glob 模式转为正则匹配"""
@@ -133,6 +145,100 @@ class BaseVCS(ABC):
         默认与导出字节一致；会进行工作副本换行符转换的 VCS 应覆写本方法。
         """
         return self.get_file_content_bytes(version, file_path)
+
+    def get_file_size(self, version: str, file_path: str) -> Optional[int]:
+        """返回端点文件字节数；无法低成本确定时返回 None。"""
+        return None
+
+    def get_file_signature(self, version: str, file_path: str):
+        """返回可跨端点比较的 (size, digest)；正式 VCS 应分块实现。"""
+        return None
+
+    def export_file_to_path(self, version: str, file_path: str, target_path: str):
+        """把端点内容写入暂存目标；具体 VCS 应覆写为流式实现。"""
+        size = self.get_file_size(version, file_path)
+        if size is None or size > 16 * 1024 * 1024:
+            raise RuntimeError(
+                f"VCS 不支持安全流式导出，已拒绝读取未知或过大的文件: {file_path}"
+            )
+        data = self.get_file_content_bytes(version, file_path)
+        if data is None:
+            raise RuntimeError(f"无法读取版本 {version} 中的文件: {file_path}")
+        with open(target_path, "wb") as stream:
+            stream.write(data)
+
+    @staticmethod
+    def _file_contains_null(path: str) -> bool:
+        with open(path, "rb") as stream:
+            while True:
+                chunk = stream.read(1024 * 1024)
+                if not chunk:
+                    return False
+                if b"\x00" in chunk:
+                    return True
+
+    @staticmethod
+    def _rewrite_file_eol(path: str, newline: bytes):
+        """分块规范化 CR/LF/CRLF，正确处理分块边界上的 CRLF。"""
+        parent = os.path.dirname(os.path.abspath(path)) or "."
+        fd, temp_path = tempfile.mkstemp(prefix=".comparetool_eol_", dir=parent)
+        os.close(fd)
+        pending_cr = False
+        try:
+            with open(path, "rb") as source, open(temp_path, "wb") as target:
+                while True:
+                    chunk = source.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    if pending_cr:
+                        chunk = b"\r" + chunk
+                        pending_cr = False
+                    if chunk.endswith(b"\r"):
+                        chunk = chunk[:-1]
+                        pending_cr = True
+                    normalized = chunk.replace(b"\r\n", b"\n").replace(
+                        b"\r", b"\n"
+                    )
+                    target.write(normalized.replace(b"\n", newline))
+                if pending_cr:
+                    target.write(newline)
+            os.replace(temp_path, path)
+        finally:
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+
+    @staticmethod
+    def _rewrite_file_lf_to_crlf(path: str):
+        """流式执行与 _apply_crlf 相同的转换，保留已有 CRLF 和单独 CR。"""
+        parent = os.path.dirname(os.path.abspath(path)) or "."
+        fd, temp_path = tempfile.mkstemp(prefix=".comparetool_eol_", dir=parent)
+        os.close(fd)
+        pending_cr = False
+        try:
+            with open(path, "rb") as source, open(temp_path, "wb") as target:
+                while True:
+                    chunk = source.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    if pending_cr:
+                        chunk = b"\r" + chunk
+                        pending_cr = False
+                    if chunk.endswith(b"\r"):
+                        chunk = chunk[:-1]
+                        pending_cr = True
+                    target.write(re.sub(rb"(?<!\r)\n", b"\r\n", chunk))
+                if pending_cr:
+                    target.write(b"\r")
+            os.replace(temp_path, path)
+        finally:
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
 
     def get_file_content_bytes_working(self, file_path: str) -> bytes:
         """从工作目录读取文件原始字节。失败返回 None，文件为空返回 b"""""

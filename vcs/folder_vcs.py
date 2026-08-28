@@ -1,4 +1,5 @@
 import os
+import hashlib
 import shutil
 import stat
 import threading
@@ -293,6 +294,37 @@ class FolderVCS(BaseVCS):
             return None
         with open(full_path, "rb") as f:
             return f.read()
+
+    def get_file_size(self, version: str, file_path: str):
+        folder = self._resolve_version_dir(version)
+        full_path = self._resolve_file_path(folder, file_path)
+        if not os.path.isfile(full_path):
+            return None
+        return os.path.getsize(full_path)
+
+    def get_file_signature(self, version: str, file_path: str):
+        folder = self._resolve_version_dir(version)
+        full_path = self._resolve_file_path(folder, file_path)
+        if not os.path.isfile(full_path):
+            return None
+        digest = hashlib.sha256()
+        size = 0
+        with open(full_path, "rb") as stream:
+            while True:
+                chunk = stream.read(1024 * 1024)
+                if not chunk:
+                    break
+                size += len(chunk)
+                digest.update(chunk)
+        return size, digest.hexdigest()
+
+    def export_file_to_path(self, version: str, file_path: str, target_path: str):
+        folder = self._resolve_version_dir(version)
+        full_path = self._resolve_file_path(folder, file_path)
+        if not os.path.isfile(full_path):
+            raise RuntimeError(f"无法读取版本 {version} 中的文件: {file_path}")
+        with open(full_path, "rb") as source, open(target_path, "wb") as target:
+            shutil.copyfileobj(source, target, length=1024 * 1024)
 
     @staticmethod
     def _resolve_file_path(folder: str, file_path: str) -> str:

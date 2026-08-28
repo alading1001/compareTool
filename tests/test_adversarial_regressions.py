@@ -542,10 +542,12 @@ class ReportAndTaskSafetyTests(unittest.TestCase):
             app.output_batch_var.get.return_value = "20260827"
 
             run_dir, report, old_export, new_export = app._multi_run_paths()
+            second_run_dir = app._multi_run_paths()[0]
 
             batch_dir = os.path.normpath(os.path.join(root, "20260827"))
             self.assertEqual(batch_dir, os.path.dirname(os.path.normpath(run_dir)))
             self.assertTrue(os.path.basename(run_dir).startswith("multi_run_"))
+            self.assertNotEqual(run_dir, second_run_dir)
             self.assertEqual(os.path.normpath(run_dir), os.path.dirname(os.path.normpath(report)))
             self.assertEqual(os.path.normpath(os.path.join(run_dir, "oldVersion")), os.path.normpath(old_export))
             self.assertEqual(os.path.normpath(os.path.join(run_dir, "newVersion")), os.path.normpath(new_export))

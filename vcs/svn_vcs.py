@@ -1,3 +1,4 @@
+import hashlib
 import re
 import shutil
 import subprocess
@@ -7,6 +8,7 @@ from urllib.parse import quote, unquote, urlsplit
 from xml.etree import ElementTree
 
 from .base import BaseVCS, ChangedFile, ChangeType
+from .temp_storage import open_temp_file
 from logger import info, warn, error, cmd as log_cmd
 
 
@@ -211,6 +213,8 @@ class SVNVCS(BaseVCS):
                 path = self._summary_relative_path(
                     node.text or "", old_rev, new_rev
                 )
+                if path.strip() and self._is_excluded_tree(path):
+                    continue
                 item = node.get("item", "")
                 if path.strip():
                     rel_dir = path
@@ -250,6 +254,8 @@ class SVNVCS(BaseVCS):
             if not path.strip():
                 continue
             rel_path = path
+            if self._is_excluded(rel_path):
+                continue
 
             change_map = {
                 "added": ChangeType.ADDED,
@@ -374,7 +380,16 @@ class SVNVCS(BaseVCS):
         if key in pins:
             return pins[key]
         raw = key.lstrip("rR")
+        pinned_head = int(self._pinned_peg_revision)
+        if raw.upper() == "HEAD":
+            pins[key] = str(pinned_head)
+            return pins[key]
         if raw.isdigit():
+            if int(raw) > pinned_head:
+                raise RuntimeError(
+                    "SVN 版本端点晚于任务开始时固定的仓库 HEAD，已中止生成: "
+                    f"{version} > r{pinned_head}"
+                )
             pins[key] = raw
             return raw
         target = f"{self._pinned_project_url}@{self._pinned_peg_revision}"
@@ -388,6 +403,11 @@ class SVNVCS(BaseVCS):
             raise RuntimeError("SVN 版本端点不属于任务开始时固定的仓库，已中止生成")
         if not resolved.isdigit():
             raise RuntimeError(f"SVN 版本端点解析结果无效: {version} -> {resolved}")
+        if int(resolved) > pinned_head:
+            raise RuntimeError(
+                "SVN 版本端点晚于任务开始时固定的仓库 HEAD，已中止生成: "
+                f"{version} -> r{resolved} > r{pinned_head}"
+            )
         pins[key] = resolved
         return resolved
 
@@ -427,6 +447,87 @@ class SVNVCS(BaseVCS):
             return self._run_bytes(["cat", self._file_url(version, file_path)])
         except RuntimeError:
             return None
+
+    def get_file_size(self, version: str, file_path: str):
+        rev = self._resolve_version(version)
+        try:
+            result = subprocess.run(
+                [
+                    self._svn, "info", "--non-interactive", "--show-item", "repos-size",
+                    "-r", rev, self._file_url(rev, file_path),
+                ],
+                cwd=self.project_path,
+                capture_output=True,
+                timeout=30,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
+            raise RuntimeError(
+                f"无法确认 SVN 文件大小，已中止生成: {file_path}@{rev}\n{exc}"
+            ) from exc
+        value = _decode_bytes(result.stdout).strip() if result.returncode == 0 else ""
+        if not value.isdigit():
+            raise RuntimeError(
+                f"无法确认 SVN 文件大小，已中止生成: {file_path}@{rev}\n"
+                + _decode_bytes(result.stderr or result.stdout)
+            )
+        return int(value)
+
+    def get_file_signature(self, version: str, file_path: str):
+        rev = self._resolve_version(version)
+        digest = hashlib.sha256()
+        size = 0
+        try:
+            with open_temp_file("comparetool_svn_hash_") as payload:
+                result = subprocess.run(
+                    [self._svn, "cat", "--non-interactive", self._file_url(rev, file_path)],
+                    cwd=self.project_path,
+                    stdout=payload,
+                    stderr=subprocess.PIPE,
+                    timeout=600,
+                )
+                if result.returncode != 0:
+                    raise RuntimeError(_decode_bytes(result.stderr))
+                payload.seek(0)
+                while True:
+                    chunk = payload.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    size += len(chunk)
+                    digest.update(chunk)
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
+            raise RuntimeError(
+                f"无法流式计算 SVN 文件摘要: {file_path}@{rev}\n{exc}"
+            ) from exc
+        return size, digest.hexdigest()
+
+    def export_file_to_path(self, version: str, file_path: str, target_path: str):
+        rev = self._resolve_version(version)
+        file_url = self._file_url(rev, file_path)
+        try:
+            with open(target_path, "wb") as target:
+                result = subprocess.run(
+                    [self._svn, "cat", "--non-interactive", file_url],
+                    cwd=self.project_path,
+                    stdout=target,
+                    stderr=subprocess.PIPE,
+                    timeout=600,
+                )
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
+            raise RuntimeError(f"无法流式导出 SVN 文件: {file_path}@{rev}\n{exc}") from exc
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"无法流式导出 SVN 文件: {file_path}@{rev}\n"
+                + _decode_bytes(result.stderr)
+            )
+        if self._file_contains_null(target_path):
+            return
+        style = self._get_eol_style(rev, file_path).strip().lower()
+        if style == "crlf" or (style == "native" and os.linesep == "\r\n"):
+            self._rewrite_file_eol(target_path, b"\r\n")
+        elif style == "cr" or (style == "native" and os.linesep == "\r"):
+            self._rewrite_file_eol(target_path, b"\r")
+        elif style == "lf":
+            self._rewrite_file_eol(target_path, b"\n")
 
     def _get_eol_style(self, version: str, file_path: str) -> str:
         """按所选 revision 从仓库读取 svn:eol-style（删除文件也能正确读取）。"""
@@ -602,9 +703,9 @@ class SVNVCS(BaseVCS):
             return []
 
     def check_version_exists(self, version: str) -> bool:
-        rev = version.lstrip("r")
         try:
-            self._run(["log", f"-r{rev}", "--limit", "1"])
+            rev = self._pin_version(version)
+            self._project_url_at(rev)
             return True
         except RuntimeError as exc:
             if SVN_NOT_FOUND_MESSAGE in str(exc):

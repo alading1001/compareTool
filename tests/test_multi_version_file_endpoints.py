@@ -736,6 +736,14 @@ class SVNFileEndpointTests(unittest.TestCase):
         self.assertEqual(1, len(normal_files))
         self.assertIn("SVN 可执行属性", normal_files[0].metadata_changes[0])
         self.assertTrue(normal_files[0].new_executable)
+        self.assertEqual(
+            len(b"echo ok\n"),
+            normal.get_file_size(str(selected), "Script.sh"),
+        )
+        streamed = os.path.join(self.root, "streamed-script.sh")
+        normal.export_file_to_path(str(selected), "Script.sh", streamed)
+        with open(streamed, "rb") as stream:
+            self.assertEqual(b"echo ok\n", stream.read())
 
         vcs = SVNMultiVersionVCS(
             self.wc, [f"r{selected}"], svn_path=self.svn

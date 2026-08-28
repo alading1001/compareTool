@@ -1,5 +1,6 @@
 import json
 import os
+import secrets
 import shutil
 import sys
 import tempfile
@@ -177,6 +178,7 @@ class CompareToolApp:
         recovered = FileExporter.recover_transactions(
             self._config.get("output_dir", ""),
             include_direct_children=True,
+            include_nested_multi_runs=True,
         )
         if recovered:
             warn(f"已自动恢复 {len(recovered)} 个上次中断的输出事务")
@@ -1614,8 +1616,9 @@ class CompareToolApp:
 
     def _multi_run_paths(self):
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+        run_token = secrets.token_hex(4)
         run_dir = self._join_display_path(
-            self._effective_output_dir(), f"multi_run_{stamp}"
+            self._effective_output_dir(), f"multi_run_{stamp}_{run_token}"
         )
         return (
             run_dir,
@@ -1651,16 +1654,23 @@ class CompareToolApp:
 
     def _create_vcs_for_task(self, task: dict):
         vcs_type = task["vcs_type"]
+        exclude_text = task.get("exclude_rules", "").strip()
+        exclude_patterns = exclude_text.split("\n") if exclude_text else []
         if vcs_type == "archive":
             return ArchiveVCS(task["old_version"], task["new_version"]), True
         if vcs_type == "folder":
             return FolderVCS(task["old_version"], task["new_version"]), True
         if vcs_type == "git_multi":
-            return GitMultiVersionVCS(task["project_path"], parse_multi_versions(task["old_version"])), True
+            return GitMultiVersionVCS(
+                task["project_path"],
+                parse_multi_versions(task["old_version"]),
+                exclude_patterns=exclude_patterns,
+            ), True
         if vcs_type == "svn_multi":
             return SVNMultiVersionVCS(
                 task["project_path"],
-                parse_multi_versions(task["old_version"])
+                parse_multi_versions(task["old_version"]),
+                exclude_patterns=exclude_patterns,
             ), True
         if vcs_type == "git":
             return GitVCS(task["project_path"]), False
@@ -1668,7 +1678,9 @@ class CompareToolApp:
             return SVNVCS(task["project_path"]), False
         raise RuntimeError(f"不支持的多项目任务类型: {vcs_type}")
 
-    def _prepare_task_result(self, task: dict, show_full: bool = None):
+    def _prepare_task_result(
+        self, task: dict, show_full: bool = None, report_budget: dict = None
+    ):
         vcs = None
         cleanup_needed = False
         try:
@@ -1685,7 +1697,11 @@ class CompareToolApp:
 
             if show_full is None:
                 show_full = self._option_bool(task.get("show_full_context"), default=True)
-            engine = DiffEngine(vcs, show_full_context=show_full)
+            engine = DiffEngine(
+                vcs,
+                show_full_context=show_full,
+                report_budget=report_budget,
+            )
             diff_result = engine.generate_diff(task["old_version"], task["new_version"])
             diff_result.project_name = task["project_name"]
             diff_result.vcs_type = self._vcs_label(task["vcs_type"])
@@ -1942,10 +1958,18 @@ class CompareToolApp:
                 vcs = FolderVCS(old_version, new_version)
                 cleanup_vcs = vcs
             elif vcs_type == "git_multi":
-                vcs = GitMultiVersionVCS(project_path, parse_multi_versions(old_version))
+                vcs = GitMultiVersionVCS(
+                    project_path,
+                    parse_multi_versions(old_version),
+                    exclude_patterns=exclude_patterns,
+                )
                 cleanup_vcs = vcs
             elif vcs_type == "svn_multi":
-                vcs = SVNMultiVersionVCS(project_path, parse_multi_versions(old_version))
+                vcs = SVNMultiVersionVCS(
+                    project_path,
+                    parse_multi_versions(old_version),
+                    exclude_patterns=exclude_patterns,
+                )
                 cleanup_vcs = vcs
             elif vcs_type == "git":
                 vcs = GitVCS(project_path)
@@ -2044,11 +2068,14 @@ class CompareToolApp:
                 [report_path, instruction_target],
             )
             info("=== 开始生成多项目总报告 ===")
+            report_budget = {}
             for idx, task in enumerate(tasks, start=1):
                 info(f"多项目任务 {idx}/{len(tasks)}: {task.get('project_name')} {task.get('vcs_type')}")
                 self.root.after(0, lambda idx=idx, total=len(tasks), name=task.get("project_name", ""):
                                 self.status_var.set(f"正在处理项目 {idx}/{total}: {name}"))
-                project_results.append(self._prepare_task_result(task))
+                project_results.append(self._prepare_task_result(
+                    task, report_budget=report_budget
+                ))
 
             self._check_multi_display_path_conflicts(project_results)
 
@@ -2108,15 +2135,19 @@ class CompareToolApp:
         self._set_generating(False)
         self._refresh_recent_project_values()
         output_dir = self._display_path(os.path.dirname(report_path))
+        skipped = summary.get("skipped_line_count_files", 0)
+        line_note = f"，另有 {skipped} 个文件行数未统计" if skipped else ""
+        line_dialog_note = f"未统计行数的文件: {skipped} 个\n" if skipped else ""
         self.status_var.set(
             f"完成! 共 {summary['total_files']} 个文件变更 "
-            f"(+{summary['total_added_lines']}/-{summary['total_deleted_lines']})"
+            f"(+{summary['total_added_lines']}/-{summary['total_deleted_lines']}{line_note})"
         )
         if messagebox.askyesno("完成", f"比对报告已生成!\n\n"
                                        f"变更文件: {summary['total_files']} 个\n"
                                        f"格式变化: {summary.get('format_changed_files', 0)} 个\n"
                                        f"新增行数: +{summary['total_added_lines']}\n"
-                                       f"删除行数: -{summary['total_deleted_lines']}\n\n"
+                                       f"删除行数: -{summary['total_deleted_lines']}\n"
+                                       f"{line_dialog_note}\n"
                                        f"输出目录:\n{output_dir}\n\n"
                                        f"是否打开报告?"):
             webbrowser.open(f"file:///{report_path}")
@@ -2125,17 +2156,21 @@ class CompareToolApp:
         self.progress.stop()
         self._set_generating(False)
         output_dir = self._display_path(os.path.dirname(report_path))
+        skipped = summary.get("skipped_line_count_files", 0)
+        line_note = f"，另有 {skipped} 个文件行数未统计" if skipped else ""
+        line_dialog_note = f"未统计行数的文件: {skipped} 个\n" if skipped else ""
         self.status_var.set(
             f"多项目完成! {summary['project_count']} 个项目，"
             f"{summary['total_files']} 个文件变更 "
-            f"(+{summary['total_added_lines']}/-{summary['total_deleted_lines']})"
+            f"(+{summary['total_added_lines']}/-{summary['total_deleted_lines']}{line_note})"
         )
         if messagebox.askyesno("完成", f"多项目总报告已生成!\n\n"
                                        f"项目: {summary['project_count']} 个\n"
                                        f"变更文件: {summary['total_files']} 个\n"
                                        f"格式变化: {summary.get('format_changed_files', 0)} 个\n"
                                        f"新增行数: +{summary['total_added_lines']}\n"
-                                       f"删除行数: -{summary['total_deleted_lines']}\n\n"
+                                       f"删除行数: -{summary['total_deleted_lines']}\n"
+                                       f"{line_dialog_note}\n"
                                        f"输出目录:\n{output_dir}\n\n"
                                        f"是否打开报告?"):
             webbrowser.open(f"file:///{report_path}")
