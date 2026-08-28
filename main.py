@@ -1862,6 +1862,7 @@ class CompareToolApp:
             project_path, vcs_type, old_version, new_version, project_name,
             exclude_patterns, show_full, show_project_root,
             report_path, old_export, new_export,
+            os.path.abspath(self.output_dir_var.get().strip()),
         ), daemon=True)
         thread.start()
 
@@ -1923,7 +1924,13 @@ class CompareToolApp:
         tasks = [dict(task) for task in self._multi_tasks]
         thread = threading.Thread(
             target=self._do_generate_multi,
-            args=(tasks, report_path, old_export, new_export),
+            args=(
+                tasks,
+                report_path,
+                old_export,
+                new_export,
+                os.path.abspath(output_dir),
+            ),
             daemon=True,
         )
         thread.start()
@@ -1931,9 +1938,13 @@ class CompareToolApp:
     def _do_generate(
             self, project_path, vcs_type, old_version, new_version, project_name,
             exclude_patterns, show_full, show_project_root,
-            report_path, old_export, new_export):
+            report_path, old_export, new_export, trusted_output_root=""):
         cleanup_vcs = None  # 持有引用以便 finally 清理临时目录
         try:
+            trusted_output_root = (
+                trusted_output_root
+                or os.path.dirname(os.path.abspath(report_path))
+            )
             source_paths = (
                 [old_version, new_version]
                 if vcs_type in ("folder", "archive")
@@ -1948,12 +1959,15 @@ class CompareToolApp:
                 [old_export, new_export],
                 [report_path, instruction_target],
             )
-            expected_target_states = FileExporter.capture_target_states([
-                FileExporter._safe_join(old_export, project_name),
-                FileExporter._safe_join(new_export, project_name),
-                report_path,
-                instruction_target,
-            ])
+            expected_target_states = FileExporter.capture_target_states(
+                [
+                    FileExporter._safe_join(old_export, project_name),
+                    FileExporter._safe_join(new_export, project_name),
+                    report_path,
+                    instruction_target,
+                ],
+                trusted_root=trusted_output_root,
+            )
             info(f"=== 开始生成比对报告 ===")
             info(f"project_path={project_path}, vcs_type={vcs_type}, old={old_version}, new={new_version}")
 
@@ -2037,6 +2051,7 @@ class CompareToolApp:
                         (instruction_stage, instruction_target),
                     ],
                     expected_target_states=expected_target_states,
+                    trusted_root=trusted_output_root,
                 )
             finally:
                 FileExporter.cleanup_stages(export_pairs)
@@ -2056,13 +2071,19 @@ class CompareToolApp:
             if cleanup_vcs:
                 cleanup_vcs.cleanup()
 
-    def _do_generate_multi(self, tasks, report_path, old_export, new_export):
+    def _do_generate_multi(
+        self, tasks, report_path, old_export, new_export, trusted_output_root=""
+    ):
         project_results = []
         stage_old_root = ""
         stage_new_root = ""
         report_stage = ""
         instruction_stage = ""
         try:
+            trusted_output_root = (
+                trusted_output_root
+                or os.path.dirname(os.path.abspath(report_path))
+            )
             instruction_target = os.path.join(
                 os.path.dirname(os.path.abspath(report_path)),
                 DELIVERY_INSTRUCTIONS_FILENAME,
@@ -2076,12 +2097,10 @@ class CompareToolApp:
                 [old_export, new_export],
                 [report_path, instruction_target],
             )
-            expected_target_states = FileExporter.capture_target_states([
-                old_export,
-                new_export,
-                report_path,
-                instruction_target,
-            ])
+            expected_target_states = FileExporter.capture_target_states(
+                [old_export, new_export, report_path, instruction_target],
+                trusted_root=trusted_output_root,
+            )
             info("=== 开始生成多项目总报告 ===")
             report_budget = {}
             for idx, task in enumerate(tasks, start=1):
@@ -2126,6 +2145,7 @@ class CompareToolApp:
             FileExporter._replace_outputs(
                 export_pairs,
                 expected_target_states=expected_target_states,
+                trusted_root=trusted_output_root,
             )
 
             summary = ReportGenerator._multi_summary(project_results)

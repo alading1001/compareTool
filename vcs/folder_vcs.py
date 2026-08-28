@@ -5,7 +5,13 @@ import stat
 import threading
 from typing import List
 
-from path_safety import is_link_or_junction, safe_join
+from path_safety import (
+    is_link_or_junction,
+    open_regular_file_no_links,
+    regular_file_handle_identity,
+    regular_file_path_identity,
+    safe_join,
+)
 from .base import BaseVCS, ChangedFile, ChangeType
 from .temp_storage import create_temp_dir, remove_temp_dir
 from logger import warn
@@ -88,14 +94,7 @@ class FolderVCS(BaseVCS):
 
     def _should_prune_directory(self, relative_path: str) -> bool:
         """仅当规则明确覆盖任意深度后代时才剪枝，避免误伤 foo/*。"""
-        if not self.exclude_patterns:
-            return False
-        relative_path = relative_path.rstrip("/")
-        direct_probe = f"{relative_path}/__comparetool_probe__"
-        nested_probe = (
-            f"{relative_path}/__comparetool_probe_dir__/__comparetool_probe__"
-        )
-        return self._is_excluded(direct_probe) and self._is_excluded(nested_probe)
+        return bool(self.exclude_patterns) and self._is_excluded_tree(relative_path)
 
     def _walk_tree(self, root: str, apply_excludes: bool = False):
         """遍历目录，返回文件与目录的相对路径集合。"""
@@ -150,32 +149,15 @@ class FolderVCS(BaseVCS):
                     )
         return files, directories
 
-    @staticmethod
-    def _signature_from_stat(metadata):
-        return (
-            metadata.st_dev,
-            metadata.st_ino,
-            metadata.st_size,
-            metadata.st_mtime_ns,
-            metadata.st_ctime_ns,
-        )
-
-    @staticmethod
-    def _stream_state_from_stat(metadata):
-        # Windows 上 path stat 与 handle fstat 的设备/文件编号表示可能不同；
-        # 文件身份由复制前后的 path stat 校验，句柄只校验复制中的大小和 mtime。
-        return metadata.st_size, metadata.st_mtime_ns
-
     def _file_signature(self, path: str):
         if is_link_or_junction(path):
             raise RuntimeError(f"比对目录包含符号链接或联接点，已拒绝读取: {path}")
         try:
-            metadata = os.stat(path, follow_symlinks=False)
+            return regular_file_path_identity(path)
         except OSError as exc:
             raise RuntimeError(f"读取比对源文件元数据失败: {path}: {exc}") from exc
-        if not stat.S_ISREG(metadata.st_mode):
-            raise RuntimeError(f"比对源包含非普通文件，已拒绝读取: {path}")
-        return self._signature_from_stat(metadata)
+        except RuntimeError as exc:
+            raise RuntimeError(f"比对源包含非普通文件，已拒绝读取: {path}") from exc
 
     def _directory_identity(self, path: str):
         if not os.path.isdir(path):
@@ -212,7 +194,7 @@ class FolderVCS(BaseVCS):
             "directory_identities": initial_directory_identities,
             "file_signatures": initial_file_signatures,
             "total_bytes": sum(
-                signature[2] for signature in initial_file_signatures.values()
+                signature[1] for signature in initial_file_signatures.values()
             ),
         }
 
@@ -245,27 +227,20 @@ class FolderVCS(BaseVCS):
             os.makedirs(os.path.dirname(target_path), exist_ok=True)
             expected_signature = initial_file_signatures[rel_path]
             try:
-                with open(source_path, "rb") as src, open(target_path, "wb") as dst:
-                    expected_stream_state = (
-                        expected_signature[2], expected_signature[3]
-                    )
-                    opened_stream_state = self._stream_state_from_stat(
-                        os.fstat(src.fileno())
-                    )
-                    if opened_stream_state != expected_stream_state:
+                with open_regular_file_no_links(source_path) as src, open(target_path, "wb") as dst:
+                    opened_signature = regular_file_handle_identity(src)
+                    if opened_signature != expected_signature:
                         raise RuntimeError(
                             f"比对源文件在快照复制前发生变化: {source_path}"
                         )
                     shutil.copyfileobj(src, dst, length=1024 * 1024)
                     copied_size = dst.tell()
-                    closed_stream_state = self._stream_state_from_stat(
-                        os.fstat(src.fileno())
-                    )
+                    closed_signature = regular_file_handle_identity(src)
             except OSError as exc:
                 raise RuntimeError(f"复制比对源文件失败: {source_path}: {exc}") from exc
             if (
-                copied_size != expected_signature[2]
-                or closed_stream_state != expected_stream_state
+                copied_size != expected_signature[1]
+                or closed_signature != expected_signature
                 or self._file_signature(source_path) != expected_signature
             ):
                 raise RuntimeError(

@@ -200,8 +200,6 @@ fileData.push({
     showProjectRoot: {{ project.show_project_root | tojson }},
     path: {{ file.file_path | replace('\\','/') | tojson }},
     oldPath: {{ file.old_path | replace('\\','/') | tojson }},
-    displayPath: {{ ((project.project_name ~ '/' ~ (file.file_path | replace('\\','/'))) if project.show_project_root else (file.file_path | replace('\\','/'))) | tojson }},
-    oldDisplayPath: {{ ((project.project_name ~ '/' ~ (file.old_path | replace('\\','/'))) if project.show_project_root and file.old_path else (file.old_path | replace('\\','/'))) | tojson }},
     type: {{ file.report_type | tojson }},
     html: document.getElementById("sbs-{{ project_loop.index }}-{{ loop.index }}").innerHTML
 });
@@ -214,11 +212,16 @@ manifestData.push({
     showProjectRoot: {{ entry.show_project_root | tojson }},
     path: {{ entry.file.file_path | replace('\\','/') | tojson }},
     oldPath: {{ entry.file.old_path | replace('\\','/') | tojson }},
-    displayPath: {{ ((entry.project_name ~ '/' ~ (entry.file.file_path | replace('\\','/'))) if entry.show_project_root else (entry.file.file_path | replace('\\','/'))) | tojson }},
-    oldDisplayPath: {{ ((entry.project_name ~ '/' ~ (entry.file.old_path | replace('\\','/'))) if entry.show_project_root and entry.file.old_path else (entry.file.old_path | replace('\\','/'))) | tojson }},
     type: {{ entry.file.report_type | tojson }}
 });
 {% endfor %}
+function addDisplayPaths(file) {
+    var prefix = file.showProjectRoot ? file.project + '/' : '';
+    file.displayPath = prefix + file.path;
+    file.oldDisplayPath = file.oldPath ? prefix + file.oldPath : '';
+}
+fileData.forEach(addDisplayPaths);
+manifestData.forEach(addDisplayPaths);
 var currentDiffAnchors = [];
 var currentDiffGroups = [];
 var currentDiffIndex = -1;

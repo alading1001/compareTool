@@ -1,12 +1,16 @@
 import os
+import tempfile
 from datetime import datetime
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from diff_engine import DiffResult
 from delivery_instructions import DELIVERY_INSTRUCTIONS_FILENAME
+from stage_ownership import mark_owned, remove_ownership_marker
 
 
 class ReportGenerator:
     """HTML报告生成器"""
+
+    MAX_REPORT_OUTPUT_BYTES = 80 * 1024 * 1024
 
     def __init__(self, template_dir: str = None):
         if template_dir is None:
@@ -39,10 +43,8 @@ class ReportGenerator:
             generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         )
 
-        os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else ".", exist_ok=True)
         stream = template.stream(**context)
-        stream.enable_buffering(64)
-        stream.dump(output_path, encoding="utf-8")
+        self._dump_limited(stream, output_path)
 
     def generate_multi(self, project_results: list, output_path: str):
         summary = self._multi_summary(project_results)
@@ -60,10 +62,45 @@ class ReportGenerator:
             generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         )
 
-        os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else ".", exist_ok=True)
         stream = template.stream(**context)
-        stream.enable_buffering(64)
-        stream.dump(output_path, encoding="utf-8")
+        self._dump_limited(stream, output_path)
+
+    @classmethod
+    def _dump_limited(cls, stream, output_path: str):
+        """按最终 UTF-8 字节流执行统一上限，并原子提交渲染结果。"""
+        parent = os.path.dirname(os.path.abspath(output_path))
+        os.makedirs(parent, exist_ok=True)
+        fd, temporary = tempfile.mkstemp(
+            prefix=".comparetool_report_", suffix=".html", dir=parent
+        )
+        total = 0
+        try:
+            mark_owned(temporary)
+            stream.enable_buffering(64)
+            with os.fdopen(fd, "wb") as target:
+                fd = -1
+                for chunk in stream:
+                    payload = str(chunk).encode("utf-8")
+                    total += len(payload)
+                    if total > cls.MAX_REPORT_OUTPUT_BYTES:
+                        raise RuntimeError(
+                            "最终 HTML 报告超过统一大小上限: "
+                            f"{total} > {cls.MAX_REPORT_OUTPUT_BYTES} 字节"
+                        )
+                    target.write(payload)
+                target.flush()
+                os.fsync(target.fileno())
+            os.replace(temporary, output_path)
+            remove_ownership_marker(temporary)
+        except BaseException:
+            if fd >= 0:
+                os.close(fd)
+            try:
+                os.remove(temporary)
+            except OSError:
+                pass
+            remove_ownership_marker(temporary)
+            raise
 
     @staticmethod
     def _multi_summary(project_results: list) -> dict:
@@ -96,21 +133,21 @@ class ReportGenerator:
     @staticmethod
     def _multi_manifest(project_results: list) -> list:
         entries = []
-        path_bytes = 0
+        json_bytes = 0
         for project in project_results:
             project_name = project["project_name"]
             show_project_root = project["show_project_root"]
             for file_diff in project["diff_result"].files:
-                item_bytes = len(
-                    file_diff.file_path.encode("utf-8", errors="replace")
-                )
-                if file_diff.old_path:
-                    item_bytes += len(
-                        file_diff.old_path.encode("utf-8", errors="replace")
-                    )
+                item_bytes = DiffResult._htmlsafe_json_bytes({
+                    "project": project_name,
+                    "showProjectRoot": bool(show_project_root),
+                    "path": file_diff.file_path.replace("\\", "/"),
+                    "oldPath": file_diff.old_path.replace("\\", "/"),
+                    "type": file_diff.report_type,
+                }) + 24
                 if (
                     len(entries) >= DiffResult.MAX_REPORT_MANIFEST_FILES
-                    or path_bytes + item_bytes
+                    or json_bytes + item_bytes
                     > DiffResult.MAX_REPORT_MANIFEST_PATH_BYTES
                 ):
                     return entries
@@ -119,5 +156,5 @@ class ReportGenerator:
                     "show_project_root": show_project_root,
                     "file": file_diff,
                 })
-                path_bytes += item_bytes
+                json_bytes += item_bytes
         return entries

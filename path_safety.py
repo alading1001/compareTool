@@ -2,6 +2,7 @@ import ntpath
 import os
 import re
 import stat
+from contextlib import contextmanager
 
 
 WINDOWS_INVALID_CHARS = set('<>:"|?*')
@@ -115,3 +116,133 @@ def ensure_no_link_components(root: str, path: str, label: str = "路径") -> No
             current = os.path.join(current, component)
         if os.path.lexists(current) and is_link_or_junction(current):
             raise ValueError(f"{label}祖先包含符号链接或联接点: {current}")
+
+
+def _nanoseconds(metadata, name: str) -> int:
+    value = getattr(metadata, name, None)
+    if value is not None:
+        return int(value)
+    return int(getattr(metadata, name.removesuffix("_ns")) * 1_000_000_000)
+
+
+def regular_file_handle_identity(stream) -> tuple:
+    """返回已打开普通文件的稳定身份和竞态检测元数据。"""
+    metadata = os.fstat(stream.fileno())
+    if not stat.S_ISREG(metadata.st_mode):
+        raise RuntimeError("已打开对象不是普通文件")
+
+    if os.name == "nt":
+        import ctypes
+        import msvcrt
+        from ctypes import wintypes
+
+        class BY_HANDLE_FILE_INFORMATION(ctypes.Structure):
+            _fields_ = [
+                ("dwFileAttributes", wintypes.DWORD),
+                ("ftCreationTime", wintypes.FILETIME),
+                ("ftLastAccessTime", wintypes.FILETIME),
+                ("ftLastWriteTime", wintypes.FILETIME),
+                ("dwVolumeSerialNumber", wintypes.DWORD),
+                ("nFileSizeHigh", wintypes.DWORD),
+                ("nFileSizeLow", wintypes.DWORD),
+                ("nNumberOfLinks", wintypes.DWORD),
+                ("nFileIndexHigh", wintypes.DWORD),
+                ("nFileIndexLow", wintypes.DWORD),
+            ]
+
+        info = BY_HANDLE_FILE_INFORMATION()
+        handle = msvcrt.get_osfhandle(stream.fileno())
+        get_info = ctypes.windll.kernel32.GetFileInformationByHandle
+        get_info.argtypes = [wintypes.HANDLE, ctypes.POINTER(BY_HANDLE_FILE_INFORMATION)]
+        get_info.restype = wintypes.BOOL
+        if not get_info(handle, ctypes.byref(info)):
+            raise ctypes.WinError()
+        if info.dwFileAttributes & 0x400:  # FILE_ATTRIBUTE_REPARSE_POINT
+            raise RuntimeError("已打开对象是重解析点")
+        stable_id = (
+            "windows",
+            int(info.dwVolumeSerialNumber),
+            (int(info.nFileIndexHigh) << 32) | int(info.nFileIndexLow),
+        )
+    else:
+        stable_id = (
+            "posix",
+            int(getattr(metadata, "st_dev", 0)),
+            int(getattr(metadata, "st_ino", 0)),
+        )
+    return (
+        stable_id,
+        int(metadata.st_size),
+        _nanoseconds(metadata, "st_mtime_ns"),
+        _nanoseconds(metadata, "st_ctime_ns"),
+    )
+
+
+class _NamedBinaryReader:
+    """保留真实路径名，同时代理安全打开的底层二进制流。"""
+
+    def __init__(self, stream, path: str):
+        self._stream = stream
+        self.name = path
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+
+@contextmanager
+def open_regular_file_no_links(path: str):
+    """不跟随最终重解析点地打开普通文件，并返回可读取的二进制流。"""
+    path = os.path.abspath(path)
+    if os.name == "nt":
+        import ctypes
+        import msvcrt
+        from ctypes import wintypes
+
+        create_file = ctypes.windll.kernel32.CreateFileW
+        create_file.argtypes = [
+            wintypes.LPCWSTR,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.LPVOID,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.HANDLE,
+        ]
+        create_file.restype = wintypes.HANDLE
+        handle = create_file(
+            path,
+            0x80000000,  # GENERIC_READ
+            0x00000001 | 0x00000002 | 0x00000004,  # SHARE R/W/DELETE
+            None,
+            3,  # OPEN_EXISTING
+            0x200000 | 0x08000000,  # OPEN_REPARSE_POINT | SEQUENTIAL_SCAN
+            None,
+        )
+        invalid_handle = ctypes.c_void_p(-1).value
+        if handle == invalid_handle:
+            raise ctypes.WinError()
+        try:
+            fd = msvcrt.open_osfhandle(
+                int(handle), os.O_RDONLY | getattr(os, "O_BINARY", 0)
+            )
+        except BaseException:
+            ctypes.windll.kernel32.CloseHandle(handle)
+            raise
+    else:
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(path, flags)
+
+    raw_stream = os.fdopen(fd, "rb", closefd=True)
+    stream = _NamedBinaryReader(raw_stream, path)
+    try:
+        regular_file_handle_identity(stream)
+        yield stream
+    finally:
+        raw_stream.close()
+
+
+def regular_file_path_identity(path: str) -> tuple:
+    """通过安全句柄取得路径当前指向的普通文件身份。"""
+    with open_regular_file_no_links(path) as stream:
+        return regular_file_handle_identity(stream)

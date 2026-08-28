@@ -1,6 +1,7 @@
 import difflib
 import hashlib
 import html
+import json
 import os
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional
@@ -62,6 +63,31 @@ class DiffResult:
     MAX_REPORT_MANIFEST_FILES = 100_000
     MAX_REPORT_MANIFEST_PATH_BYTES = 20 * 1024 * 1024
 
+    @staticmethod
+    def _htmlsafe_json_bytes(payload: dict) -> int:
+        value = json.dumps(
+            payload,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        for char, escaped in (
+            ("<", r"\u003c"),
+            (">", r"\u003e"),
+            ("&", r"\u0026"),
+            ("'", r"\u0027"),
+        ):
+            value = value.replace(char, escaped)
+        return len(value.encode("utf-8"))
+
+    @classmethod
+    def _manifest_item_bytes(cls, item: FileDiff) -> int:
+        return cls._htmlsafe_json_bytes({
+            "path": item.file_path.replace("\\", "/"),
+            "oldPath": item.old_path.replace("\\", "/"),
+            "type": item.report_type,
+        }) + 24
+
     @property
     def report_files(self) -> List[FileDiff]:
         return [item for item in self.files if not item.report_detail_omitted]
@@ -69,18 +95,16 @@ class DiffResult:
     @property
     def report_manifest_files(self) -> List[FileDiff]:
         selected = []
-        path_bytes = 0
+        json_bytes = 0
         for item in self.files:
-            item_bytes = len(item.file_path.encode("utf-8", errors="replace"))
-            if item.old_path:
-                item_bytes += len(item.old_path.encode("utf-8", errors="replace"))
+            item_bytes = self._manifest_item_bytes(item)
             if (
                 len(selected) >= self.MAX_REPORT_MANIFEST_FILES
-                or path_bytes + item_bytes > self.MAX_REPORT_MANIFEST_PATH_BYTES
+                or json_bytes + item_bytes > self.MAX_REPORT_MANIFEST_PATH_BYTES
             ):
                 break
             selected.append(item)
-            path_bytes += item_bytes
+            json_bytes += item_bytes
         return selected
 
     @property
@@ -144,7 +168,7 @@ class DiffEngine:
     MAX_REPORT_RENDER_ROWS = 60_000
     MAX_REPORT_DETAIL_FILES = 5_000
     MAX_REPORT_PATH_BYTES = 5 * 1024 * 1024
-    MAX_REPORT_HTML_BYTES = 80 * 1024 * 1024
+    MAX_REPORT_HTML_BYTES = 60 * 1024 * 1024
     MAX_RENAME_SIGNATURE_BYTES = 16 * 1024 * 1024
 
     def __init__(
@@ -911,8 +935,16 @@ class DiffEngine:
         old_normalized = self._normalize_line_endings(old.text)
         new_normalized = self._normalize_line_endings(new.text)
         trailing_newline_only = (
-            old.text.splitlines() == new.text.splitlines()
-            and old_normalized.endswith("\n") != new_normalized.endswith("\n")
+            (
+                old_normalized.endswith("\n")
+                and not new_normalized.endswith("\n")
+                and old_normalized[:-1] == new_normalized
+            )
+            or (
+                new_normalized.endswith("\n")
+                and not old_normalized.endswith("\n")
+                and new_normalized[:-1] == old_normalized
+            )
         )
         if old.text != new.text and old_normalized != new_normalized and not trailing_newline_only:
             return None

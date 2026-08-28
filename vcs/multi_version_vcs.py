@@ -1,8 +1,10 @@
+import io
 import os
 import re
 import shutil
 import subprocess
 import tempfile
+import threading
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Set
 from urllib.parse import quote, unquote
@@ -15,6 +17,77 @@ from .git_vcs import GitVCS, GIT_NOT_FOUND_MESSAGE
 from .svn_vcs import SVNVCS, SVN_NOT_FOUND_MESSAGE
 from .temp_storage import create_temp_dir, remove_temp_dir
 from logger import warn
+
+
+def _run_capped_process(
+    args: List[str], cwd: str, timeout: int, max_output_bytes: int, label: str
+):
+    """并行抽干 stdout/stderr，在进入解析器前限制子进程原始输出。"""
+    try:
+        process = subprocess.Popen(
+            args,
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        raise
+
+    stdout = bytearray()
+    stderr = bytearray()
+    total = 0
+    lock = threading.Lock()
+    exceeded = threading.Event()
+    timed_out = threading.Event()
+
+    def read_pipe(pipe, destination):
+        nonlocal total
+        try:
+            while True:
+                chunk = pipe.read(1024 * 1024)
+                if not chunk:
+                    break
+                with lock:
+                    total += len(chunk)
+                    if total > max_output_bytes:
+                        exceeded.set()
+                        try:
+                            process.kill()
+                        except OSError:
+                            pass
+                        break
+                    destination.extend(chunk)
+        finally:
+            pipe.close()
+
+    readers = [
+        threading.Thread(target=read_pipe, args=(process.stdout, stdout), daemon=True),
+        threading.Thread(target=read_pipe, args=(process.stderr, stderr), daemon=True),
+    ]
+    for reader in readers:
+        reader.start()
+
+    def kill_on_timeout():
+        timed_out.set()
+        try:
+            process.kill()
+        except OSError:
+            pass
+
+    timer = threading.Timer(timeout, kill_on_timeout)
+    timer.daemon = True
+    timer.start()
+    returncode = process.wait()
+    timer.cancel()
+    for reader in readers:
+        reader.join()
+    if timed_out.is_set():
+        raise RuntimeError(f"{label}超时，已中止生成")
+    if exceeded.is_set():
+        raise RuntimeError(
+            f"{label}原始输出超过上限 {max_output_bytes} 字节，已中止生成"
+        )
+    return returncode, bytes(stdout), bytes(stderr)
 
 
 def parse_multi_versions(raw: str) -> List[str]:
@@ -63,8 +136,20 @@ class _EndpointPlanner:
         self._deleted: Dict[str, _LogicalFile] = {}
         self._entities: List[_LogicalFile] = []
         self._step = 0
+        self._change_count = 0
+        self._path_bytes = 0
+
+    MAX_HISTORY_STEPS = 200_000
+    MAX_HISTORY_CHANGES = 500_000
+    MAX_HISTORY_PATH_BYTES = 64 * 1024 * 1024
+    MAX_LOGICAL_FILES = 200_000
 
     def _new_entity(self) -> _LogicalFile:
+        if len(self._entities) >= self.MAX_LOGICAL_FILES:
+            raise RuntimeError(
+                "多版本历史逻辑文件数超过安全上限，已中止生成。"
+                "请缩小所选版本范围或增加排除规则。"
+            )
         entity = _LogicalFile(len(self._entities) + 1)
         self._entities.append(entity)
         return entity
@@ -77,6 +162,18 @@ class _EndpointPlanner:
         new_version: str,
     ):
         self._step += 1
+        if self._step > self.MAX_HISTORY_STEPS:
+            raise RuntimeError("多版本历史步数超过安全上限，已中止生成")
+        self._change_count += len(changes)
+        self._path_bytes += sum(
+            len(item.path.encode("utf-8", errors="surrogatepass"))
+            + len(item.old_path.encode("utf-8", errors="surrogatepass"))
+            for item in changes
+        )
+        if self._change_count > self.MAX_HISTORY_CHANGES:
+            raise RuntimeError("多版本历史变更记录数超过安全上限，已中止生成")
+        if self._path_bytes > self.MAX_HISTORY_PATH_BYTES:
+            raise RuntimeError("多版本历史路径文本超过安全上限，已中止生成")
         step = self._step
         before = {entity: path for path, entity in self._active.items()}
         implicit_before: Dict[_LogicalFile, str] = {}
@@ -188,6 +285,10 @@ class _MultiVersionFolderDelegate(BaseVCS):
 
     # 文件身份已经由历史规划器判定，不能再按内容启发式合并删除和新增。
     merge_exact_renames = False
+    MAX_ENDPOINT_FILES = 100_000
+    MAX_ENDPOINT_SOURCE_BYTES = 20 * 1024 * 1024 * 1024
+    MAX_ENDPOINT_DISK_BYTES = 60 * 1024 * 1024 * 1024
+    MIN_ENDPOINT_FREE_BYTES = 1024 * 1024 * 1024
 
     def __init__(
         self,
@@ -248,6 +349,8 @@ class _MultiVersionFolderDelegate(BaseVCS):
         prepare_reads = getattr(self, "_prepare_endpoint_reads", None)
         if prepare_reads is not None:
             prepare_reads(effective)
+        self._reserve_endpoint_budget(effective)
+        self._endpoint_written_bytes = 0
 
         for entity, old_path, new_path in effective:
             metadata = self._compare_endpoint_metadata(
@@ -371,8 +474,8 @@ class _MultiVersionFolderDelegate(BaseVCS):
         os.makedirs(os.path.dirname(target), exist_ok=True)
         return target
 
-    @staticmethod
     def _write_endpoint_file(
+        self,
         writer,
         version: str,
         path: Optional[str],
@@ -390,6 +493,62 @@ class _MultiVersionFolderDelegate(BaseVCS):
         if not os.path.isfile(target) or os.path.islink(target):
             raise RuntimeError(
                 f"{label}文件端点不是普通文件，已中止生成: {path}@{version}"
+            )
+        written = os.path.getsize(target)
+        self._endpoint_written_bytes += written
+        if self._endpoint_written_bytes > self.MAX_ENDPOINT_DISK_BYTES:
+            raise RuntimeError(
+                "多版本端点实际写盘字节数超过安全上限，已中止生成"
+            )
+        if shutil.disk_usage(self._tmp_root).free < self.MIN_ENDPOINT_FREE_BYTES:
+            raise RuntimeError(
+                "多版本端点写入后磁盘保留空间不足，已中止生成"
+            )
+
+    def _reserve_endpoint_budget(self, effective_entities):
+        endpoints = []
+        for entity, old_path, new_path in effective_entities:
+            if old_path is not None:
+                endpoints.append((entity.old_version, old_path))
+            if new_path is not None:
+                endpoints.append((entity.new_version, new_path))
+        output_files = len(endpoints) * 2  # checkout 端点 + 仓库原始端点
+        if output_files > self.MAX_ENDPOINT_FILES:
+            raise RuntimeError(
+                f"多版本端点文件数超过上限: {output_files} > "
+                f"{self.MAX_ENDPOINT_FILES}"
+            )
+        source_bytes = 0
+        size_cache = {}
+        for version, path in endpoints:
+            key = (str(version), path)
+            if key not in size_cache:
+                size_cache[key] = self._content_vcs.get_file_size(
+                    version, path
+                )
+            size = size_cache[key]
+            if not isinstance(size, int) or size < 0:
+                raise RuntimeError(
+                    f"无法确认多版本端点大小，已中止生成: {path}@{version}"
+                )
+            source_bytes += size
+            if source_bytes > self.MAX_ENDPOINT_SOURCE_BYTES:
+                raise RuntimeError(
+                    "多版本端点源文件总字节数超过安全上限，已中止生成"
+                )
+        # 每个端点同时保存 checkout 字节和 raw 字节；换行转换最坏会把
+        # checkout 字节扩大到原始字节的两倍，因此按三倍源字节预留。
+        projected_disk_bytes = source_bytes * 3
+        if projected_disk_bytes > self.MAX_ENDPOINT_DISK_BYTES:
+            raise RuntimeError(
+                "多版本端点最坏写盘字节数超过安全上限，已中止生成"
+            )
+        free_bytes = shutil.disk_usage(self._tmp_root).free
+        required = projected_disk_bytes + self.MIN_ENDPOINT_FREE_BYTES
+        if free_bytes < required:
+            raise RuntimeError(
+                "多版本端点可用磁盘空间不足，已中止生成: "
+                f"需要至少 {required} 字节，当前 {free_bytes} 字节"
             )
 
     def set_exclude_patterns(self, patterns: List[str]):
@@ -469,6 +628,7 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
     MAX_GIT_RENAME_SCORING_BYTES = 8 * 1024 * 1024 * 1024
     MAX_GIT_STORED_AMBIGUOUS_CANDIDATES = 50_000
     MAX_GIT_PENDING_DELETES = 50_000
+    MAX_GIT_COMMAND_OUTPUT_BYTES = 64 * 1024 * 1024
 
     def __init__(
         self,
@@ -492,17 +652,22 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
             self.cleanup()
             raise
 
-    @staticmethod
-    def _run(args: list, cwd: str) -> bytes:
+    @classmethod
+    def _run(cls, args: list, cwd: str) -> bytes:
         try:
-            result = subprocess.run(args, cwd=cwd, capture_output=True, timeout=600)
+            returncode, stdout, stderr = _run_capped_process(
+                args,
+                cwd,
+                timeout=600,
+                max_output_bytes=cls.MAX_GIT_COMMAND_OUTPUT_BYTES,
+                label="Git 多版本命令",
+            )
         except FileNotFoundError:
             raise RuntimeError(GIT_NOT_FOUND_MESSAGE)
-        if result.returncode != 0:
-            stderr = result.stderr.decode("utf-8", errors="replace")
-            stdout = result.stdout.decode("utf-8", errors="replace")
-            raise RuntimeError(f"Git命令失败: {' '.join(args)}\n{stderr or stdout}")
-        return result.stdout
+        if returncode != 0:
+            error_text = (stderr or stdout).decode("utf-8", errors="replace")
+            raise RuntimeError(f"Git命令失败: {' '.join(args)}\n{error_text}")
+        return stdout
 
     def _git_bytes(self, *args: str) -> bytes:
         return self._run([self._git_exe] + list(args), self.source_project_path)
@@ -541,6 +706,16 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
 
     def _prepare(self):
         self._content_vcs._snapshot_git_config()
+        history_count_text = self._git(
+            "rev-list", "--first-parent", "--count", "HEAD"
+        )
+        if not history_count_text.isdigit():
+            raise RuntimeError("无法确认 Git 第一父历史长度")
+        if int(history_count_text) > _EndpointPlanner.MAX_HISTORY_STEPS:
+            raise RuntimeError(
+                "Git 第一父历史提交数超过安全上限，已中止生成。"
+                "请缩小仓库历史或改用普通 Git 比对。"
+            )
         history = self._git("rev-list", "--first-parent", "HEAD").splitlines()
         if not history:
             raise RuntimeError("当前 Git 分支没有可用提交")
@@ -942,12 +1117,15 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
             )
         return self._parse_git_changes(self._git_bytes(*args))
 
-    @staticmethod
-    def _parse_git_changes(data: bytes) -> List[_HistoryChange]:
+    @classmethod
+    def _parse_git_changes(cls, data: bytes) -> List[_HistoryChange]:
+        if len(data) > cls.MAX_GIT_COMMAND_OUTPUT_BYTES:
+            raise RuntimeError("Git 多版本变更记录原始字节超过安全上限")
         fields = data.split(b"\x00")
         if fields and fields[-1] == b"":
             fields.pop()
         changes = []
+        path_bytes = 0
         index = 0
         while index < len(fields):
             status = fields[index].decode("ascii", errors="replace")
@@ -959,14 +1137,20 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
                     raise RuntimeError("无法解析 Git 多版本重命名/复制记录")
                 old_path = fields[index].decode("utf-8", errors="surrogateescape")
                 new_path = fields[index + 1].decode("utf-8", errors="surrogateescape")
+                path_bytes += len(fields[index]) + len(fields[index + 1])
                 index += 2
                 if status.startswith("R"):
                     changes.append(_HistoryChange("R", new_path, old_path))
                 else:
                     changes.append(_HistoryChange("A", new_path))
+                if len(changes) > _EndpointPlanner.MAX_HISTORY_CHANGES:
+                    raise RuntimeError("Git 单次变更记录数超过安全上限")
+                if path_bytes > _EndpointPlanner.MAX_HISTORY_PATH_BYTES:
+                    raise RuntimeError("Git 单次变更路径字节数超过安全上限")
                 continue
 
             path = fields[index].decode("utf-8", errors="surrogateescape")
+            path_bytes += len(fields[index])
             index += 1
             if status == "T":
                 # 同一路径的类型变化仍属于同一文件身份。这里只追踪历史，最终
@@ -977,6 +1161,10 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
             if status not in ("A", "M", "D"):
                 raise RuntimeError(f"暂不支持的 Git 多版本变更类型 {status}: {path}")
             changes.append(_HistoryChange(status, path))
+            if len(changes) > _EndpointPlanner.MAX_HISTORY_CHANGES:
+                raise RuntimeError("Git 单次变更记录数超过安全上限")
+            if path_bytes > _EndpointPlanner.MAX_HISTORY_PATH_BYTES:
+                raise RuntimeError("Git 单次变更路径字节数超过安全上限")
         return changes
 
     def _write_git_endpoint(self, version: str, path: str, target: str):
@@ -1051,6 +1239,12 @@ class _SVNPathChange:
 
 class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
     """SVN 多版本：沿 revision 历史生成每个文件自己的首尾端点。"""
+
+    MAX_SVN_COMMAND_OUTPUT_BYTES = 64 * 1024 * 1024
+    MAX_SVN_LOG_ENTRIES = 200_000
+    MAX_SVN_PATH_RECORDS = 500_000
+    MAX_SVN_PATH_BYTES = 64 * 1024 * 1024
+    MAX_SVN_LIST_ENTRIES = 200_000
 
     @staticmethod
     def get_recent_versions(project_path: str, svn_path: str = "", limit: int = 100) -> List[str]:
@@ -1144,36 +1338,38 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
 
     def _run(self, args: List[str]) -> str:
         try:
-            result = subprocess.run(
+            returncode, stdout, stderr = _run_capped_process(
                 [self._svn] + args,
-                cwd=self.source_project_path,
-                capture_output=True,
+                self.source_project_path,
                 timeout=600,
+                max_output_bytes=self.MAX_SVN_COMMAND_OUTPUT_BYTES,
+                label="SVN 多版本命令",
             )
         except FileNotFoundError:
             raise RuntimeError(SVN_NOT_FOUND_MESSAGE)
-        if result.returncode != 0:
+        if returncode != 0:
             raise RuntimeError(
-                f"SVN命令失败: {' '.join(args)}\n" + self._decode(result.stderr or result.stdout)
+                f"SVN命令失败: {' '.join(args)}\n" + self._decode(stderr or stdout)
             )
-        return self._decode(result.stdout)
+        return self._decode(stdout)
 
     def _run_bytes(self, args: List[str]) -> bytes:
         try:
-            result = subprocess.run(
+            returncode, stdout, stderr = _run_capped_process(
                 [self._svn] + args,
-                cwd=self.source_project_path,
-                capture_output=True,
+                self.source_project_path,
                 timeout=600,
+                max_output_bytes=self.MAX_SVN_COMMAND_OUTPUT_BYTES,
+                label="SVN 多版本命令",
             )
         except FileNotFoundError:
             raise RuntimeError(SVN_NOT_FOUND_MESSAGE)
-        if result.returncode != 0:
+        if returncode != 0:
             raise RuntimeError(
                 f"SVN命令失败: {' '.join(args)}\n"
-                + self._decode(result.stderr or result.stdout)
+                + self._decode(stderr or stdout)
             )
-        return result.stdout
+        return stdout
 
     def _prepare(self):
         revisions = self._parse_revisions()
@@ -1209,6 +1405,8 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         self._project_root_transitions = []
         self._svn_eol_cache = {}
         self._svn_property_cache = {}
+        self._svn_list_entry_count = 0
+        self._svn_list_path_bytes = 0
 
         self._content_vcs = SVNVCS(self.source_project_path, self._svn)
         self._content_vcs._source_identity_pinned = True
@@ -1222,14 +1420,14 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         }
         self._content_vcs._eol_cache = {}
 
-        output = self._run([
+        output = self._run_bytes([
             "log", "--xml", "-v", "--non-interactive",
             # 需要看到最后选中版之后的项目根移动，才能把 HEAD URL 映射回
             # 选中 revision；这些后续记录只用于路径映射，不参与端点规划。
-            "-r", f"{first_revision}:{self._pinned_peg_revision}",
+            "-r", f"{self._pinned_peg_revision}:{first_revision}",
             f"{self._project_url}@{self._pinned_peg_revision}",
         ])
-        history = self._parse_svn_history(output)
+        history = self._parse_svn_history_bytes(output)
         planner = _EndpointPlanner()
         for revision in sorted(history):
             if revision > last_revision:
@@ -1260,23 +1458,84 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         return revisions
 
     def _parse_svn_history(self, output: str) -> Dict[int, List[_SVNPathChange]]:
+        payload = output.encode("utf-8", errors="surrogatepass")
+        if len(payload) > self.MAX_SVN_COMMAND_OUTPUT_BYTES:
+            raise RuntimeError("SVN 多版本历史 XML 超过安全上限")
         try:
             root = ElementTree.fromstring(output)
         except ElementTree.ParseError as exc:
             raise RuntimeError(f"无法解析 SVN 多版本历史: {exc}") from exc
-        history: Dict[int, List[_SVNPathChange]] = {}
         entries = []
         for entry in root.findall("logentry"):
             revision_text = entry.get("revision", "")
             if not revision_text.isdigit():
                 continue
             entries.append((int(revision_text), entry))
+        return self._build_svn_history(
+            sorted(entries, key=lambda item: item[0], reverse=True)
+        )
+
+    def _parse_svn_history_bytes(
+        self, payload: bytes
+    ) -> Dict[int, List[_SVNPathChange]]:
+        if len(payload) > self.MAX_SVN_COMMAND_OUTPUT_BYTES:
+            raise RuntimeError("SVN 多版本历史 XML 超过安全上限")
+
+        def entries():
+            previous_revision = None
+            try:
+                iterator = ElementTree.iterparse(
+                    io.BytesIO(payload), events=("end",)
+                )
+                for _event, element in iterator:
+                    if element.tag != "logentry":
+                        continue
+                    revision_text = element.get("revision", "")
+                    if revision_text.isdigit():
+                        revision = int(revision_text)
+                        if (
+                            previous_revision is not None
+                            and revision > previous_revision
+                        ):
+                            raise RuntimeError(
+                                "SVN 历史 XML 未按倒序返回，已中止流式解析"
+                            )
+                        previous_revision = revision
+                        yield revision, element
+                    element.clear()
+            except ElementTree.ParseError as exc:
+                raise RuntimeError(f"无法解析 SVN 多版本历史: {exc}") from exc
+
+        return self._build_svn_history(entries())
+
+    def _build_svn_history(self, entries) -> Dict[int, List[_SVNPathChange]]:
+        history: Dict[int, List[_SVNPathChange]] = {}
+        entry_count = 0
+        path_record_count = 0
+        path_bytes = 0
 
         current_prefix = self._project_repo_path.rstrip("/")
         transitions = []
-        for revision, entry in sorted(entries, key=lambda item: item[0], reverse=True):
+        for revision, entry in entries:
+            entry_count += 1
+            if entry_count > self.MAX_SVN_LOG_ENTRIES:
+                raise RuntimeError("SVN 历史 revision 记录数超过安全上限")
             root_copy_candidates = []
             entry_nodes = list(entry.findall("./paths/path"))
+            path_record_count += len(entry_nodes)
+            path_bytes += sum(
+                len((node.text or "").encode("utf-8", errors="surrogatepass"))
+                + len(
+                    node.get("copyfrom-path", "").encode(
+                        "utf-8", errors="surrogatepass"
+                    )
+                )
+                for node in entry_nodes
+            )
+            if path_record_count > self.MAX_SVN_PATH_RECORDS:
+                raise RuntimeError("SVN 历史路径记录数超过安全上限")
+            if path_bytes > self.MAX_SVN_PATH_BYTES:
+                raise RuntimeError("SVN 历史路径文本超过安全上限")
             for node in entry_nodes:
                 absolute_path = self._normalize_repo_path((node.text or "").strip())
                 copyfrom_absolute = self._normalize_repo_path(
@@ -1889,22 +2148,42 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
     def _list_svn_files(self, directory: str, revision: int) -> List[str]:
         relative = directory.replace("\\", "/").strip("/")
         url = self._svn_file_url(str(revision), relative)
-        output = self._run([
+        output = self._run_bytes([
             "list", "--xml", "-R", "--non-interactive", "-r", str(revision),
             url,
         ])
+        files = []
         try:
-            root = ElementTree.fromstring(output)
+            iterator = ElementTree.iterparse(io.BytesIO(output), events=("end",))
+            for _event, entry in iterator:
+                if entry.tag != "entry":
+                    continue
+                self._svn_list_entry_count = (
+                    getattr(self, "_svn_list_entry_count", 0) + 1
+                )
+                if self._svn_list_entry_count > self.MAX_SVN_LIST_ENTRIES:
+                    raise RuntimeError("SVN 递归目录条目数超过安全上限")
+                if entry.get("kind") == "file":
+                    name = (
+                        (entry.findtext("name") or "")
+                        .replace("\\", "/")
+                        .strip("/")
+                    )
+                    if name:
+                        self._svn_list_path_bytes = (
+                            getattr(self, "_svn_list_path_bytes", 0)
+                            + len(name.encode("utf-8", errors="surrogatepass"))
+                        )
+                        if self._svn_list_path_bytes > self.MAX_SVN_PATH_BYTES:
+                            raise RuntimeError(
+                                "SVN 递归目录路径文本超过安全上限"
+                            )
+                        files.append(
+                            f"{relative}/{name}" if relative else name
+                        )
+                entry.clear()
         except ElementTree.ParseError as exc:
             raise RuntimeError(f"无法解析 SVN 目录文件列表: {exc}") from exc
-        files = []
-        for entry in root.findall(".//entry"):
-            if entry.get("kind") != "file":
-                continue
-            name = (entry.findtext("name") or "").replace("\\", "/").strip("/")
-            if not name:
-                continue
-            files.append(f"{relative}/{name}" if relative else name)
         return files
 
     def _svn_node_exists(self, path: str, revision: int) -> bool:

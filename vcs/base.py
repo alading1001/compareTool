@@ -52,13 +52,15 @@ class BaseVCS(ABC):
     def _is_excluded_tree(self, directory: str) -> bool:
         """判断目录本身或任意深度后代是否被同一规则完整覆盖。"""
         directory = directory.replace("\\", "/").rstrip("/")
-        if self._is_excluded(directory):
-            return True
         direct_probe = f"{directory}/__comparetool_probe__"
         nested_probe = (
             f"{directory}/__comparetool_probe_dir__/__comparetool_probe__"
         )
-        return self._is_excluded(direct_probe) and self._is_excluded(nested_probe)
+        return any(
+            self._match_glob(direct_probe, pattern)
+            and self._match_glob(nested_probe, pattern)
+            for pattern in self.exclude_patterns
+        )
 
     def _match_glob(self, path: str, pattern: str) -> bool:
         """将 glob 模式转为正则匹配"""

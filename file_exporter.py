@@ -14,6 +14,9 @@ from logger import warn
 from path_safety import (
     ensure_no_link_components,
     is_link_or_junction,
+    open_regular_file_no_links,
+    regular_file_handle_identity,
+    regular_file_path_identity,
     safe_join,
 )
 from stage_ownership import (
@@ -57,8 +60,9 @@ class FileExporter:
         """先在同盘临时目录完整导出，全部成功后再替换目标目录。"""
         target_old = self._safe_join(old_dir, project_name) if project_name else old_dir
         target_new = self._safe_join(new_dir, project_name) if project_name else new_dir
+        trusted_root = self._transaction_root([target_old, target_new])
         expected_target_states = self.capture_target_states(
-            [target_old, target_new]
+            [target_old, target_new], trusted_root=trusted_root
         )
         pairs = self.prepare_export(
             old_dir,
@@ -68,7 +72,9 @@ class FileExporter:
         )
         try:
             self._replace_outputs(
-                pairs, expected_target_states=expected_target_states
+                pairs,
+                expected_target_states=expected_target_states,
+                trusted_root=trusted_root,
             )
         finally:
             self.cleanup_stages(pairs)
@@ -238,8 +244,14 @@ class FileExporter:
             raise
 
     @classmethod
-    def capture_target_states(cls, targets) -> dict:
+    def capture_target_states(cls, targets, trusted_root: str = "") -> dict:
         """在耗时生成前记录正式输出；提交锁内必须仍完全一致。"""
+        targets = [os.path.abspath(path) for path in targets]
+        cls._validate_trusted_paths(
+            trusted_root or cls._transaction_root(targets),
+            targets,
+            "输出目标路径",
+        )
         return {
             cls._target_state_key(path): cls._tree_identity(os.path.abspath(path))
             for path in targets
@@ -249,14 +261,18 @@ class FileExporter:
     def _target_state_key(path: str) -> str:
         return os.path.normcase(os.path.abspath(path)).casefold()
 
-    @staticmethod
-    def _component_anchor(transaction_root: str, path: str) -> str:
+    @classmethod
+    def _validate_trusted_paths(cls, trusted_root: str, paths, label: str):
+        if not trusted_root:
+            raise RuntimeError("无法确定可信输出根")
+        root = os.path.abspath(trusted_root)
         try:
-            return os.path.commonpath([
-                os.path.abspath(transaction_root), os.path.abspath(path)
-            ])
+            ensure_no_link_components(root, root, "可信输出根")
+            for path in paths:
+                ensure_no_link_components(root, os.path.abspath(path), label)
         except ValueError as exc:
-            raise RuntimeError(f"事务路径不在同一文件系统: {path}") from exc
+            raise RuntimeError(str(exc)) from exc
+        return root
 
     @classmethod
     def _tree_identity(cls, path: str) -> dict:
@@ -302,6 +318,35 @@ class FileExporter:
                 raise RuntimeError(f"无法读取事务对象身份: {current}: {exc}") from exc
             if stat.S_ISREG(metadata.st_mode):
                 add_record(relative, "file", metadata)
+                try:
+                    with open_regular_file_no_links(current) as stream:
+                        opened_identity = regular_file_handle_identity(stream)
+                        digest.update(b"content\x00")
+                        while True:
+                            chunk = stream.read(1024 * 1024)
+                            if not chunk:
+                                break
+                            digest.update(chunk)
+                        digest.update(b"\x00end-content\n")
+                        closed_identity = regular_file_handle_identity(stream)
+                except (OSError, RuntimeError) as exc:
+                    raise RuntimeError(
+                        f"无法读取事务对象内容身份: {current}: {exc}"
+                    ) from exc
+                if opened_identity != closed_identity:
+                    raise RuntimeError(
+                        f"事务对象在计算内容身份期间发生变化: {current}"
+                    )
+                try:
+                    final_identity = regular_file_path_identity(current)
+                except (OSError, RuntimeError) as exc:
+                    raise RuntimeError(
+                        f"事务对象在计算内容身份后发生变化: {current}: {exc}"
+                    ) from exc
+                if final_identity != opened_identity:
+                    raise RuntimeError(
+                        f"事务对象在计算内容身份期间被替换: {current}"
+                    )
                 return
             if not stat.S_ISDIR(metadata.st_mode):
                 raise RuntimeError(f"事务对象树包含非普通文件: {current}")
@@ -334,7 +379,8 @@ class FileExporter:
         current = cls._tree_identity(path)
         if current != expected:
             raise RuntimeError(
-                f"{label}的文件系统身份或内容元数据已变化，已停止自动处理: {path}"
+                f"{label}的文件系统身份或内容元数据已变化（含文件内容摘要），"
+                f"已停止自动处理: {path}"
             )
 
     @staticmethod
@@ -395,18 +441,184 @@ class FileExporter:
         )
 
     @classmethod
-    def _replace_outputs(cls, pairs, expected_target_states=None):
+    def _move_verified(
+        cls,
+        source: str,
+        destination: str,
+        expected: dict,
+        label: str,
+        replace: bool = False,
+        trusted_root: str = "",
+    ):
+        """原子移走路径后验证被移动对象；不匹配时尽力原位恢复。"""
+        if trusted_root:
+            cls._validate_trusted_paths(
+                trusted_root, [source, destination], label
+            )
+        if os.path.lexists(destination):
+            raise RuntimeError(f"{label}目标已存在，已保留现场: {destination}")
+        if replace:
+            os.replace(source, destination)
+        else:
+            os.rename(source, destination)
+        try:
+            cls._assert_identity(destination, expected, label)
+            if trusted_root:
+                cls._validate_trusted_paths(
+                    trusted_root, [destination], label
+                )
+        except BaseException:
+            if not os.path.lexists(source) and os.path.lexists(destination):
+                try:
+                    os.rename(destination, source)
+                except OSError:
+                    pass
+            raise
+
+    @classmethod
+    def _detach_verified(
+        cls,
+        path: str,
+        expected: dict,
+        token: str,
+        label: str,
+        trusted_root: str = "",
+    ) -> str:
+        quarantine = os.path.join(
+            os.path.dirname(path),
+            f".comparetool_quarantine_{token}_{uuid.uuid4().hex}",
+        )
+        cls._move_verified(
+            path,
+            quarantine,
+            expected,
+            label,
+            trusted_root=trusted_root,
+        )
+        return quarantine
+
+    @classmethod
+    def _delete_verified(
+        cls,
+        path: str,
+        expected: dict,
+        token: str,
+        label: str,
+        trusted_root: str = "",
+    ):
+        quarantine = cls._detach_verified(
+            path,
+            expected,
+            token,
+            label,
+            trusted_root=trusted_root,
+        )
+        try:
+            cls._assert_identity(quarantine, expected, label)
+            cls._remove_path(quarantine)
+        except BaseException:
+            if not os.path.lexists(path) and os.path.lexists(quarantine):
+                try:
+                    os.rename(quarantine, path)
+                except OSError:
+                    pass
+            raise
+
+    @classmethod
+    def _rollback_state(
+        cls,
+        state: dict,
+        phase: str,
+        token: str,
+        trusted_root: str = "",
+    ):
+        if phase == "installed":
+            if state["had_target"] and not os.path.lexists(state["backup"]):
+                raise RuntimeError(f"待回滚输出缺少旧备份: {state['target']}")
+            installed_quarantine = cls._detach_verified(
+                state["target"],
+                state["stage_identity"],
+                token,
+                "待回滚已安装输出",
+                trusted_root=trusted_root,
+            )
+            try:
+                if state["had_target"]:
+                    cls._move_verified(
+                        state["backup"],
+                        state["target"],
+                        state["target_identity"],
+                        "待恢复旧输出备份",
+                        trusted_root=trusted_root,
+                    )
+                cls._assert_identity(
+                    installed_quarantine,
+                    state["stage_identity"],
+                    "待删除已安装输出",
+                )
+                cls._remove_path(installed_quarantine)
+            except BaseException:
+                if (
+                    not os.path.lexists(state["target"])
+                    and os.path.lexists(installed_quarantine)
+                ):
+                    try:
+                        os.rename(installed_quarantine, state["target"])
+                    except OSError:
+                        pass
+                raise
+        elif phase == "backed_up":
+            cls._move_verified(
+                state["backup"],
+                state["target"],
+                state["target_identity"],
+                "待恢复旧输出备份",
+                trusted_root=trusted_root,
+            )
+        if os.path.lexists(state["stage"]):
+            cls._delete_verified(
+                state["stage"],
+                state["stage_identity"],
+                token,
+                "待清理输出暂存项",
+                trusted_root=trusted_root,
+            )
+
+    @classmethod
+    def _replace_outputs(
+        cls, pairs, expected_target_states=None, trusted_root: str = ""
+    ):
+        pairs = [
+            (os.path.abspath(stage), os.path.abspath(target))
+            for stage, target in pairs
+        ]
         targets = [os.path.abspath(target) for _stage, target in pairs]
         transaction_root = cls._transaction_root(targets)
         if not transaction_root:
             raise RuntimeError("多个输出目标没有安全的共同事务目录")
-        with cls._transaction_lock(transaction_root):
+        anchor = cls._validate_trusted_paths(
+            trusted_root
+            or cls._transaction_root(
+                [*targets, *(stage for stage, _target in pairs)]
+            ),
+            [
+                transaction_root,
+                *targets,
+                *(stage for stage, _target in pairs),
+            ],
+            "输出事务路径",
+        )
+        with cls._transaction_lock(transaction_root, trusted_root=anchor):
             return cls._replace_outputs_locked(
-                pairs, expected_target_states=expected_target_states
+                pairs,
+                expected_target_states=expected_target_states,
+                trusted_root=anchor,
             )
 
     @classmethod
-    def _replace_outputs_locked(cls, pairs, expected_target_states=None):
+    def _replace_outputs_locked(
+        cls, pairs, expected_target_states=None, trusted_root: str = ""
+    ):
         """成组替换文件或目录；任一步失败时恢复全部原有输出。"""
         token = uuid.uuid4().hex
         states = []
@@ -444,34 +656,27 @@ class FileExporter:
             )
             if not transaction_root:
                 raise RuntimeError("多个输出目标没有安全的共同事务目录")
-            try:
-                for stage, target in normalized_pairs:
-                    ensure_no_link_components(
-                        cls._component_anchor(transaction_root, stage),
-                        stage,
-                        "输出暂存路径",
-                    )
-                    ensure_no_link_components(
-                        transaction_root, target, "输出目标路径"
-                    )
-                    ensure_no_link_components(
-                        transaction_root, os.path.dirname(target), "输出目标父目录"
-                    )
-            except ValueError as exc:
-                raise RuntimeError(str(exc)) from exc
+            trusted_root = cls._validate_trusted_paths(
+                trusted_root or transaction_root,
+                [
+                    transaction_root,
+                    *(stage for stage, _target in normalized_pairs),
+                    *(target for _stage, target in normalized_pairs),
+                    *(os.path.dirname(target) for _stage, target in normalized_pairs),
+                ],
+                "输出事务路径",
+            )
             for _stage, target in normalized_pairs:
                 os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
-                try:
-                    ensure_no_link_components(
-                        transaction_root, target, "输出目标路径"
-                    )
-                except ValueError as exc:
-                    raise RuntimeError(str(exc)) from exc
+                cls._validate_trusted_paths(
+                    trusted_root, [target], "输出目标路径"
+                )
             cls.recover_transactions(
                 transaction_root,
                 raise_on_error=True,
                 protected_stages=[stage for stage, _target in normalized_pairs],
                 acquire_locks=False,
+                trusted_root=trusted_root,
             )
             if expected_target_states is not None:
                 for _stage, target in normalized_pairs:
@@ -490,12 +695,9 @@ class FileExporter:
             for stage, target in normalized_pairs:
                 backup = f"{target}.comparetool_backup_{token}"
                 had_target = os.path.lexists(target)
-                try:
-                    ensure_no_link_components(
-                        transaction_root, backup, "输出备份路径"
-                    )
-                except ValueError as exc:
-                    raise RuntimeError(str(exc)) from exc
+                cls._validate_trusted_paths(
+                    trusted_root, [backup], "输出备份路径"
+                )
                 states.append({
                     "stage": stage,
                     "target": target,
@@ -510,36 +712,40 @@ class FileExporter:
 
             for state in states:
                 if state["had_target"]:
-                    try:
-                        ensure_no_link_components(
-                            transaction_root, state["target"], "输出目标路径"
-                        )
-                        ensure_no_link_components(
-                            transaction_root, state["backup"], "输出备份路径"
-                        )
-                    except ValueError as exc:
-                        raise RuntimeError(str(exc)) from exc
+                    cls._validate_trusted_paths(
+                        trusted_root,
+                        [state["target"], state["backup"]],
+                        "输出提交路径",
+                    )
                     cls._assert_identity(
                         state["target"], state["target_identity"], "正式输出"
                     )
-                    os.replace(state["target"], state["backup"])
+                    cls._move_verified(
+                        state["target"],
+                        state["backup"],
+                        state["target_identity"],
+                        "正式输出备份",
+                        replace=True,
+                        trusted_root=trusted_root,
+                    )
 
             for state in states:
-                try:
-                    ensure_no_link_components(
-                        cls._component_anchor(transaction_root, state["stage"]),
-                        state["stage"],
-                        "输出暂存路径",
-                    )
-                    ensure_no_link_components(
-                        transaction_root, state["target"], "输出目标路径"
-                    )
-                except ValueError as exc:
-                    raise RuntimeError(str(exc)) from exc
+                cls._validate_trusted_paths(
+                    trusted_root,
+                    [state["stage"], state["target"]],
+                    "输出安装路径",
+                )
                 cls._assert_identity(
                     state["stage"], state["stage_identity"], "输出暂存项"
                 )
-                os.replace(state["stage"], state["target"])
+                cls._move_verified(
+                    state["stage"],
+                    state["target"],
+                    state["stage_identity"],
+                    "输出暂存项安装",
+                    replace=True,
+                    trusted_root=trusted_root,
+                )
                 state["installed"] = True
         except BaseException as original_exc:
             cls._mark_transaction(journal_path, "rollback")
@@ -547,21 +753,9 @@ class FileExporter:
             for state in reversed(states):
                 try:
                     phase = cls._recovery_state_phase(state)
-                    if phase == "installed":
-                        if (
-                            state["had_target"]
-                            and not os.path.lexists(state["backup"])
-                        ):
-                            raise RuntimeError(
-                                f"待回滚输出缺少旧备份: {state['target']}"
-                            )
-                        cls._remove_path(state["target"])
-                        if state["had_target"]:
-                            os.replace(state["backup"], state["target"])
-                    elif phase == "backed_up":
-                        os.replace(state["backup"], state["target"])
-                    if os.path.lexists(state["stage"]):
-                        cls._remove_path(state["stage"])
+                    cls._rollback_state(
+                        state, phase, token, trusted_root=trusted_root
+                    )
                 except (OSError, RuntimeError) as rollback_exc:
                     rollback_errors.append(f"{state['target']}: {rollback_exc}")
             if rollback_errors:
@@ -580,7 +774,13 @@ class FileExporter:
                         cls._assert_identity(
                             state["backup"], state["target_identity"], "输出备份"
                         )
-                        cls._remove_path(state["backup"])
+                        cls._delete_verified(
+                            state["backup"],
+                            state["target_identity"],
+                            token,
+                            "输出备份",
+                            trusted_root=trusted_root,
+                        )
                     except (OSError, RuntimeError) as exc:
                         cleanup_failed = True
                         warn(f"输出已提交，但旧备份清理失败: {state['backup']}: {exc}")
@@ -617,7 +817,7 @@ class FileExporter:
             if not is_owned(owner):
                 mark_owned(owner)
         payload = {
-            "version": 3,
+            "version": 4,
             "token": token,
             "states": [
                 {
@@ -840,18 +1040,65 @@ class FileExporter:
             raise RuntimeError(f"输出事务 {decision} 决策标记签名无效")
         return True
 
-    @staticmethod
+    @classmethod
     @contextmanager
-    def _transaction_lock(directory: str):
+    def _transaction_lock(cls, directory: str, trusted_root: str = ""):
         """对一个输出批次加非阻塞进程锁，避免两个实例互相恢复/覆盖。"""
+        directory = os.path.abspath(directory)
+        anchor = cls._validate_trusted_paths(
+            trusted_root or directory, [directory], "输出事务锁目录"
+        )
         os.makedirs(directory, exist_ok=True)
+        cls._validate_trusted_paths(anchor, [directory], "输出事务锁目录")
         lock_path = os.path.join(directory, ".comparetool_transaction.lock")
-        stream = open(lock_path, "a+b")
+        flags = os.O_RDWR | getattr(os, "O_BINARY", 0)
+        fd = None
         try:
-            stream.seek(0, os.SEEK_END)
-            if stream.tell() == 0:
-                stream.write(b"0")
-                stream.flush()
+            fd = os.open(lock_path, flags | os.O_CREAT | os.O_EXCL, 0o600)
+            try:
+                if os.write(fd, b"0") != 1:
+                    raise OSError("无法完整初始化输出事务锁")
+                os.fsync(fd)
+            except BaseException:
+                os.close(fd)
+                fd = None
+                try:
+                    os.remove(lock_path)
+                except OSError:
+                    pass
+                raise
+        except FileExistsError:
+            if is_link_or_junction(lock_path):
+                raise RuntimeError(f"输出事务锁不能是链接或联接点: {lock_path}")
+            before = os.lstat(lock_path)
+            if (
+                not stat.S_ISREG(before.st_mode)
+                or int(getattr(before, "st_nlink", 1)) != 1
+                or before.st_size != 1
+            ):
+                raise RuntimeError(f"输出事务锁文件身份无效: {lock_path}")
+            nofollow = getattr(os, "O_NOFOLLOW", 0)
+            fd = os.open(lock_path, flags | nofollow)
+        try:
+            stream = os.fdopen(fd, "r+b", buffering=0)
+            fd = None
+        except BaseException:
+            if fd is not None:
+                os.close(fd)
+            raise
+        try:
+            metadata = os.fstat(stream.fileno())
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or int(getattr(metadata, "st_nlink", 1)) != 1
+                or metadata.st_size != 1
+            ):
+                raise RuntimeError(f"输出事务锁文件身份无效: {lock_path}")
+            handle_identity = regular_file_handle_identity(stream)
+            path_identity = regular_file_path_identity(lock_path)
+            if handle_identity != path_identity:
+                raise RuntimeError(f"输出事务锁文件在打开期间被替换: {lock_path}")
+            cls._validate_trusted_paths(anchor, [lock_path], "输出事务锁路径")
             stream.seek(0)
             try:
                 if os.name == "nt":
@@ -889,6 +1136,7 @@ class FileExporter:
         protected_stages=None,
         acquire_locks: bool = True,
         include_nested_multi_runs: bool = False,
+        trusted_root: str = "",
     ):
         """恢复上次非正常中断的输出事务。"""
         if not output_root:
@@ -896,6 +1144,9 @@ class FileExporter:
         root = os.path.abspath(output_root)
         if not os.path.isdir(root) or is_link_or_junction(root):
             return []
+        anchor = cls._validate_trusted_paths(
+            trusted_root or root, [root], "输出恢复目录"
+        )
         directories = [root]
         direct_children = []
         if include_direct_children:
@@ -940,7 +1191,7 @@ class FileExporter:
             ]
             for directory in directories:
                 try:
-                    with cls._transaction_lock(directory):
+                    with cls._transaction_lock(directory, trusted_root=anchor):
                         recovered.extend(cls.recover_transactions(
                             directory,
                             include_direct_children=False,
@@ -948,6 +1199,7 @@ class FileExporter:
                             raise_on_error=raise_on_error,
                             protected_stages=protected_stages,
                             acquire_locks=False,
+                            trusted_root=anchor,
                         ))
                 except RuntimeError as exc:
                     if raise_on_error:
@@ -969,7 +1221,9 @@ class FileExporter:
                     continue
                 journal_path = os.path.join(directory, name)
                 try:
-                    cls._recover_transaction_journal(journal_path, directory)
+                    cls._recover_transaction_journal(
+                        journal_path, directory, trusted_root=anchor
+                    )
                     recovered.append(journal_path)
                 except Exception as exc:
                     warn(f"恢复输出事务失败，已保留日志: {journal_path}: {exc}")
@@ -1046,7 +1300,9 @@ class FileExporter:
                 warn(f"清理遗留输出暂存物失败: {entry.path}: {exc}")
 
     @classmethod
-    def _recover_transaction_journal(cls, journal_path: str, root: str):
+    def _recover_transaction_journal(
+        cls, journal_path: str, root: str, trusted_root: str = ""
+    ):
         if not is_owned(journal_path):
             raise RuntimeError("事务日志缺少 CompareTool 所有权标记")
         if (
@@ -1062,14 +1318,17 @@ class FileExporter:
             raise RuntimeError("事务日志无法解析") from exc
 
         root = os.path.abspath(root)
+        anchor = cls._validate_trusted_paths(
+            trusted_root or root, [root, journal_path], "事务日志路径"
+        )
         try:
-            ensure_no_link_components(root, journal_path, "事务日志路径")
+            ensure_no_link_components(anchor, journal_path, "事务日志路径")
         except ValueError as exc:
             raise RuntimeError(str(exc)) from exc
         key = cls._load_transaction_key(root, create=False)
         if not cls._verify_signed_payload(payload, key):
             raise RuntimeError("事务日志缺少有效 HMAC 签名，已保留现场")
-        if payload.get("version") != 3 or not isinstance(payload.get("states"), list):
+        if payload.get("version") != 4 or not isinstance(payload.get("states"), list):
             raise RuntimeError("事务日志格式不支持")
         if len(payload["states"]) > cls.MAX_TRANSACTION_STATES:
             raise RuntimeError("事务日志状态过多")
@@ -1114,11 +1373,6 @@ class FileExporter:
                 os.path.normcase(stage_name).casefold() ==
                 os.path.normcase(os.path.basename(target)).casefold()
             )
-            stage_owner = (
-                os.path.dirname(stage)
-                if stage_parent_name.startswith(".comparetool_stage_")
-                else stage
-            )
             has_link = any(
                 os.path.lexists(path) and is_link_or_junction(path)
                 for path in (stage, target, backup)
@@ -1129,14 +1383,13 @@ class FileExporter:
                     ("事务目标路径", target),
                     ("事务备份路径", backup),
                 ):
-                    ensure_no_link_components(root, path, label)
+                    ensure_no_link_components(anchor, path, label)
             except ValueError as exc:
                 raise RuntimeError(str(exc)) from exc
             if (
                 not inside
                 or not real_inside
                 or not valid_stage_layout
-                or not is_owned(stage_owner)
                 or has_link
             ):
                 raise RuntimeError("事务日志路径越界")
@@ -1176,22 +1429,18 @@ class FileExporter:
                 raise RuntimeError("已提交事务未完整安装全部正式输出")
             for state in states:
                 if os.path.lexists(state["backup"]):
-                    cls._remove_path(state["backup"])
+                    cls._delete_verified(
+                        state["backup"],
+                        state["target_identity"],
+                        token,
+                        "恢复事务旧备份",
+                        trusted_root=anchor,
+                    )
         else:
             for state, phase in reversed(list(zip(states, phases))):
-                if phase == "installed":
-                    if state["had_target"] and not os.path.lexists(state["backup"]):
-                        raise RuntimeError(
-                            "回滚事务的旧输出备份缺失，已保留现场: "
-                            f"{state['target']}"
-                        )
-                    cls._remove_path(state["target"])
-                    if state["had_target"]:
-                        os.replace(state["backup"], state["target"])
-                elif phase == "backed_up":
-                    os.replace(state["backup"], state["target"])
-                if os.path.lexists(state["stage"]):
-                    cls._remove_path(state["stage"])
+                cls._rollback_state(
+                    state, phase, token, trusted_root=anchor
+                )
         for state in states:
             stage_parent = os.path.dirname(state["stage"])
             if os.path.basename(stage_parent).startswith(".comparetool_stage_"):

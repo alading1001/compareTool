@@ -9,7 +9,13 @@ import tarfile
 import struct
 from typing import List
 
-from path_safety import is_link_or_junction, safe_join
+from path_safety import (
+    is_link_or_junction,
+    open_regular_file_no_links,
+    regular_file_handle_identity,
+    regular_file_path_identity,
+    safe_join,
+)
 from .base import BaseVCS, ChangedFile, ChangeType
 from .folder_vcs import FolderVCS
 from .temp_storage import create_temp_dir, remove_temp_dir
@@ -81,37 +87,20 @@ class ArchiveVCS(BaseVCS):
                 return suffix
         return os.path.splitext(path)[1]
 
-    @staticmethod
-    def _path_stat_signature(metadata):
-        return (
-            getattr(metadata, "st_dev", None),
-            getattr(metadata, "st_ino", None),
-            metadata.st_size,
-            getattr(metadata, "st_mtime_ns", int(metadata.st_mtime * 1_000_000_000)),
-            getattr(metadata, "st_ctime_ns", int(metadata.st_ctime * 1_000_000_000)),
-        )
-
-    @staticmethod
-    def _handle_stat_signature(metadata):
-        return (
-            metadata.st_size,
-            getattr(metadata, "st_mtime_ns", int(metadata.st_mtime * 1_000_000_000)),
-        )
-
     def _capture_archive_source(self, source: str) -> dict:
         source = os.path.abspath(source)
         if is_link_or_junction(source):
             raise RuntimeError(f"不允许将符号链接或联接点作为压缩包源: {source}")
         try:
-            path_before = os.stat(source, follow_symlinks=False)
+            signature = regular_file_path_identity(source)
         except OSError as exc:
             raise RuntimeError(f"无法读取压缩包源: {source}: {exc}") from exc
-        if not stat.S_ISREG(path_before.st_mode):
-            raise RuntimeError(f"压缩包源不是普通文件: {source}")
+        except RuntimeError as exc:
+            raise RuntimeError(f"压缩包源不是普通文件: {source}") from exc
         return {
             "path": source,
-            "signature": self._path_stat_signature(path_before),
-            "size": path_before.st_size,
+            "signature": signature,
+            "size": signature[1],
         }
 
     def _snapshot_archive(self, capture: dict, label: str) -> str:
@@ -119,12 +108,12 @@ class ArchiveVCS(BaseVCS):
         source = capture["path"]
         expected_signature = capture["signature"]
         try:
-            path_before = os.stat(source, follow_symlinks=False)
+            path_before = regular_file_path_identity(source)
         except OSError as exc:
             raise RuntimeError(f"无法读取压缩包源: {source}: {exc}") from exc
         if (
             is_link_or_junction(source)
-            or self._path_stat_signature(path_before) != expected_signature
+            or path_before != expected_signature
         ):
             raise RuntimeError(f"压缩包源在成对捕获后发生变化，已中止: {source}")
 
@@ -133,12 +122,9 @@ class ArchiveVCS(BaseVCS):
             f"{label}{self._archive_suffix(source)}",
         )
         copied = 0
-        with open(source, "rb") as src, open(target, "xb") as dst:
-            handle_before = os.fstat(src.fileno())
-            if (
-                (path_before.st_size, self._handle_stat_signature(path_before)[1])
-                != self._handle_stat_signature(handle_before)
-            ):
+        with open_regular_file_no_links(source) as src, open(target, "xb") as dst:
+            handle_before = regular_file_handle_identity(src)
+            if handle_before != expected_signature:
                 raise RuntimeError(f"压缩包源在打开前已发生变化: {source}")
             while True:
                 chunk = src.read(1024 * 1024)
@@ -148,18 +134,16 @@ class ArchiveVCS(BaseVCS):
                 copied += len(chunk)
             dst.flush()
             os.fsync(dst.fileno())
-            handle_after = os.fstat(src.fileno())
+            handle_after = regular_file_handle_identity(src)
 
         try:
-            path_after = os.stat(source, follow_symlinks=False)
+            path_after = regular_file_path_identity(source)
         except OSError as exc:
             raise RuntimeError(f"压缩包源在快照期间消失: {source}: {exc}") from exc
         if (
-            self._path_stat_signature(path_before)
-            != self._path_stat_signature(path_after)
-            or self._handle_stat_signature(handle_before)
-            != self._handle_stat_signature(handle_after)
-            or copied != path_before.st_size
+            path_before != path_after
+            or handle_before != handle_after
+            or copied != expected_signature[1]
             or is_link_or_junction(source)
         ):
             raise RuntimeError(f"压缩包源在快照期间发生变化，已中止: {source}")
