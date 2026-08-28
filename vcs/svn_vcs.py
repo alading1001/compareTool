@@ -3,7 +3,7 @@ import shutil
 import subprocess
 import os
 from typing import List
-from urllib.parse import quote
+from urllib.parse import quote, unquote, urlsplit
 from xml.etree import ElementTree
 
 from .base import BaseVCS, ChangedFile, ChangeType
@@ -33,6 +33,7 @@ class SVNVCS(BaseVCS):
         super().__init__(project_path)
         self._svn = svn_path or self._find_svn()
         self._version_pins = {}
+        self._project_url_cache = {}
 
     @staticmethod
     def _find_svn() -> str:
@@ -88,6 +89,70 @@ class SVNVCS(BaseVCS):
                 self._cached_repo_url = ""
         return self._cached_repo_url
 
+    @staticmethod
+    def _parse_info_identity(output: str, context: str):
+        try:
+            root = ElementTree.fromstring(output)
+        except ElementTree.ParseError as exc:
+            raise RuntimeError(f"无法解析 SVN 仓库身份信息: {context}") from exc
+        entry = root.find("entry")
+        if entry is None:
+            raise RuntimeError(f"SVN 仓库身份信息缺少 entry: {context}")
+        url = (entry.findtext("url") or "").strip()
+        repo_root = (entry.findtext("./repository/root") or "").strip()
+        uuid = (entry.findtext("./repository/uuid") or "").strip()
+        revision = (entry.get("revision") or "").strip()
+        if not url or not repo_root or not uuid or not revision.isdigit():
+            raise RuntimeError(f"SVN 仓库身份信息不完整: {context}")
+        return url.rstrip("/"), repo_root.rstrip("/"), uuid, revision
+
+    def _pin_source_identity(self):
+        """一次性固定工作副本对应的 URL、UUID 和可用于寻址历史的 peg。"""
+        if getattr(self, "_source_identity_pinned", False):
+            return
+        output = self._run([
+            "info", "--xml", "--non-interactive", "-r", "HEAD", ".",
+        ])
+        url, repo_root, uuid, peg_revision = self._parse_info_identity(
+            output, self.project_path
+        )
+        # 所有字段完整取得后再发布，避免半初始化状态被后续读取复用。
+        self._pinned_project_url = url
+        self._pinned_repo_root_url = repo_root
+        self._pinned_repo_uuid = uuid
+        self._pinned_peg_revision = peg_revision
+        self._cached_repo_url = url
+        self._project_url_cache = {peg_revision: url}
+        self._source_identity_pinned = True
+
+    def _project_url_at(self, version: str) -> str:
+        """沿固定 peg 的节点历史解析某个 revision 的项目根 URL。"""
+        rev = self._resolve_version(version)
+        if not getattr(self, "_source_identity_pinned", False):
+            # 兼容只直接调用内容读取 helper 的现有调用者；正式任务入口会先
+            # 调用 _pin_source_identity，因而不会再读取可变工作副本状态。
+            return self._repo_url.rstrip("/")
+        cache = getattr(self, "_project_url_cache", None)
+        if cache is None:
+            self._project_url_cache = {}
+            cache = self._project_url_cache
+        if rev in cache:
+            return cache[rev]
+        target = f"{self._pinned_project_url}@{self._pinned_peg_revision}"
+        output = self._run([
+            "info", "--xml", "--non-interactive", "-r", rev, target,
+        ])
+        url, repo_root, uuid, _ = self._parse_info_identity(
+            output, f"{target} -r {rev}"
+        )
+        if uuid != self._pinned_repo_uuid or repo_root != self._pinned_repo_root_url:
+            raise RuntimeError(
+                "SVN 仓库身份在任务期间发生变化，已中止生成："
+                f"{self._pinned_repo_uuid} -> {uuid}"
+            )
+        cache[rev] = url
+        return url
+
     def _run(self, args: list) -> str:
         full_cmd = [self._svn] + args
         info(f"SVN cmd (text): {' '.join(full_cmd)}")
@@ -128,7 +193,11 @@ class SVNVCS(BaseVCS):
 
     def _parse_svn_diff_summarize(self, old_rev: str, new_rev: str) -> List[ChangedFile]:
         """使用 XML 摘要获取变更文件，可靠区分文件、目录和替换节点。"""
-        output = self._run(["diff", "--summarize", "--xml", f"-r{old_rev}:{new_rev}"])
+        target = f"{self._pinned_project_url}@{self._pinned_peg_revision}"
+        output = self._run([
+            "diff", "--summarize", "--xml", "--notice-ancestry",
+            f"-r{old_rev}:{new_rev}", target,
+        ])
         try:
             root = ElementTree.fromstring(output)
         except ElementTree.ParseError as exc:
@@ -139,11 +208,12 @@ class SVNVCS(BaseVCS):
         new_file_paths = set()
         for node in root.findall(".//path"):
             if node.get("kind") == "dir":
-                path = node.text or ""
+                path = self._summary_relative_path(
+                    node.text or "", old_rev, new_rev
+                )
                 item = node.get("item", "")
                 if path.strip():
-                    abs_dir = os.path.normpath(os.path.join(self.project_path, path))
-                    rel_dir = os.path.relpath(abs_dir, self.project_path).replace("\\", "/")
+                    rel_dir = path
                     old_props = (
                         self._get_properties(old_rev, rel_dir)
                         if item in ("deleted", "replaced", "modified") else {}
@@ -163,8 +233,7 @@ class SVNVCS(BaseVCS):
                         + path
                     )
                 if item in ("deleted", "replaced") and path.strip():
-                    abs_path = os.path.normpath(os.path.join(self.project_path, path))
-                    rel_dir = os.path.relpath(abs_path, self.project_path).replace("\\", "/")
+                    rel_dir = path
                     if item == "replaced" and self._get_node_kind(old_rev, rel_dir) == "file":
                         metadata = self._compare_endpoint_metadata(
                             old_rev, rel_dir, new_rev, None
@@ -177,17 +246,10 @@ class SVNVCS(BaseVCS):
                     else:
                         deleted_directories.add(rel_dir)
                 continue
-            path = node.text or ""
+            path = self._summary_relative_path(node.text or "", old_rev, new_rev)
             if not path.strip():
                 continue
-
-            # svn diff 返回的是相对于项目目录的路径，先拼成绝对路径再算相对路径
-            # 避免 Python 进程的 CWD 干扰 os.path.relpath 的结果
-            abs_path = os.path.normpath(os.path.join(self.project_path, path))
-            try:
-                rel_path = os.path.relpath(abs_path, self.project_path)
-            except ValueError:
-                rel_path = path
+            rel_path = path
 
             change_map = {
                 "added": ChangeType.ADDED,
@@ -222,11 +284,46 @@ class SVNVCS(BaseVCS):
         self.required_directory_deletions = sorted(
             directory for directory in deleted_directories
             if any(
-                new_path == directory or directory.startswith(new_path.rstrip("/") + "/")
+                new_path.casefold() == directory.casefold()
+                or directory.casefold().startswith(
+                    new_path.rstrip("/").casefold() + "/"
+                )
                 for new_path in new_file_paths
             )
         )
         return files
+
+    def _summary_relative_path(self, raw_path: str, old_rev: str, new_rev: str) -> str:
+        """把 svn diff XML 的 URL/绝对路径/相对路径统一为正斜杠相对路径。"""
+        value = (raw_path or "").strip()
+        if not value:
+            return ""
+        if urlsplit(value).scheme:
+            for base in (self._project_url_at(old_rev), self._project_url_at(new_rev)):
+                prefix = base.rstrip("/")
+                if value.casefold() == prefix.casefold():
+                    return ""
+                marker = prefix + "/"
+                if value[:len(marker)].casefold() == marker.casefold():
+                    return unquote(value[len(marker):]).replace("\\", "/").strip("/")
+            raise RuntimeError(f"SVN 变更摘要包含项目根之外的 URL，已中止生成: {value}")
+
+        normalized = value.replace("\\", "/")
+        if os.path.isabs(value):
+            try:
+                normalized = os.path.relpath(
+                    os.path.normpath(value), os.path.abspath(self.project_path)
+                ).replace("\\", "/")
+            except ValueError as exc:
+                raise RuntimeError(
+                    f"SVN 变更摘要路径无法映射到项目目录: {value}"
+                ) from exc
+        normalized = os.path.normpath(normalized).replace("\\", "/")
+        if normalized == ".":
+            return ""
+        if normalized == ".." or normalized.startswith("../") or os.path.isabs(normalized):
+            raise RuntimeError(f"SVN 变更摘要路径越出项目目录，已中止生成: {value}")
+        return normalized.strip("/")
 
     def _get_node_kind(self, version: str, path: str) -> str:
         cache = getattr(self, "_node_kind_cache", None)
@@ -260,6 +357,7 @@ class SVNVCS(BaseVCS):
         return kind
 
     def get_changed_files(self, old_version: str, new_version: str) -> List[ChangedFile]:
+        self._pin_source_identity()
         old_endpoint = self._pin_version(old_version)
         new_endpoint = self._pin_version(new_version)
         files = self._parse_svn_diff_summarize(old_endpoint, new_endpoint)
@@ -267,6 +365,7 @@ class SVNVCS(BaseVCS):
 
     def _pin_version(self, version: str) -> str:
         """把 HEAD 等可变标识固定为本次任务开始时的数字 revision。"""
+        self._pin_source_identity()
         key = str(version)
         pins = getattr(self, "_version_pins", None)
         if pins is None:
@@ -278,12 +377,15 @@ class SVNVCS(BaseVCS):
         if raw.isdigit():
             pins[key] = raw
             return raw
-        if not self._repo_url:
-            raise RuntimeError(f"无法确定 SVN 仓库 URL，不能固定版本端点: {version}")
-        resolved = self._run([
-            "info", "--non-interactive", "--show-item", "revision",
-            "-r", raw, self._repo_url,
-        ]).strip()
+        target = f"{self._pinned_project_url}@{self._pinned_peg_revision}"
+        output = self._run([
+            "info", "--xml", "--non-interactive", "-r", raw, target,
+        ])
+        _, repo_root, uuid, resolved = self._parse_info_identity(
+            output, f"{target} -r {raw}"
+        )
+        if uuid != self._pinned_repo_uuid or repo_root != self._pinned_repo_root_url:
+            raise RuntimeError("SVN 版本端点不属于任务开始时固定的仓库，已中止生成")
         if not resolved.isdigit():
             raise RuntimeError(f"SVN 版本端点解析结果无效: {version} -> {resolved}")
         pins[key] = resolved
@@ -341,7 +443,9 @@ class SVNVCS(BaseVCS):
     def _file_url(self, version: str, file_path: str) -> str:
         rev = self._resolve_version(version)
         relative = quote(file_path.replace("\\", "/").strip("/"), safe="/")
-        return f"{self._repo_url.rstrip('/')}/{relative}@{rev}"
+        root_url = self._project_url_at(rev)
+        suffix = f"/{relative}" if relative else ""
+        return f"{root_url.rstrip('/')}{suffix}@{rev}"
 
     def _get_properties(self, version: str, file_path: str) -> dict:
         cache = getattr(self, "_property_cache", None)

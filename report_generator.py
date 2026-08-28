@@ -66,6 +66,7 @@ class ReportGenerator:
             "format_changed_files": 0,
             "deleted_files": 0,
             "renamed_files": 0,
+            "required_directory_deletions": 0,
             "total_added_lines": 0,
             "total_deleted_lines": 0,
         }
@@ -73,7 +74,8 @@ class ReportGenerator:
             s = project["diff_result"].summary
             for key in (
                 "total_files", "added_files", "modified_files", "format_changed_files", "deleted_files",
-                "renamed_files", "total_added_lines", "total_deleted_lines"
+                "renamed_files", "required_directory_deletions",
+                "total_added_lines", "total_deleted_lines"
             ):
                 summary[key] += s.get(key, 0)
         return summary

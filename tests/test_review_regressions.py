@@ -1,4 +1,5 @@
 import io
+import json
 import os
 import tarfile
 import tempfile
@@ -16,7 +17,7 @@ from vcs.folder_vcs import FolderVCS
 from vcs.git_vcs import GitVCS, _unescape_git_path
 from vcs.multi_version_vcs import SVNMultiVersionVCS
 from vcs.svn_vcs import SVNVCS
-from stage_ownership import mark_owned
+from stage_ownership import mark_owned, remove_ownership_marker
 
 
 def project_temp_dir():
@@ -31,6 +32,25 @@ def write_text(path, value):
 
 
 class ExportTransactionRegressionTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        os.makedirs(".tmp", exist_ok=True)
+        cls._key_temp = tempfile.TemporaryDirectory(dir=".tmp")
+        cls._old_key_path = os.environ.get(FileExporter.TRANSACTION_KEY_ENV)
+        os.environ[FileExporter.TRANSACTION_KEY_ENV] = os.path.join(
+            cls._key_temp.name, "transaction_hmac.key"
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls._old_key_path is None:
+            os.environ.pop(FileExporter.TRANSACTION_KEY_ENV, None)
+        else:
+            os.environ[FileExporter.TRANSACTION_KEY_ENV] = cls._old_key_path
+        cls._key_temp.cleanup()
+        super().tearDownClass()
+
     @staticmethod
     def _empty_exporter():
         result = DiffResult("demo", "demo", "Fake", "old", "new", files=[])
@@ -54,6 +74,37 @@ class ExportTransactionRegressionTests(unittest.TestCase):
 
             self.assertTrue(os.path.isfile(os.path.join(old_target, "old.txt")))
             self.assertTrue(os.path.isfile(os.path.join(new_target, "new.txt")))
+
+    def test_transaction_rejects_file_stage_over_existing_directory(self):
+        with project_temp_dir() as root:
+            stage = os.path.join(root, "report-stage.html")
+            target = os.path.join(root, "report.html")
+            write_text(stage, "staged")
+            write_text(os.path.join(target, "source.txt"), "must survive")
+
+            with self.assertRaisesRegex(RuntimeError, "输出目标类型"):
+                FileExporter._replace_outputs([(stage, target)])
+
+            self.assertTrue(os.path.isfile(os.path.join(target, "source.txt")))
+            self.assertTrue(os.path.isfile(stage))
+
+    def test_transaction_rejects_link_or_junction_target(self):
+        with project_temp_dir() as root:
+            stage = os.path.join(root, "stage.txt")
+            target = os.path.join(root, "target.txt")
+            write_text(stage, "staged")
+            write_text(target, "original")
+
+            with mock.patch(
+                "file_exporter.is_link_or_junction",
+                side_effect=lambda path: os.path.abspath(path) == os.path.abspath(target),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "链接或联接点"):
+                    FileExporter._replace_outputs([(stage, target)])
+
+            with open(target, encoding="utf-8") as stream:
+                self.assertEqual("original", stream.read())
+            self.assertTrue(os.path.isfile(stage))
 
     def test_report_instructions_and_both_exports_roll_back_as_one_group(self):
         with project_temp_dir() as root:
@@ -366,7 +417,7 @@ class ExportTransactionRegressionTests(unittest.TestCase):
             )
             os.close(delivery_fd)
             for owned_path in (orphan_dir, orphan_report, orphan_delivery):
-                mark_owned(owned_path)
+                mark_owned(owned_path, owner_pid=-1)
             write_text(os.path.join(orphan_dir, "source.java"), "source")
 
             export_like_name = os.path.join(
@@ -388,6 +439,10 @@ class ExportTransactionRegressionTests(unittest.TestCase):
                 self.assertTrue(
                     os.path.basename(stage_root).startswith(".comparetool_stage_")
                 )
+                # prepare_export 创建的是当前活进程持有的 stage；这里模拟该
+                # 进程已崩溃，才能验证下一次启动会回收真正的 orphan。
+                remove_ownership_marker(stage_root)
+                mark_owned(stage_root, owner_pid=-1)
 
             FileExporter.recover_transactions(root, include_direct_children=True)
 
@@ -397,6 +452,16 @@ class ExportTransactionRegressionTests(unittest.TestCase):
             for stage_root in project_stage_roots:
                 self.assertFalse(os.path.exists(stage_root))
             self.assertTrue(os.path.isfile(export_like_name))
+
+    def test_live_pretransaction_stage_is_not_deleted_by_recovery(self):
+        with project_temp_dir() as root:
+            stage = tempfile.mkdtemp(prefix=".comparetool_stage_", dir=root)
+            mark_owned(stage)
+            write_text(os.path.join(stage, "source.java"), "live")
+
+            FileExporter.recover_transactions(root)
+
+            self.assertTrue(os.path.isfile(os.path.join(stage, "source.java")))
 
     def test_multi_project_nested_stages_are_recoverable(self):
         with project_temp_dir() as root:
@@ -431,6 +496,68 @@ class ExportTransactionRegressionTests(unittest.TestCase):
             self.assertFalse(os.path.exists(old_stage_root))
             self.assertFalse(os.path.exists(new_stage_root))
             self.assertFalse(os.path.exists(journal))
+
+    def test_unsigned_or_wrongly_signed_journal_is_preserved_without_deleting_target(self):
+        for supplied_signature in (None, "0" * 64):
+            with self.subTest(signature=supplied_signature), project_temp_dir() as root:
+                output = os.path.join(root, "output")
+                os.makedirs(output)
+                victim = os.path.join(output, "victim.txt")
+                write_text(victim, "must survive")
+                token = "d" * 32
+                stage = os.path.join(output, ".comparetool_report_abcdefgh.html")
+                mark_owned(stage, owner_pid=-1)
+                journal = os.path.join(
+                    output,
+                    f"{FileExporter.TRANSACTION_PREFIX}{token}{FileExporter.TRANSACTION_SUFFIX}",
+                )
+                payload = {
+                    "version": 2,
+                    "token": token,
+                    "states": [{
+                        "stage": stage,
+                        "target": victim,
+                        "backup": f"{victim}.comparetool_backup_{token}",
+                        "had_target": False,
+                    }],
+                }
+                if supplied_signature is not None:
+                    payload[FileExporter.TRANSACTION_HMAC_FIELD] = supplied_signature
+                with open(journal, "w", encoding="utf-8") as stream:
+                    json.dump(payload, stream)
+                mark_owned(journal, owner_pid=-1)
+
+                with self.assertRaisesRegex(RuntimeError, "HMAC"):
+                    FileExporter.recover_transactions(output, raise_on_error=True)
+
+                with open(victim, encoding="utf-8") as stream:
+                    self.assertEqual("must survive", stream.read())
+                self.assertTrue(os.path.isfile(journal))
+
+    def test_forged_rollback_marker_cannot_override_signed_journal(self):
+        with project_temp_dir() as root:
+            output = os.path.join(root, "output")
+            os.makedirs(output)
+            victim = os.path.join(output, "victim.txt")
+            write_text(victim, "must survive")
+            token = "e" * 32
+            stage = os.path.join(output, ".comparetool_report_abcdefgh.html")
+            state = {
+                "stage": stage,
+                "target": victim,
+                "backup": f"{victim}.comparetool_backup_{token}",
+                "had_target": False,
+                "installed": False,
+            }
+            journal = FileExporter._create_transaction_journal([state], token)
+            write_text(f"{journal}.rollback", "rollback")
+
+            with self.assertRaisesRegex(RuntimeError, "rollback.*签名无效"):
+                FileExporter.recover_transactions(output, raise_on_error=True)
+
+            with open(victim, encoding="utf-8") as stream:
+                self.assertEqual("must survive", stream.read())
+            self.assertTrue(os.path.isfile(journal))
 
 
 class ArchiveAndFolderRegressionTests(unittest.TestCase):

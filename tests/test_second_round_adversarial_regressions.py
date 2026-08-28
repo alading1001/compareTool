@@ -1,9 +1,12 @@
 import io
 import os
+import shutil
+import struct
 import subprocess
 import tarfile
 import tempfile
 import unittest
+import zipfile
 from unittest import mock
 
 from delivery_instructions import write_delivery_instructions
@@ -64,7 +67,7 @@ class PathAndSnapshotTests(unittest.TestCase):
         self.assertEqual("_COM¹", sanitize_windows_component("COM¹"))
         self.assertEqual("_ABC~1.TXT", sanitize_windows_component("ABC~1.TXT"))
 
-    def test_folder_endpoints_are_snapshotted_before_source_mutation(self):
+    def test_folder_endpoints_snapshot_lazily_then_remain_stable(self):
         with project_temp_dir() as root:
             old_dir = os.path.join(root, "old")
             new_dir = os.path.join(root, "new")
@@ -72,10 +75,155 @@ class PathAndSnapshotTests(unittest.TestCase):
             write_bytes(os.path.join(new_dir, "value.txt"), b"new")
             vcs = FolderVCS(old_dir, new_dir)
             try:
-                write_bytes(os.path.join(new_dir, "value.txt"), b"old")
+                self.assertEqual([], vcs._owned_temp_dirs)
+                write_bytes(os.path.join(new_dir, "value.txt"), b"first read")
                 files = vcs.get_changed_files("old", "new")
                 self.assertEqual(["value.txt"], [item.path for item in files])
-                self.assertEqual(b"new", vcs.get_file_content_bytes(new_dir, "value.txt"))
+                self.assertEqual(b"first read", vcs.get_file_content_bytes(new_dir, "value.txt"))
+                write_bytes(os.path.join(new_dir, "value.txt"), b"later mutation")
+                self.assertEqual(b"first read", vcs.get_file_content_bytes(new_dir, "value.txt"))
+            finally:
+                vcs.cleanup()
+
+    def test_folder_snapshot_does_not_copy_excluded_subtree_files(self):
+        with project_temp_dir() as root:
+            old_dir = os.path.join(root, "old")
+            new_dir = os.path.join(root, "new")
+            write_bytes(os.path.join(old_dir, "excluded", "large.bin"), b"old excluded")
+            write_bytes(os.path.join(new_dir, "excluded", "large.bin"), b"new excluded")
+            write_bytes(os.path.join(old_dir, "kept.txt"), b"old")
+            write_bytes(os.path.join(new_dir, "kept.txt"), b"new")
+            vcs = FolderVCS(old_dir, new_dir)
+            try:
+                vcs.set_exclude_patterns(["excluded/**"])
+                files = vcs.get_changed_files("old", "new")
+                self.assertEqual(["kept.txt"], [item.path for item in files])
+                self.assertFalse(
+                    os.path.exists(os.path.join(vcs.old_dir, "excluded", "large.bin"))
+                )
+                self.assertFalse(
+                    os.path.exists(os.path.join(vcs.new_dir, "excluded", "large.bin"))
+                )
+                self.assertTrue(os.path.isfile(os.path.join(vcs.old_dir, "kept.txt")))
+            finally:
+                vcs.cleanup()
+
+    def test_folder_snapshot_rejects_missing_source_root(self):
+        with project_temp_dir() as root:
+            old_dir = os.path.join(root, "missing-old")
+            new_dir = os.path.join(root, "new")
+            os.makedirs(new_dir)
+            vcs = FolderVCS(old_dir, new_dir)
+            try:
+                with self.assertRaisesRegex(RuntimeError, "源目录不存在"):
+                    vcs.get_changed_files("old", "new")
+                self.assertEqual([], vcs._owned_temp_dirs)
+            finally:
+                vcs.cleanup()
+
+    def test_folder_snapshot_rejects_size_change_during_copy(self):
+        with project_temp_dir() as root:
+            old_dir = os.path.join(root, "old")
+            new_dir = os.path.join(root, "new")
+            write_bytes(os.path.join(old_dir, "value.txt"), b"old")
+            write_bytes(os.path.join(new_dir, "value.txt"), b"new")
+            vcs = FolderVCS(old_dir, new_dir)
+            original_copy = shutil.copyfileobj
+
+            def copy_then_append(source, target, length):
+                original_copy(source, target, length)
+                with open(source.name, "ab") as stream:
+                    stream.write(b"x")
+
+            try:
+                with mock.patch(
+                    "vcs.folder_vcs.shutil.copyfileobj", side_effect=copy_then_append
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "复制期间发生变化"):
+                        vcs.get_changed_files("old", "new")
+                self.assertEqual([], vcs._owned_temp_dirs)
+            finally:
+                vcs.cleanup()
+
+    def test_folder_snapshot_rejects_mtime_change_during_copy(self):
+        with project_temp_dir() as root:
+            old_dir = os.path.join(root, "old")
+            new_dir = os.path.join(root, "new")
+            write_bytes(os.path.join(old_dir, "value.txt"), b"old")
+            write_bytes(os.path.join(new_dir, "value.txt"), b"new")
+            vcs = FolderVCS(old_dir, new_dir)
+            original_copy = shutil.copyfileobj
+
+            def copy_then_touch(source, target, length):
+                original_copy(source, target, length)
+                metadata = os.stat(source.name)
+                with open(source.name, "r+b") as stream:
+                    stream.write(b"X")
+                os.utime(
+                    source.name,
+                    ns=(metadata.st_atime_ns, metadata.st_mtime_ns + 2_000_000_000),
+                )
+
+            try:
+                with mock.patch(
+                    "vcs.folder_vcs.shutil.copyfileobj", side_effect=copy_then_touch
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "复制期间发生变化"):
+                        vcs.get_changed_files("old", "new")
+                self.assertEqual([], vcs._owned_temp_dirs)
+            finally:
+                vcs.cleanup()
+
+    def test_folder_snapshot_rejects_file_identity_change(self):
+        with project_temp_dir() as root:
+            old_dir = os.path.join(root, "old")
+            new_dir = os.path.join(root, "new")
+            write_bytes(os.path.join(old_dir, "value.txt"), b"old")
+            write_bytes(os.path.join(new_dir, "value.txt"), b"new")
+            vcs = FolderVCS(old_dir, new_dir)
+            original_signature = vcs._file_signature
+            calls = {}
+
+            def changing_identity(path):
+                signature = original_signature(path)
+                if path.endswith("value.txt"):
+                    calls[path] = calls.get(path, 0) + 1
+                    if calls[path] >= 2:
+                        return (
+                            signature[0], signature[1] + 1, *signature[2:]
+                        )
+                return signature
+
+            try:
+                with mock.patch.object(
+                    vcs, "_file_signature", side_effect=changing_identity
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "复制期间发生变化"):
+                        vcs.get_changed_files("old", "new")
+                self.assertEqual([], vcs._owned_temp_dirs)
+            finally:
+                vcs.cleanup()
+
+    def test_folder_snapshot_rejects_path_set_change(self):
+        with project_temp_dir() as root:
+            old_dir = os.path.join(root, "old")
+            new_dir = os.path.join(root, "new")
+            write_bytes(os.path.join(old_dir, "value.txt"), b"old")
+            write_bytes(os.path.join(new_dir, "value.txt"), b"new")
+            vcs = FolderVCS(old_dir, new_dir)
+            original_copy = shutil.copyfileobj
+
+            def copy_then_add_path(source, target, length):
+                original_copy(source, target, length)
+                write_bytes(os.path.join(os.path.dirname(source.name), "added.txt"), b"x")
+
+            try:
+                with mock.patch(
+                    "vcs.folder_vcs.shutil.copyfileobj", side_effect=copy_then_add_path
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "路径集合"):
+                        vcs.get_changed_files("old", "new")
+                self.assertEqual([], vcs._owned_temp_dirs)
             finally:
                 vcs.cleanup()
 
@@ -85,6 +233,34 @@ class PathAndSnapshotTests(unittest.TestCase):
             os.makedirs(child)
             with self.assertRaisesRegex(ValueError, "不能互为祖先"):
                 FolderVCS(root, child)
+
+    def test_excluded_replacement_file_cannot_leave_directory_delete_instruction(self):
+        with project_temp_dir() as root:
+            old_dir = os.path.join(root, "old")
+            new_dir = os.path.join(root, "new")
+            write_bytes(os.path.join(old_dir, "conf", "a.txt"), b"old")
+            write_bytes(os.path.join(new_dir, "conf"), b"new file")
+            vcs = FolderVCS(old_dir, new_dir)
+            try:
+                vcs.set_exclude_patterns(["conf", "conf/**"])
+                result = DiffEngine(vcs).generate_diff(old_dir, new_dir)
+                self.assertEqual([], result.files)
+                self.assertEqual([], result.required_directory_deletions)
+            finally:
+                vcs.cleanup()
+
+    def test_case_only_directory_to_file_replacement_keeps_old_directory_spelling(self):
+        with project_temp_dir() as root:
+            old_dir = os.path.join(root, "old")
+            new_dir = os.path.join(root, "new")
+            write_bytes(os.path.join(old_dir, "Conf", "a.txt"), b"old")
+            write_bytes(os.path.join(new_dir, "conf"), b"new file")
+            vcs = FolderVCS(old_dir, new_dir)
+            try:
+                result = DiffEngine(vcs).generate_diff(old_dir, new_dir)
+                self.assertEqual(["Conf"], result.required_directory_deletions)
+            finally:
+                vcs.cleanup()
 
 
 class DiffFidelityTests(unittest.TestCase):
@@ -111,6 +287,133 @@ class DiffFidelityTests(unittest.TestCase):
                 html = stream.read()
             self.assertNotIn("</script><script>alert(1)</script>", html)
             self.assertIn("\\u003c/script\\u003e", html)
+
+    def test_diff_line_product_limit_skips_quadratic_work(self):
+        with mock.patch.object(DiffEngine, "MAX_TEXT_DIFF_LINE_PRODUCT", 3):
+            result = DiffEngine(
+                BytesVCS(b"a\nb\n", b"c\nd\n")
+            ).generate_diff("old", "new")
+        self.assertIn("新旧行数乘积 4", result.files[0].side_by_side_html)
+        self.assertIn("仍会完整包含", result.files[0].side_by_side_html)
+
+    def test_line_product_budget_does_not_hide_format_only_semantics(self):
+        with mock.patch.object(DiffEngine, "MAX_TEXT_DIFF_LINE_PRODUCT", 3):
+            result = DiffEngine(
+                BytesVCS(b"a\r\nb\r\n", b"a\nb\n")
+            ).generate_diff("old", "new")
+        self.assertEqual("F", result.files[0].report_type)
+        self.assertIn("仅格式变化", result.files[0].side_by_side_html)
+
+    def test_placeholder_only_files_do_not_retain_aggregate_text(self):
+        class PlaceholderOnlyVCS(BytesVCS):
+            def __init__(self):
+                super().__init__()
+                self.contents = {}
+                self.changed_files = []
+                for index in range(4):
+                    path = f"format-{index}.txt"
+                    self.changed_files.append(ChangedFile(path, ChangeType.MODIFIED))
+                    self.contents[("old", path)] = b"same\r\n" * 100
+                    self.contents[("new", path)] = b"same\n" * 100
+                for index in range(4):
+                    old_path = f"old-{index}.txt"
+                    new_path = f"new-{index}.txt"
+                    self.changed_files.append(ChangedFile(
+                        new_path, ChangeType.RENAMED, old_path=old_path
+                    ))
+                    self.contents[("old", old_path)] = b"unchanged\n" * 100
+                    self.contents[("new", new_path)] = b"unchanged\n" * 100
+
+            def get_changed_files(self, old_version, new_version):
+                return list(self.changed_files)
+
+            def get_file_content_bytes(self, version, file_path):
+                return self.contents[(version, file_path)]
+
+            get_file_content_raw_bytes = get_file_content_bytes
+
+        with mock.patch.object(DiffEngine, "MAX_REPORT_TEXT_BYTES", 1):
+            result = DiffEngine(PlaceholderOnlyVCS()).generate_diff("old", "new")
+        self.assertEqual(4, result.summary["format_changed_files"])
+        self.assertEqual(4, result.summary["renamed_files"])
+        self.assertTrue(all(not item.old_content for item in result.files))
+        self.assertTrue(all(not item.new_content for item in result.files))
+        self.assertTrue(all(
+            "报告展示预算已用尽" not in item.side_by_side_html
+            for item in result.files
+        ))
+
+    def test_report_aggregate_budget_skips_only_later_rendering(self):
+        class TwoFileVCS(BytesVCS):
+            def get_changed_files(self, old_version, new_version):
+                return [
+                    ChangedFile("first.txt", ChangeType.MODIFIED),
+                    ChangedFile("second.txt", ChangeType.MODIFIED),
+                ]
+
+        cases = (
+            ("MAX_REPORT_TEXT_BYTES", 7, "文本总字节"),
+            ("MAX_REPORT_TEXT_LINES", 3, "文本总行数"),
+            ("MAX_REPORT_RENDER_ROWS", 1, "预计渲染行数"),
+        )
+        for attribute, limit, reason in cases:
+            with self.subTest(attribute=attribute):
+                with mock.patch.object(DiffEngine, attribute, limit):
+                    result = DiffEngine(
+                        TwoFileVCS(b"a\n", b"b\n")
+                    ).generate_diff("old", "new")
+                self.assertNotIn(
+                    "报告展示预算已用尽", result.files[0].side_by_side_html
+                )
+                self.assertIn(
+                    "报告展示预算已用尽", result.files[1].side_by_side_html
+                )
+                self.assertIn(reason, result.files[1].side_by_side_html)
+                self.assertEqual(ChangeType.MODIFIED, result.files[1].change_type)
+
+    def test_directory_deletion_summary_and_templates_are_explicit(self):
+        with project_temp_dir() as root:
+            result = DiffResult(
+                "demo", "demo", "Fake", "old", "new",
+                required_directory_deletions=["conf"],
+            )
+            generator = ReportGenerator()
+            self.assertEqual(1, result.summary["required_directory_deletions"])
+            self.assertEqual(
+                1,
+                generator._multi_summary([{"diff_result": result}])[
+                    "required_directory_deletions"
+                ],
+            )
+            single = os.path.join(root, "single.html")
+            multi = os.path.join(root, "multi.html")
+            generator.generate(result, single)
+            generator.generate_multi(
+                [{
+                    "project_name": "demo",
+                    "vcs_type": "Fake",
+                    "show_project_root": True,
+                    "diff_result": result,
+                }],
+                multi,
+            )
+            for report in (single, multi):
+                with open(report, encoding="utf-8") as stream:
+                    rendered = stream.read()
+                self.assertIn("需删旧目录", rendered)
+                self.assertIn("删除旧目录 1 个", rendered)
+
+    def test_report_trees_use_prototype_safe_directory_maps(self):
+        generator = ReportGenerator()
+        for template_name in ("report.html", "multi_report.html"):
+            source, _filename, _uptodate = generator.env.loader.get_source(
+                generator.env, template_name
+            )
+            self.assertIn("children: Object.create(null)", source)
+            self.assertIn(
+                "Object.prototype.hasOwnProperty.call(current.children, part)",
+                source,
+            )
 
 
 class VCSHardeningTests(unittest.TestCase):
@@ -181,6 +484,9 @@ class VCSHardeningTests(unittest.TestCase):
         vcs.project_path = "."
         vcs.exclude_patterns = []
         vcs._version_pins = {}
+        vcs._pin_source_identity = mock.Mock()
+        vcs._pinned_project_url = "https://example.invalid/repo/project"
+        vcs._pinned_peg_revision = "2"
         vcs._run = mock.Mock(return_value=(
             '<?xml version="1.0"?><diff><paths>'
             '<path item="replaced" props="none" kind="file">conf</path>'
@@ -198,6 +504,9 @@ class VCSHardeningTests(unittest.TestCase):
         vcs.project_path = "."
         vcs.exclude_patterns = []
         vcs._version_pins = {}
+        vcs._pin_source_identity = mock.Mock()
+        vcs._pinned_project_url = "https://example.invalid/repo/project"
+        vcs._pinned_peg_revision = "2"
         vcs._run = mock.Mock(return_value=(
             '<?xml version="1.0"?><diff><paths>'
             '<path item="added" props="none" kind="dir">vendor</path>'
@@ -216,6 +525,34 @@ class ArchiveAndTransactionTests(unittest.TestCase):
             info.mode = mode
             info.size = 5
             stream.addfile(info, io.BytesIO(b"echo\n"))
+
+    @staticmethod
+    def _pax_record(key, value):
+        body = f"{key}={value}\n".encode("utf-8")
+        size = len(body) + 2
+        while True:
+            record = f"{size} ".encode("ascii") + body
+            if len(record) == size:
+                return record
+            size = len(record)
+
+    @staticmethod
+    def _write_raw_tar_record(stream, info, payload=b""):
+        info.size = len(payload)
+        stream.write(info.tobuf())
+        stream.write(payload)
+        stream.write(b"\0" * ((-len(payload)) % 512))
+
+    @staticmethod
+    def _write_zip(path, data, mode=None):
+        with zipfile.ZipFile(path, "w") as stream:
+            if mode is None:
+                stream.writestr("script.sh", data)
+            else:
+                info = zipfile.ZipInfo("script.sh")
+                info.create_system = 3
+                info.external_attr = mode << 16
+                stream.writestr(info, data)
 
     def test_archive_mode_only_change_is_reported(self):
         with project_temp_dir() as root:
@@ -246,12 +583,131 @@ class ArchiveAndTransactionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "扩展元数据过大"):
                 ArchiveVCS.__new__(ArchiveVCS)._extract_tar(archive, dest)
 
+    def test_cumulative_tar_metadata_limit_rejects_small_headers(self):
+        with project_temp_dir() as root:
+            archive = os.path.join(root, "cumulative-pax.tar")
+            payload = self._pax_record("path", "safe.txt")
+            with open(archive, "wb") as stream:
+                for index in range(2):
+                    info = tarfile.TarInfo(f"pax-{index}")
+                    info.type = tarfile.XGLTYPE
+                    self._write_raw_tar_record(stream, info, payload)
+                stream.write(b"\0" * 1024)
+            dest = os.path.join(root, "dest")
+            os.makedirs(dest)
+            with mock.patch.object(
+                ArchiveVCS, "MAX_TAR_METADATA_BYTES", len(payload) * 2 - 1
+            ):
+                with self.assertRaisesRegex(ValueError, "累计过大"):
+                    ArchiveVCS.__new__(ArchiveVCS)._preflight_tar(archive, dest)
+
+    def test_negative_pax_size_is_rejected_before_payload_discard(self):
+        with project_temp_dir() as root:
+            archive = os.path.join(root, "negative-size.tar")
+            with open(archive, "wb") as stream:
+                pax = tarfile.TarInfo("pax")
+                pax.type = tarfile.XHDTYPE
+                self._write_raw_tar_record(
+                    stream, pax, self._pax_record("size", "-1")
+                )
+                stream.write(tarfile.TarInfo("safe.txt").tobuf())
+                stream.write(b"\0" * 1024)
+            dest = os.path.join(root, "dest")
+            os.makedirs(dest)
+            with self.assertRaisesRegex(ValueError, "PAX size 无效"):
+                ArchiveVCS.__new__(ArchiveVCS)._preflight_tar(archive, dest)
+
+    def test_tar_ratio_limit_is_checked_before_member_body_read(self):
+        with project_temp_dir() as root:
+            archive = os.path.join(root, "ratio.tar")
+            info = tarfile.TarInfo("large.bin")
+            info.size = 1024
+            with open(archive, "wb") as stream:
+                stream.write(info.tobuf())
+            dest = os.path.join(root, "dest")
+            os.makedirs(dest)
+            with mock.patch.object(ArchiveVCS, "MAX_COMPRESSION_RATIO", 1):
+                with self.assertRaisesRegex(ValueError, "展开比例过高"):
+                    ArchiveVCS.__new__(ArchiveVCS)._preflight_tar(archive, dest)
+
+    def test_zip_member_limit_is_checked_before_zipfile_constructor(self):
+        with project_temp_dir() as root:
+            archive = os.path.join(root, "many.zip")
+            with zipfile.ZipFile(archive, "w") as stream:
+                stream.writestr("a.txt", b"a")
+                stream.writestr("b.txt", b"b")
+            dest = os.path.join(root, "dest")
+            os.makedirs(dest)
+            with mock.patch.object(ArchiveVCS, "MAX_ARCHIVE_MEMBERS", 1), mock.patch(
+                "vcs.archive_vcs.zipfile.ZipFile",
+                side_effect=AssertionError("ZipFile must not be constructed"),
+            ):
+                with self.assertRaisesRegex(ValueError, "成员过多"):
+                    ArchiveVCS.__new__(ArchiveVCS)._extract_zip(archive, dest)
+
+    def test_zip64_eocd_preflight_accepts_bounded_empty_archive(self):
+        with project_temp_dir() as root:
+            archive = os.path.join(root, "empty-zip64.zip")
+            zip64 = struct.pack(
+                "<4sQ2H2L4Q", b"PK\x06\x06", 44, 45, 45, 0, 0, 0, 0, 0, 0
+            )
+            locator = struct.pack("<4sLQL", b"PK\x06\x07", 0, 0, 1)
+            eocd = struct.pack(
+                "<4s4H2LH", b"PK\x05\x06", 0, 0, 0xFFFF, 0xFFFF,
+                0xFFFFFFFF, 0xFFFFFFFF, 0,
+            )
+            write_bytes(archive, zip64 + locator + eocd)
+            ArchiveVCS._preflight_zip(archive)
+
+    def test_zip_type_zero_unix_mode_change_is_reported(self):
+        with project_temp_dir() as root:
+            old_zip = os.path.join(root, "old.zip")
+            new_zip = os.path.join(root, "new.zip")
+            self._write_zip(old_zip, b"echo\n", 0o644)
+            self._write_zip(new_zip, b"echo\n", 0o755)
+            vcs = ArchiveVCS(old_zip, new_zip)
+            try:
+                files = vcs.get_changed_files()
+                self.assertEqual(1, len(files))
+                self.assertFalse(files[0].old_executable)
+                self.assertTrue(files[0].new_executable)
+            finally:
+                vcs.cleanup()
+
+    def test_archive_inputs_are_snapshotted_before_source_mutation(self):
+        with project_temp_dir() as root:
+            old_zip = os.path.join(root, "old.zip")
+            new_zip = os.path.join(root, "new.zip")
+            self._write_zip(old_zip, b"old")
+            self._write_zip(new_zip, b"new")
+            vcs = ArchiveVCS(old_zip, new_zip)
+            try:
+                self._write_zip(new_zip, b"old")
+                self.assertEqual(
+                    ["script.sh"], [item.path for item in vcs.get_changed_files()]
+                )
+                self.assertEqual(
+                    b"new", vcs.get_file_content_bytes(new_zip, "script.sh")
+                )
+            finally:
+                vcs.cleanup()
+
     def test_unowned_internal_looking_path_is_not_deleted(self):
         with project_temp_dir() as root:
             path = os.path.join(root, ".comparetool_stage_abcdefgh")
             os.makedirs(path)
             FileExporter._cleanup_orphan_stages(root)
             self.assertTrue(os.path.isdir(path))
+
+    def test_startup_recovery_does_not_write_locks_into_unrelated_directories(self):
+        with project_temp_dir() as root:
+            unrelated = os.path.join(root, "unrelated-project")
+            os.makedirs(unrelated)
+            FileExporter.recover_transactions(root, include_direct_children=True)
+            self.assertEqual([], os.listdir(unrelated))
+            self.assertFalse(os.path.exists(
+                os.path.join(root, ".comparetool_transaction.lock")
+            ))
 
     def test_transaction_lock_rejects_second_writer(self):
         with project_temp_dir() as root:

@@ -22,6 +22,7 @@ body { font-family: "Microsoft YaHei","Segoe UI",sans-serif; height: 100vh; over
 .card.modified .num { color: #2980b9; }
 .card.format .num { color: #d68910; }
 .card.deleted .num { color: #e74c3c; }
+.card.directory .num { color: #c0392b; }
 .card.renamed .num { color: #8e44ad; }
 .delivery-note { padding: 7px 24px; background: #fff8e6; border-bottom: 1px solid #f0dfb5; color: #755600; font-size: 12px; flex-shrink: 0; }
 
@@ -130,11 +131,12 @@ table.diff span { white-space: pre; }
     <div class="card modified"><div class="num">{{ summary.modified_files }}</div><div class="lbl">修改</div></div>
     <div class="card format"><div class="num">{{ summary.format_changed_files }}</div><div class="lbl">格式变化</div></div>
     <div class="card deleted"><div class="num">{{ summary.deleted_files }}</div><div class="lbl">删除</div></div>
+    <div class="card directory"><div class="num">{{ summary.required_directory_deletions }}</div><div class="lbl">需删旧目录</div></div>
     <div class="card renamed"><div class="num">{{ summary.renamed_files }}</div><div class="lbl">重命名</div></div>
 </div>
 
 <div class="delivery-note">
-    上线说明：删除 {{ summary.deleted_files }} 个、重命名 {{ summary.renamed_files }} 个；完整旧路径清单见报告同目录《{{ delivery_instructions_name | default('上线操作说明.txt') }}》。
+    上线说明：删除文件 {{ summary.deleted_files }} 个、删除旧目录 {{ summary.required_directory_deletions }} 个、重命名 {{ summary.renamed_files }} 个；完整旧路径清单见报告同目录《{{ delivery_instructions_name | default('上线操作说明.txt') }}》。
 </div>
 
 <div class="body">
@@ -217,9 +219,9 @@ function esc(s) {
 // ===== 构建文件树 =====
 function buildTree(files) {
 {% if show_project_root %}
-    var root = {name: {{ project_name | tojson }}, children: {}, files: []};
+    var root = {name: {{ project_name | tojson }}, children: Object.create(null), files: []};
 {% else %}
-    var root = {name: "", children: {}, files: []};
+    var root = {name: "", children: Object.create(null), files: []};
 {% endif %}
 
     files.forEach(function(f) {
@@ -231,8 +233,8 @@ function buildTree(files) {
             if (isLast) {
                 current.files.push({name: part, data: f});
             } else {
-                if (!current.children[part]) {
-                    current.children[part] = {name: part, children: {}, files: []};
+                if (!Object.prototype.hasOwnProperty.call(current.children, part)) {
+                    current.children[part] = {name: part, children: Object.create(null), files: []};
                 }
                 current = current.children[part];
             }

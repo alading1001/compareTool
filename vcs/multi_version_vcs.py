@@ -862,6 +862,8 @@ class _SVNPathChange:
     copyfrom_path: str = ""
     copyfrom_rev: int = 0
     copyfrom_historical: bool = False
+    props_modified: bool = False
+    project_root_transition: bool = False
 
 
 class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
@@ -1081,9 +1083,16 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                             len(absolute_path),
                             historical_prefix,
                             copyfrom_absolute.rstrip("/"),
+                            int(node.get("copyfrom-rev", "") or 0),
+                            (node.get("prop-mods") or "").lower() == "true",
+                            absolute_path.rstrip("/") == current_prefix,
                         )
                     )
-            root_candidate = max(root_copy_candidates, default=(0, "", ""))
+            root_candidate = max(
+                root_copy_candidates,
+                key=lambda item: item[0],
+                default=(0, "", "", 0, False, False),
+            )
             root_copyfrom = root_candidate[1]
             root_source = root_candidate[2]
             root_transition_is_move = bool(root_source) and any(
@@ -1093,8 +1102,19 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                 == root_source
                 for node in entry_nodes
             )
-
             items = []
+            if root_copyfrom:
+                # 即使移动的是项目祖先，当前项目根也发生了有效的历史前缀
+                # 切换。保留一个不参与文件展开的根标记，供选中 revision
+                # 检查根 svn:externals 和同 revision 的根属性变化。
+                items.append(_SVNPathChange(
+                    action="A",
+                    kind="dir",
+                    path="",
+                    copyfrom_rev=root_candidate[3] or revision - 1,
+                    props_modified=(root_candidate[4] and root_candidate[5]),
+                    project_root_transition=True,
+                ))
             for node in entry_nodes:
                 absolute_path = self._normalize_repo_path((node.text or "").strip())
                 rel_path = self._repo_to_project_path(absolute_path, current_prefix)
@@ -1130,6 +1150,9 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                         int(copyfrom_rev_text) if copyfrom_rev_text.isdigit() else 0
                     ),
                     copyfrom_historical=copyfrom_historical,
+                    props_modified=(
+                        (node.get("prop-mods") or "").lower() == "true"
+                    ),
                 ))
             history[revision] = items
             if root_copyfrom:
@@ -1170,16 +1193,30 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         files = [item for item in raw_changes if item.kind != "dir"]
         directories = [item for item in raw_changes if item.kind == "dir"]
         changes: List[_HistoryChange] = []
+
+        def predecessor_endpoint(item: _SVNPathChange):
+            """返回 R 节点真实的替换前端点；新目标可能在 r-1 尚不存在。"""
+            if item.action != "R":
+                return item.path, revision - 1
+            if self._svn_node_exists(item.path, revision - 1):
+                return item.path, revision - 1
+            if item.copyfrom_path:
+                return item.copyfrom_path, item.copyfrom_rev or revision - 1
+            # 没有 copyfrom 时仍让 kind/property 查询按既有路径 fail closed。
+            return item.path, revision - 1
+
         normalized_files = []
         for item in files:
-            if item.action == "R" and self._svn_node_kind(item.path, revision - 1) == "dir":
+            old_path, old_revision = predecessor_endpoint(item)
+            if item.action == "R" and self._svn_node_kind(old_path, old_revision) == "dir":
                 changes.extend(
                     _HistoryChange("D", path)
-                    for path in self._list_svn_files(item.path, revision - 1)
+                    for path in self._list_svn_files(old_path, old_revision)
                 )
                 normalized_files.append(_SVNPathChange(
                     "A", item.kind, item.path, item.copyfrom_path,
                     item.copyfrom_rev, item.copyfrom_historical,
+                    item.props_modified, item.project_root_transition,
                 ))
                 if selected:
                     required = set(getattr(self, "required_directory_deletions", []))
@@ -1190,23 +1227,36 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         files = normalized_files
         normalized_directories = []
         for item in directories:
-            if item.action == "R" and self._svn_node_kind(item.path, revision - 1) == "file":
+            old_path, old_revision = predecessor_endpoint(item)
+            if item.action == "R" and self._svn_node_kind(old_path, old_revision) == "file":
                 changes.append(_HistoryChange("D", item.path))
                 normalized_directories.append(_SVNPathChange(
                     "A", item.kind, item.path, item.copyfrom_path,
                     item.copyfrom_rev, item.copyfrom_historical,
+                    item.props_modified, item.project_root_transition,
                 ))
             else:
                 normalized_directories.append(item)
         directories = normalized_directories
         if selected:
             for item in directories:
-                old_props = (
-                    self._content_vcs._get_properties(str(revision - 1), item.path)
-                    if item.action in ("D", "M", "R") else {}
-                )
+                if item.project_root_transition:
+                    old_path, old_revision = "", item.copyfrom_rev or revision - 1
+                elif item.action == "D" and not self._svn_node_exists(
+                    item.path, revision - 1
+                ):
+                    # 同 revision 目录 copy/move 产生后又删除的临时路径在
+                    # r-1 没有真实端点；其最终目标目录仍会单独校验属性。
+                    old_path, old_revision = "", 0
+                elif item.action in ("D", "M", "R"):
+                    old_path, old_revision = predecessor_endpoint(item)
+                else:
+                    old_path, old_revision = "", 0
+                old_props = self._get_svn_properties(
+                    str(old_revision), old_path
+                ) if old_revision else {}
                 new_props = (
-                    self._content_vcs._get_properties(str(revision), item.path)
+                    self._get_svn_properties(str(revision), item.path)
                     if item.action in ("A", "M", "R") else {}
                 )
                 if "svn:externals" in old_props or "svn:externals" in new_props:
@@ -1214,14 +1264,24 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                         "SVN 多版本目录启用了 svn:externals，文件级交付无法保真，"
                         f"已中止生成: {item.path}@{revision}"
                     )
-        if selected and any(item.action == "M" for item in directories):
+        if selected and any(
+            item.action == "M" or item.props_modified for item in directories
+        ):
             paths = ", ".join(
-                sorted(item.path for item in directories if item.action == "M")
+                sorted(
+                    item.path or "<项目根>" for item in directories
+                    if item.action == "M" or item.props_modified
+                )
             )
             raise RuntimeError(
                 "SVN 多版本选中 revision 包含目录属性变化，"
                 f"当前文件级交付无法保真，已中止生成: {paths}"
             )
+        # 根历史标记只服务于属性/externals 校验与前缀映射，不能被当成
+        # 普通新增目录展开，否则会把整个项目误报为新增。
+        directories = [
+            item for item in directories if not item.project_root_transition
+        ]
         if selected:
             added_file_paths = {
                 item.path for item in files if item.action in ("A", "R")
@@ -1233,8 +1293,10 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
             required.update(
                 directory for directory in deleted_directory_paths
                 if any(
-                    new_path == directory
-                    or directory.startswith(new_path.rstrip("/") + "/")
+                    new_path.casefold() == directory.casefold()
+                    or directory.casefold().startswith(
+                        new_path.rstrip("/").casefold() + "/"
+                    )
                     for new_path in added_file_paths
                 )
             )
@@ -1701,26 +1763,31 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         self._svn_eol_cache[cache_key] = style
         return style
 
-    def _validate_svn_regular_endpoint(self, version: str, path: str):
+    def _get_svn_properties(self, version: str, path: str):
         cache_key = (str(version), path)
         if cache_key in self._svn_property_cache:
             return self._svn_property_cache[cache_key]
         rev = str(version).lstrip("rR")
-        result = subprocess.run(
-            [
-                self._svn,
-                "proplist",
-                "--xml",
-                "-v",
-                "--non-interactive",
-                "-r",
-                rev,
-                self._svn_file_url(version, path),
-            ],
-            cwd=self.source_project_path,
-            capture_output=True,
-            timeout=30,
-        )
+        try:
+            result = subprocess.run(
+                [
+                    self._svn,
+                    "proplist",
+                    "--xml",
+                    "-v",
+                    "--non-interactive",
+                    "-r",
+                    rev,
+                    self._svn_file_url(version, path),
+                ],
+                cwd=self.source_project_path,
+                capture_output=True,
+                timeout=30,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
+            raise RuntimeError(
+                f"无法检查 SVN 多版本端点属性: {path}@{version}\n{exc}"
+            ) from exc
         if result.returncode != 0:
             raise RuntimeError(
                 f"无法检查 SVN 多版本端点属性: {path}@{version}\n"
@@ -1738,6 +1805,11 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
             for node in root.findall(".//property")
             if node.get("name")
         }
+        self._svn_property_cache[cache_key] = properties
+        return properties
+
+    def _validate_svn_regular_endpoint(self, version: str, path: str):
+        properties = self._get_svn_properties(version, path)
         if "svn:special" in properties:
             raise RuntimeError(
                 f"SVN 多版本端点是 svn:special（符号链接等特殊节点），"
@@ -1748,7 +1820,6 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                 "SVN 多版本端点启用了 svn:keywords，svn cat 不能可靠复现"
                 f"工作副本展开字节，已中止生成: {path}@{version}"
             )
-        self._svn_property_cache[cache_key] = properties
         return properties
 
     def _compare_endpoint_metadata(

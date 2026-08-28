@@ -45,7 +45,7 @@ main.py                  # tkinter GUI 入口，线程管理，配置持久化�
 2. 根据 VCS 类型创建 `GitVCS` / `SVNVCS` / `FolderVCS` / `ArchiveVCS` / `GitMultiVersionVCS` / `SVNMultiVersionVCS` → `get_changed_files()` 获取变更文件列表
 3. `DiffEngine.generate_diff()` 遍历文件，对文本文件用 `difflib.HtmlDiff.make_table()` 生成 side-by-side HTML；二进制文件跳过内容只设占位标记；内容完全一致且唯一匹配的删除+新增会合并为重命名
 4. `ReportGenerator` 用 Jinja2 渲染模板 → 单文件 HTML
-5. `FileExporter` 导出变更文件：统一通过 `vcs.get_file_content_bytes()` 读取原始字节（失败返回 `None`，空文件返回 `b""`），以 `wb` 模式写入保留原始编码。`None` 必须使本次导出失败，不能静默漏文件或用不可靠的空文本兜底。单项目的报告、`<项目名>_上线操作说明.txt` 和 old/new 目录在各自同盘暂存后一次成组提交；正式单项目源码 stage 必须放在批次根内部随机 wrapper，不得混进 `oldVersion/newVersion`，多项目内层导出则显式标记目标已是外层 stage。多项目全部成功后整体替换 old/new 根及另外两类产物，任一步失败都恢复原有输出。提交前取得批次级进程锁，写 `.comparetool_transaction_*.json` 恢复日志和 commit/rollback 决策标记；事务日志与 stage 均带独立所有权标记。启动时扫描配置输出目录及其一级批次目录，只清理同时满足严格名称和所有权标记的内部孤儿暂存物，不扫描用户源码树。重命名文件导出时 oldVersion 使用 `old_path`，newVersion 使用 `file_path`。
+5. `FileExporter` 导出变更文件：统一通过 `vcs.get_file_content_bytes()` 读取原始字节（失败返回 `None`，空文件返回 `b""`），以 `wb` 模式写入保留原始编码。`None` 必须使本次导出失败，不能静默漏文件或用不可靠的空文本兜底。单项目的报告、`<项目名>_上线操作说明.txt` 和 old/new 目录在各自同盘暂存后一次成组提交；正式单项目源码 stage 必须放在批次根内部随机 wrapper，不得混进 `oldVersion/newVersion`，多项目内层导出则显式标记目标已是外层 stage。多项目全部成功后整体替换 old/new 根及另外两类产物，任一步失败都恢复原有输出。提交前取得批次级进程锁，写 `.comparetool_transaction_*.json` 恢复日志和 commit/rollback 决策标记；journal 和决策标记必须由输出根之外的每用户私钥做 HMAC-SHA256 验签，未通过验证时只保留现场，禁止自动删除或替换。stage 所有权标记记录持有 PID，活进程的暂存物不得被另一实例清理。启动扫描先只读识别真实候选，再只对候选目录加锁，不得向普通输出子目录写锁文件。重命名文件导出时 oldVersion 使用 `old_path`，newVersion 使用 `file_path`。
 
 项目名只在能从有效项目目录、新版本文件夹或新版本压缩包推断出真实名称时自动填充。推断不到且用户未手工填写时，生成报告或添加多项目任务应直接提示失败，不使用 `project` 之类的假兜底名称。Git/SVN/Git多版本/SVN多版本模式下，项目名输入框是可编辑下拉框，会按 Git/SVN 家族记忆最近 10 个有效项目；选择最近项目时必须同步回填项目目录和项目名，并触发项目路径变化逻辑清空版本选择和版本列表，避免跨项目复用版本号；多版本只读的“生成结果”仍须显示“文件级首尾端点”。
 
@@ -58,9 +58,9 @@ oldVersion/项目名/...
 newVersion/项目名/...
 ```
 
-若填写了输出批次名称，实际导出根目录会变成 `输出目录/输出批次名称/`，报告、`oldVersion` 和 `newVersion` 都生成在这一层下。生成单项目或多项目报告前会提示当前批次名称和实际输出目录，用户确认后才继续。
+若填写了输出批次名称，批次根目录会变成 `输出目录/输出批次名称/`。单项目报告和导出仍生成在批次根；每次多项目生成则必须在批次根下创建独立的 `multi_run_yyyyMMdd_HHmmss_SSS/` 运行目录，报告、`上线操作说明.txt`、`oldVersion` 和 `newVersion` 全部位于该运行目录内。这样历史多项目报告不会引用后一次运行的说明或源码包，也不会与同批次单项目导出互相覆盖。生成前提示的“实际输出目录”必须是本次真正写入的批次根或 multi run 目录。
 
-多项目任务允许混用 Git/SVN/文件夹/压缩包/Git多版本/SVN多版本。任一任务失败时本次生成失败，不跳过项目，也不提交任何项目的新导出目录、新说明文件或新报告。总报告文件名格式为 `multi_compare_report_yyyyMMdd_HHmmss_SSS.html`。任务列表保存到 `compareTool_config.json`。多项目项目名按 Windows 大小写不敏感规则判重，避免 `Demo` / `demo` 写入同一目录。多项目变更清单是纯文本页面，按新增/修改/格式变化/删除/重命名汇总；每条路径是否带项目名由该任务自己的 `show_project_root` 决定。生成总报告前会检测最终展示路径冲突，若同一展示路径来自多个项目，则失败并提示开启相关任务的项目名展示。`上线操作说明.txt` 中的路径始终带项目名。
+多项目任务允许混用 Git/SVN/文件夹/压缩包/Git多版本/SVN多版本。任一任务失败时本次生成失败，不跳过项目，也不提交任何项目的新导出目录、新说明文件或新报告。总报告文件名格式为 `multi_compare_report_yyyyMMdd_HHmmss_SSS.html`，并与该次运行的说明和源码包共同保存在独立 multi run 目录。任务列表保存到 `compareTool_config.json`。多项目项目名按 Windows 大小写不敏感规则判重，避免 `Demo` / `demo` 写入同一目录。多项目变更清单是纯文本页面，按新增/修改/格式变化/删除/重命名汇总；每条路径是否带项目名由该任务自己的 `show_project_root` 决定。生成总报告前会检测最终展示路径冲突，若同一展示路径来自多个项目，则失败并提示开启相关任务的项目名展示。`上线操作说明.txt` 中的路径始终带项目名。
 
 ### VCS 类型与版本标识
 
@@ -103,7 +103,7 @@ SVN 对**已删除文件**必须使用仓库 URL + peg revision 语法，工作�
 错误: svn cat -r 240814 https://.../file.txt     # E200009: illegal target (HEAD 中路径不存在)
 ```
 
-`SVNVCS._repo_url` 通过 `svn info --show-item url` 懒加载缓存仓库根 URL，`get_file_content` / `get_file_content_bytes` 拼接 `{url}/{path}@{rev}` 获取内容。路径中的反斜杠需转正斜杠（Windows `os.path.relpath` 输出反斜杠）。
+普通 `SVNVCS` 在任务开始时同时固定项目 URL、仓库 UUID、HEAD peg revision 和两个数字 revision；summarize、属性、内容与导出必须复用这组身份，不能在工作副本被 `svn switch` 后重新读取 URL。项目根历史移动时，旧端点 URL 要按 revision 沿 copyfrom 历史解析。路径中的反斜杠需统一转正斜杠（Windows `os.path.relpath` 输出反斜杠）。
 
 Git/SVN 可执行文件路径均自动探测：先查 `shutil.which`，再查 Windows 注册表中的用户/系统 PATH，最后搜常见安装目录。Git 常见目录包括 Git for Windows 的 `cmd/git.exe` / `bin/git.exe`；SVN 常见目录包括 TortoiseSVN、VisualSVN、SlikSVN 等。GUI 不再提供 SVN 可执行文件路径输入框，若最终找不到 `git.exe` / `svn.exe`，应提示用户安装 Git for Windows 或 SVN 命令行工具（TortoiseSVN 需勾选 command line client tools）。
 
@@ -116,7 +116,7 @@ Git/SVN 可执行文件路径均自动探测：先查 `shutil.which`，再查 Wi
 
 **ZIP 文件名编码修正**：Windows 中文环境创建的 zip 文件名通常用 GBK 编码而不设 UTF-8 标志位（`flag_bits & 0x800 == 0`）。`_fix_zip_filename()` 将 `ZipInfo.filename` 反向编码为 CP437 原始字节，再按 GBK 解码为正确的中文文件名。
 
-**安全解压与临时目录清理**：ZIP/TAR 每个成员都必须先通过临时目录边界和 Windows 文件名校验，拒绝父目录穿越、绝对/盘符路径、ADS、8.3 短名称别名、符号链接、硬链接和设备等特殊成员；不得直接使用无过滤的 `extractall()`。默认限制 100,000 个成员、单成员 2 GiB、累计展开 10 GiB、1000:1 压缩比和 1 MiB TAR PAX/GNU 扩展元数据；TAR 必须先流式预检隐藏扩展头，再交给标准库解压。临时目录带所有权 sidecar，正常退出清理，启动创建新临时目录时只回收超过 7 天、原进程已不存在且标记有效的专用遗留目录。文件夹/多版本端点快照也必须拒绝符号链接和联接点，避免解引用读取根外内容。
+**安全解压与临时目录清理**：构造时先把两个源归档稳定复制到 CompareTool 自有临时目录，并校验复制前后文件身份、大小和时间，预检与实际解压只能读取该快照。ZIP/TAR 每个成员都必须先通过临时目录边界和 Windows 文件名校验，拒绝父目录穿越、绝对/盘符路径、ADS、8.3 短名称别名、符号链接、硬链接和设备等特殊成员；不得直接使用无过滤的 `extractall()`。默认限制 100,000 个成员、单成员 2 GiB、累计展开 10 GiB 和 1000:1 压缩比；TAR 还限制累计 PAX/GNU 元数据、记录和字段数，并在读取成员正文前检查展开比例；ZIP 在构造 `ZipFile` 前有界解析 EOCD/ZIP64 与中央目录，避免成员上限生效过晚。临时目录带所有权 sidecar，正常退出清理，启动创建新临时目录时只回收超过 7 天、原进程已不存在且标记有效的专用遗留目录。文件夹/多版本端点快照也必须拒绝符号链接和联接点，避免解引用读取根外内容。
 
 **排除规则转发**：`ArchiveVCS` 覆写 `set_exclude_patterns()`，将规则同步传给内部 `FolderVCS`，否则排除规则不会生效。
 
@@ -127,6 +127,8 @@ Git/SVN 可执行文件路径均自动探测：先查 `shutil.which`，再查 Wi
 ### 差异展示
 
 `DiffEngine.__init__` 接收 `show_full_context` 参数（由 GUI 单选按钮控制）。`True` 时展示文件全部行（`context=False`），`False` 时仅展示差异上下文（`context=True, numlines=3`）。默认为全部内容。
+
+逐行差异同时受单文件字节/行/最长行/新旧行数乘积和整份报告累计字节、行数、预计渲染行数预算保护；超限只降级为占位说明，文件仍完整导出。纯格式变化和纯重命名仍须保留 F/R 语义，但占位后不得在 `FileDiff` 中长期持有整份文本。
 
 ### 二进制文件处理
 

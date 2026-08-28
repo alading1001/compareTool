@@ -1,5 +1,7 @@
 import os
 import shutil
+import stat
+import threading
 from typing import List
 
 from path_safety import is_link_or_junction, safe_join
@@ -27,42 +29,135 @@ class FolderVCS(BaseVCS):
         self.source_old_dir = old_dir
         self.source_new_dir = new_dir
         self._owned_temp_dirs = []
+        self._snapshot_requested = snapshot
+        self._snapshot_lock = threading.Lock()
+        self._snapshotted = not snapshot
         self.required_directory_deletions = []
-        try:
-            if snapshot:
-                self.old_dir = self._snapshot_directory(old_dir, "comparetool_folder_old_")
-                self.new_dir = self._snapshot_directory(new_dir, "comparetool_folder_new_")
-            else:
-                self.old_dir = old_dir
-                self.new_dir = new_dir
-        except BaseException:
-            self.cleanup()
-            raise
+        self.old_dir = old_dir
+        self.new_dir = new_dir
 
-    def _walk_tree(self, root: str):
+    def _ensure_snapshot(self):
+        if self._snapshotted or not self._snapshot_requested:
+            return
+        with self._snapshot_lock:
+            if self._snapshotted:
+                return
+            try:
+                old_snapshot = self._snapshot_directory(
+                    self.source_old_dir, "comparetool_folder_old_"
+                )
+                new_snapshot = self._snapshot_directory(
+                    self.source_new_dir, "comparetool_folder_new_"
+                )
+            except BaseException:
+                self.cleanup()
+                self.old_dir = self.source_old_dir
+                self.new_dir = self.source_new_dir
+                raise
+            self.old_dir = old_snapshot
+            self.new_dir = new_snapshot
+            self._snapshotted = True
+
+    def _should_prune_directory(self, relative_path: str) -> bool:
+        """仅当规则明确覆盖任意深度后代时才剪枝，避免误伤 foo/*。"""
+        if not self.exclude_patterns:
+            return False
+        relative_path = relative_path.rstrip("/")
+        direct_probe = f"{relative_path}/__comparetool_probe__"
+        nested_probe = (
+            f"{relative_path}/__comparetool_probe_dir__/__comparetool_probe__"
+        )
+        return self._is_excluded(direct_probe) and self._is_excluded(nested_probe)
+
+    def _walk_tree(self, root: str, apply_excludes: bool = False):
         """遍历目录，返回文件与目录的相对路径集合。"""
         files = set()
         directories = set()
         if not os.path.isdir(root):
-            return files, directories
+            raise RuntimeError(f"比对源目录不存在或不是目录: {root}")
         if is_link_or_junction(root):
             raise RuntimeError(f"不允许将符号链接或联接点作为比对根目录: {root}")
-        for dirpath, dirnames, filenames in os.walk(root):
-            for name in dirnames:
+
+        def raise_walk_error(error):
+            raise RuntimeError(f"遍历比对源目录失败: {root}: {error}") from error
+
+        for dirpath, dirnames, filenames in os.walk(root, onerror=raise_walk_error):
+            for name in list(dirnames):
                 full = os.path.join(dirpath, name)
+                rel = os.path.relpath(full, root).replace("\\", "/")
+                if apply_excludes and self._should_prune_directory(rel):
+                    # 保留目录拓扑以正确识别“目录被文件替换”，但不进入或复制其内容。
+                    directories.add(rel)
+                    dirnames.remove(name)
+                    continue
                 if is_link_or_junction(full):
                     raise RuntimeError(f"比对目录包含符号链接或联接点，已拒绝读取: {full}")
-                directories.add(os.path.relpath(full, root).replace("\\", "/"))
+                directories.add(rel)
             for f in filenames:
                 full = os.path.join(dirpath, f)
+                rel = os.path.relpath(full, root).replace("\\", "/")
+                if apply_excludes and self._is_excluded(rel):
+                    continue
                 if is_link_or_junction(full):
                     raise RuntimeError(f"比对目录包含符号链接，已拒绝读取: {full}")
-                rel = os.path.relpath(full, root).replace("\\", "/")
                 files.add(rel)
         return files, directories
 
+    @staticmethod
+    def _signature_from_stat(metadata):
+        return (
+            metadata.st_dev,
+            metadata.st_ino,
+            metadata.st_size,
+            metadata.st_mtime_ns,
+            metadata.st_ctime_ns,
+        )
+
+    @staticmethod
+    def _stream_state_from_stat(metadata):
+        # Windows 上 path stat 与 handle fstat 的设备/文件编号表示可能不同；
+        # 文件身份由复制前后的 path stat 校验，句柄只校验复制中的大小和 mtime。
+        return metadata.st_size, metadata.st_mtime_ns
+
+    def _file_signature(self, path: str):
+        if is_link_or_junction(path):
+            raise RuntimeError(f"比对目录包含符号链接或联接点，已拒绝读取: {path}")
+        try:
+            metadata = os.stat(path, follow_symlinks=False)
+        except OSError as exc:
+            raise RuntimeError(f"读取比对源文件元数据失败: {path}: {exc}") from exc
+        if not stat.S_ISREG(metadata.st_mode):
+            raise RuntimeError(f"比对源包含非普通文件，已拒绝读取: {path}")
+        return self._signature_from_stat(metadata)
+
+    def _directory_identity(self, path: str):
+        if not os.path.isdir(path):
+            raise RuntimeError(f"比对源目录不存在或不是目录: {path}")
+        if is_link_or_junction(path):
+            raise RuntimeError(f"比对目录包含符号链接或联接点，已拒绝读取: {path}")
+        try:
+            metadata = os.stat(path, follow_symlinks=False)
+        except OSError as exc:
+            raise RuntimeError(f"读取比对源目录元数据失败: {path}: {exc}") from exc
+        if not stat.S_ISDIR(metadata.st_mode):
+            raise RuntimeError(f"比对源目录在快照期间被替换: {path}")
+        return metadata.st_dev, metadata.st_ino
+
     def _snapshot_directory(self, source: str, prefix: str) -> str:
-        files, directories = self._walk_tree(source)
+        root_identity = self._directory_identity(source)
+        files, directories = self._walk_tree(source, apply_excludes=True)
+        initial_directory_identities = {
+            relative_path: self._directory_identity(
+                self._resolve_file_path(source, relative_path)
+            )
+            for relative_path in directories
+        }
+        initial_file_signatures = {
+            relative_path: self._file_signature(
+                self._resolve_file_path(source, relative_path)
+            )
+            for relative_path in files
+        }
         target = create_temp_dir(prefix=prefix)
         self._owned_temp_dirs.append(target)
         for directory in sorted(directories, key=lambda value: (value.count("/"), value)):
@@ -71,12 +166,57 @@ class FolderVCS(BaseVCS):
             source_path = self._resolve_file_path(source, rel_path)
             target_path = self._resolve_file_path(target, rel_path)
             os.makedirs(os.path.dirname(target_path), exist_ok=True)
-            with open(source_path, "rb") as src, open(target_path, "wb") as dst:
-                shutil.copyfileobj(src, dst, length=1024 * 1024)
+            expected_signature = initial_file_signatures[rel_path]
+            try:
+                with open(source_path, "rb") as src, open(target_path, "wb") as dst:
+                    expected_stream_state = (
+                        expected_signature[2], expected_signature[3]
+                    )
+                    opened_stream_state = self._stream_state_from_stat(
+                        os.fstat(src.fileno())
+                    )
+                    if opened_stream_state != expected_stream_state:
+                        raise RuntimeError(
+                            f"比对源文件在快照复制前发生变化: {source_path}"
+                        )
+                    shutil.copyfileobj(src, dst, length=1024 * 1024)
+                    copied_size = dst.tell()
+                    closed_stream_state = self._stream_state_from_stat(
+                        os.fstat(src.fileno())
+                    )
+            except OSError as exc:
+                raise RuntimeError(f"复制比对源文件失败: {source_path}: {exc}") from exc
+            if (
+                copied_size != expected_signature[2]
+                or closed_stream_state != expected_stream_state
+                or self._file_signature(source_path) != expected_signature
+            ):
+                raise RuntimeError(
+                    f"比对源文件在快照复制期间发生变化: {source_path}"
+                )
+
+        final_files, final_directories = self._walk_tree(
+            source, apply_excludes=True
+        )
+        if final_files != files or final_directories != directories:
+            raise RuntimeError(f"比对源目录路径集合在快照期间发生变化: {source}")
+        if self._directory_identity(source) != root_identity:
+            raise RuntimeError(f"比对源目录在快照期间被替换: {source}")
+        for relative_path, expected_identity in initial_directory_identities.items():
+            current_path = self._resolve_file_path(source, relative_path)
+            if self._directory_identity(current_path) != expected_identity:
+                raise RuntimeError(f"比对源目录在快照期间被替换: {current_path}")
+        for relative_path, expected_signature in initial_file_signatures.items():
+            current_path = self._resolve_file_path(source, relative_path)
+            if self._file_signature(current_path) != expected_signature:
+                raise RuntimeError(
+                    f"比对源文件在快照期间发生变化: {current_path}"
+                )
         return target
 
     def get_changed_files(self, old_version: str = "", new_version: str = "") -> List[ChangedFile]:
         """对比两个文件夹，返回差异文件列表"""
+        self._ensure_snapshot()
         old_files, old_dirs = self._walk_tree(self.old_dir)
         new_files, _new_dirs = self._walk_tree(self.new_dir)
 
@@ -102,7 +242,10 @@ class FolderVCS(BaseVCS):
         self.required_directory_deletions = sorted(
             directory for directory in old_dirs
             if any(
-                new_path == directory or directory.startswith(new_path.rstrip("/") + "/")
+                new_path.casefold() == directory.casefold()
+                or directory.casefold().startswith(
+                    new_path.rstrip("/").casefold() + "/"
+                )
                 for new_path in new_endpoint_files
             )
         )
@@ -124,6 +267,7 @@ class FolderVCS(BaseVCS):
 
     def _resolve_version_dir(self, version: str) -> str:
         """根据版本标识解析实际目录路径"""
+        self._ensure_snapshot()
         if version in ("old", self.old_dir, self.source_old_dir):
             return self.old_dir
         return self.new_dir

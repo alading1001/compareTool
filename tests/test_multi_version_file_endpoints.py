@@ -749,6 +749,86 @@ class SVNFileEndpointTests(unittest.TestCase):
         finally:
             vcs.cleanup()
 
+    def test_normal_svn_project_root_move_uses_historical_endpoint_urls(self):
+        self.write("A.java", "base-before-root-move\n")
+        baseline = self.commit("baseline before ordinary svn root move")
+
+        renamed_url = pathlib.Path(self.repo).resolve().as_uri() + "/ordinary-renamed"
+        run([self.svn, "move", self.url, renamed_url, "-m", "move ordinary root"], self.root)
+        run([self.svn, "switch", renamed_url, self.wc], self.root)
+        self.url = renamed_url
+        self.write("A.java", "selected-after-root-move\n")
+        selected = self.commit("change after ordinary root move")
+
+        vcs = SVNVCS(self.wc, svn_path=self.svn)
+        files = vcs.get_changed_files(str(baseline), str(selected))
+        self.assertEqual(["A.java"], [item.path for item in files])
+        self.assertEqual(
+            "base-before-root-move\n",
+            normalized(vcs.get_file_content_bytes(str(baseline), "A.java")),
+        )
+        self.assertEqual(
+            "selected-after-root-move\n",
+            normalized(vcs.get_file_content_bytes(str(selected), "A.java")),
+        )
+
+    def test_normal_svn_content_reads_ignore_later_working_copy_switch(self):
+        self.write("Pinned.txt", "project-old\n")
+        baseline = self.commit("ordinary svn pinned baseline")
+        self.write("Pinned.txt", "project-new\n")
+        selected = self.commit("ordinary svn pinned selected")
+
+        other_url = pathlib.Path(self.repo).resolve().as_uri() + "/other-project"
+        run([self.svn, "copy", self.url, other_url, "-m", "copy other project"], self.root)
+        run([self.svn, "switch", other_url, self.wc], self.root)
+        self.write("Pinned.txt", "other-project-content\n")
+        self.commit("change other project")
+        run([self.svn, "switch", self.url, self.wc], self.root)
+
+        vcs = SVNVCS(self.wc, svn_path=self.svn)
+        files = vcs.get_changed_files(str(baseline), str(selected))
+        self.assertEqual(["Pinned.txt"], [item.path for item in files])
+
+        run([self.svn, "switch", other_url, self.wc], self.root)
+        self.assertEqual(
+            "project-old\n",
+            normalized(vcs.get_file_content_bytes(str(baseline), "Pinned.txt")),
+        )
+        self.assertEqual(
+            "project-new\n",
+            normalized(vcs.get_file_content_bytes(str(selected), "Pinned.txt")),
+        )
+
+    def test_svn_selected_project_root_move_with_externals_fails_closed(self):
+        self.write("A.java", "base\n")
+        self.commit("baseline before root externals move")
+
+        repo_root_url = pathlib.Path(self.repo).resolve().as_uri()
+        root_wc = os.path.join(self.root, "root-externals-wc")
+        run([self.svn, "checkout", repo_root_url, root_wc], self.root)
+        run([self.svn, "move", "project", "root-with-externals"], root_wc)
+        run(
+            [
+                self.svn, "propset", "svn:externals", "^/dependency vendor",
+                "root-with-externals",
+            ],
+            root_wc,
+        )
+        output = run(
+            [self.svn, "commit", "-m", "move root and add externals"], root_wc
+        ).stdout
+        selected_match = re.search(r"Committed revision (\d+)", output)
+        self.assertIsNotNone(selected_match, output)
+        selected = int(selected_match.group(1))
+
+        renamed_url = repo_root_url + "/root-with-externals"
+        run([self.svn, "switch", "--ignore-externals", renamed_url, self.wc], self.root)
+        self.url = renamed_url
+        with self.assertRaisesRegex(RuntimeError, "svn:externals"):
+            SVNMultiVersionVCS(
+                self.wc, [f"r{selected}"], svn_path=self.svn
+            )
+
     def test_each_file_uses_its_own_svn_revision_endpoints(self):
         self.write("A.java", "A-base\n")
         self.write("B.java", "B-base\n")

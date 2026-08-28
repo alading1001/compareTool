@@ -76,6 +76,7 @@ class DiffResult:
             "format_changed_files": format_changed,
             "deleted_files": deleted,
             "renamed_files": renamed,
+            "required_directory_deletions": len(self.required_directory_deletions),
             "total_added_lines": total_added_lines,
             "total_deleted_lines": total_deleted_lines,
         }
@@ -97,10 +98,20 @@ class DiffEngine:
     MAX_TEXT_DIFF_BYTES = 5 * 1024 * 1024
     MAX_TEXT_DIFF_LINES = 10_000
     MAX_TEXT_DIFF_LINE_BYTES = 256 * 1024
+    MAX_TEXT_DIFF_LINE_PRODUCT = 25_000_000
+    MAX_REPORT_TEXT_BYTES = 50 * 1024 * 1024
+    MAX_REPORT_TEXT_LINES = 100_000
+    MAX_REPORT_RENDER_ROWS = 60_000
 
     def __init__(self, vcs, show_full_context: bool = True):
         self.vcs = vcs
         self.show_full_context = show_full_context
+        self._reset_report_budget()
+
+    def _reset_report_budget(self):
+        self._report_text_bytes = 0
+        self._report_text_lines = 0
+        self._report_render_rows = 0
 
     def _is_binary(self, file_path: str) -> bool:
         ext = os.path.splitext(file_path)[1].lower()
@@ -108,13 +119,11 @@ class DiffEngine:
 
     def generate_diff(self, old_version: str, new_version: str) -> DiffResult:
         """生成两个版本之间的完整差异"""
+        self._reset_report_budget()
         changed_files = self.vcs.get_changed_files(old_version, new_version)
         if getattr(self.vcs, "merge_exact_renames", True):
             changed_files = self._merge_exact_renames(changed_files, old_version, new_version)
 
-        required_directories = set(
-            getattr(self.vcs, "required_directory_deletions", []) or []
-        )
         old_removed_paths = [
             item.old_path or item.path
             for item in changed_files
@@ -124,10 +133,32 @@ class DiffEngine:
             item.path for item in changed_files
             if item.change_type in (ChangeType.ADDED, ChangeType.RENAMED)
         ]
+        required_directories = {
+            directory
+            for directory in (
+                getattr(self.vcs, "required_directory_deletions", []) or []
+            )
+            if any(
+                new_path.casefold() == directory.casefold()
+                or directory.casefold().startswith(
+                    new_path.rstrip("/").casefold() + "/"
+                )
+                for new_path in new_file_paths
+            )
+        }
         for new_path in new_file_paths:
-            prefix = new_path.rstrip("/") + "/"
-            if any(old_path.startswith(prefix) for old_path in old_removed_paths):
-                required_directories.add(new_path)
+            prefix = new_path.rstrip("/").casefold() + "/"
+            matching_old = next(
+                (
+                    old_path for old_path in old_removed_paths
+                    if old_path.casefold().startswith(prefix)
+                ),
+                "",
+            )
+            if matching_old:
+                old_parts = matching_old.split("/")
+                new_depth = len(new_path.rstrip("/").split("/"))
+                required_directories.add("/".join(old_parts[:new_depth]))
 
         result = DiffResult(
             project_path=self.vcs.project_path,
@@ -189,6 +220,62 @@ class DiffEngine:
         if complexity_reason:
             file_diff.side_by_side_html = self._complexity_placeholder(
                 cf, complexity_reason
+            )
+            self._prepend_metadata(file_diff)
+            return file_diff
+
+        # 纯重命名或纯格式变化只需要线性检查和小型说明卡片，不应被为
+        # SequenceMatcher/HtmlDiff 设置的乘积及渲染预算降级成普通修改。
+        if cf.change_type in (ChangeType.MODIFIED, ChangeType.RENAMED):
+            early_old_decoded = self._decode_text_strict(old_raw)
+            early_new_decoded = self._decode_text_strict(new_raw)
+            if early_old_decoded is not None and early_new_decoded is not None:
+                if cf.change_type == ChangeType.RENAMED and old_raw == new_raw:
+                    file_diff.side_by_side_html = self._rename_only_placeholder(
+                        old_path, cf.path
+                    )
+                    self._prepend_metadata(file_diff)
+                    return file_diff
+                early_format_details = self._format_only_details(
+                    early_old_decoded, early_new_decoded, old_raw, new_raw
+                )
+                if early_format_details is not None:
+                    file_diff.format_only = True
+                    file_diff.format_details = early_format_details
+                    if cf.change_type == ChangeType.RENAMED:
+                        file_diff.side_by_side_html = self._rename_format_placeholder(
+                            old_path, cf.path, early_format_details
+                        )
+                    else:
+                        file_diff.side_by_side_html = self._format_only_placeholder(
+                            cf.path, early_format_details
+                        )
+                    self._prepend_metadata(file_diff)
+                    return file_diff
+
+        old_line_count = self._line_count_for_budget(old_raw)
+        new_line_count = self._line_count_for_budget(new_raw)
+        if (
+            old_line_count
+            and new_line_count
+            and old_line_count * new_line_count > self.MAX_TEXT_DIFF_LINE_PRODUCT
+        ):
+            file_diff.side_by_side_html = self._complexity_placeholder(
+                cf,
+                (
+                    f"新旧行数乘积 {old_line_count * new_line_count:,} 超过计算上限 "
+                    f"{self.MAX_TEXT_DIFF_LINE_PRODUCT:,}"
+                ),
+            )
+            self._prepend_metadata(file_diff)
+            return file_diff
+
+        budget_reason = self._reserve_report_budget(
+            raw_values, old_line_count, new_line_count
+        )
+        if budget_reason:
+            file_diff.side_by_side_html = self._report_budget_placeholder(
+                cf, budget_reason
             )
             self._prepend_metadata(file_diff)
             return file_diff
@@ -326,6 +413,52 @@ class DiffEngine:
             )
         return ""
 
+    @classmethod
+    def _line_count_for_budget(cls, data: Optional[bytes]) -> int:
+        if data is None:
+            return 0
+        decoded = cls._decode_text_strict(data)
+        if decoded is not None:
+            return len(decoded.text.splitlines())
+        return len(data.splitlines())
+
+    def _reserve_report_budget(
+        self,
+        raw_values: List[bytes],
+        old_line_count: int,
+        new_line_count: int,
+    ) -> str:
+        text_bytes = sum(len(data) for data in raw_values)
+        text_lines = old_line_count + new_line_count
+        render_rows = max(old_line_count, new_line_count)
+        checks = (
+            (
+                self._report_text_bytes + text_bytes,
+                self.MAX_REPORT_TEXT_BYTES,
+                "文本总字节",
+                "字节",
+            ),
+            (
+                self._report_text_lines + text_lines,
+                self.MAX_REPORT_TEXT_LINES,
+                "文本总行数",
+                "行",
+            ),
+            (
+                self._report_render_rows + render_rows,
+                self.MAX_REPORT_RENDER_ROWS,
+                "预计渲染行数",
+                "行",
+            ),
+        )
+        for projected, limit, label, unit in checks:
+            if projected > limit:
+                return f"{label} {projected:,} {unit}超过报告上限 {limit:,} {unit}"
+        self._report_text_bytes += text_bytes
+        self._report_text_lines += text_lines
+        self._report_render_rows += render_rows
+        return ""
+
     def _prepend_metadata(self, file_diff: FileDiff):
         if not file_diff.metadata_changes:
             return
@@ -363,6 +496,19 @@ class DiffEngine:
             '<div style="padding:40px;text-align:center;color:#666;font-size:15px;">'
             '<div style="font-size:18px;margin-bottom:12px;font-weight:bold;">'
             '文本结构复杂，已跳过逐行差异展示</div>'
+            f'<div>{html.escape(cf.path)}</div>'
+            f'<div style="margin-top:8px;">{html.escape(reason)}</div>'
+            '<div style="font-size:12px;margin-top:8px;color:#999;">'
+            '文件仍会完整包含在 oldVersion/newVersion 导出中</div>'
+            '</div>'
+        )
+
+    @staticmethod
+    def _report_budget_placeholder(cf: ChangedFile, reason: str) -> str:
+        return (
+            '<div style="padding:40px;text-align:center;color:#666;font-size:15px;">'
+            '<div style="font-size:18px;margin-bottom:12px;font-weight:bold;">'
+            '报告展示预算已用尽，已跳过逐行差异展示</div>'
             f'<div>{html.escape(cf.path)}</div>'
             f'<div style="margin-top:8px;">{html.escape(reason)}</div>'
             '<div style="font-size:12px;margin-top:8px;color:#999;">'

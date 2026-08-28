@@ -1,14 +1,23 @@
+import hashlib
+import hmac
 import json
 import os
 import re
+import secrets
 import shutil
+import stat
 import tempfile
 import uuid
 from contextlib import contextmanager
 from diff_engine import DiffResult
 from logger import warn
 from path_safety import is_link_or_junction, safe_join
-from stage_ownership import is_owned, mark_owned, remove_ownership_marker
+from stage_ownership import (
+    is_owned,
+    mark_owned,
+    ownership_is_abandoned,
+    remove_ownership_marker,
+)
 from vcs.base import ChangeType
 
 
@@ -17,6 +26,10 @@ class FileExporter:
 
     TRANSACTION_PREFIX = ".comparetool_transaction_"
     TRANSACTION_SUFFIX = ".json"
+    TRANSACTION_KEY_ENV = "COMPARETOOL_TRANSACTION_KEY_FILE"
+    TRANSACTION_HMAC_FIELD = "hmac_sha256"
+    MAX_TRANSACTION_JOURNAL_BYTES = 64 * 1024
+    MAX_TRANSACTION_STATES = 16
     _ORPHAN_STAGE_PATTERNS = (
         re.compile(r"^\.comparetool_stage_[A-Za-z0-9_-]{8,}$"),
         re.compile(r"^\.comparetool_report_[A-Za-z0-9_-]{8,}\.html$"),
@@ -223,6 +236,20 @@ class FileExporter:
                     raise RuntimeError(f"事务中存在重复输出目标: {target}")
                 if not os.path.lexists(stage):
                     raise RuntimeError(f"输出暂存项不存在: {stage}")
+                if is_link_or_junction(stage):
+                    raise RuntimeError(f"输出暂存项不能是符号链接或联接点: {stage}")
+                if os.path.lexists(target):
+                    if is_link_or_junction(target):
+                        raise RuntimeError(
+                            f"输出目标不能是符号链接或联接点: {target}"
+                        )
+                    stage_is_dir = os.path.isdir(stage)
+                    target_is_dir = os.path.isdir(target)
+                    if stage_is_dir != target_is_dir:
+                        raise RuntimeError(
+                            "输出目标类型与暂存项不一致，拒绝用文件替换目录或用目录替换文件：\n"
+                            f"暂存：{stage}\n目标：{target}"
+                        )
                 target_keys.add(key)
                 os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
                 normalized_pairs.append((stage, target))
@@ -306,7 +333,7 @@ class FileExporter:
             if not is_owned(owner):
                 mark_owned(owner)
         payload = {
-            "version": 1,
+            "version": 2,
             "token": token,
             "states": [
                 {
@@ -318,6 +345,8 @@ class FileExporter:
                 for state in states
             ],
         }
+        key = cls._load_transaction_key(root, create=True)
+        payload = cls._signed_payload(payload, key)
         try:
             mark_owned(journal_path)
             with open(journal_path, "x", encoding="utf-8") as stream:
@@ -363,20 +392,167 @@ class FileExporter:
                 warn(f"清理输出事务日志失败: {path}: {exc}")
         remove_ownership_marker(journal_path)
 
-    @staticmethod
-    def _mark_transaction(journal_path: str, decision: str):
+    @classmethod
+    def _mark_transaction(cls, journal_path: str, decision: str):
         if not journal_path:
             return
         marker = f"{journal_path}.{decision}"
         try:
-            with open(marker, "x", encoding="ascii") as stream:
-                stream.write(decision)
+            token = cls._token_from_journal_path(journal_path)
+            key = cls._load_transaction_key(os.path.dirname(journal_path), create=False)
+            payload = cls._signed_payload({
+                "version": 1,
+                "token": token,
+                "decision": decision,
+            }, key)
+            with open(marker, "x", encoding="utf-8") as stream:
+                json.dump(payload, stream, ensure_ascii=True, sort_keys=True)
                 stream.flush()
                 os.fsync(stream.fileno())
         except FileExistsError:
             return
-        except OSError as exc:
+        except (OSError, RuntimeError, ValueError) as exc:
             warn(f"写入输出事务 {decision} 标记失败: {marker}: {exc}")
+
+    @classmethod
+    def _transaction_key_path(cls) -> str:
+        configured = os.environ.get(cls.TRANSACTION_KEY_ENV, "").strip()
+        if configured:
+            return os.path.abspath(os.path.expanduser(os.path.expandvars(configured)))
+        if os.name == "nt":
+            base = (
+                os.environ.get("LOCALAPPDATA")
+                or os.environ.get("APPDATA")
+                or os.path.expanduser("~")
+            )
+        else:
+            base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(
+                os.path.expanduser("~"), ".config"
+            )
+        return os.path.abspath(os.path.join(base, "CompareTool", "transaction_hmac.key"))
+
+    @classmethod
+    def _load_transaction_key(cls, transaction_root: str, create: bool) -> bytes:
+        root = os.path.abspath(transaction_root)
+        key_path = cls._transaction_key_path()
+        root_real = os.path.realpath(root)
+        key_real = os.path.realpath(key_path)
+        try:
+            inside = os.path.commonpath([root, key_path]) == root
+            real_inside = os.path.commonpath([root_real, key_real]) == root_real
+        except ValueError:
+            inside = False
+            real_inside = False
+        if inside or real_inside:
+            raise RuntimeError("输出事务签名私钥不能位于输出目录内")
+
+        if create:
+            parent = os.path.dirname(key_path) or "."
+            os.makedirs(parent, exist_ok=True)
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+            flags |= getattr(os, "O_BINARY", 0)
+            fd = None
+            created = False
+            try:
+                fd = os.open(key_path, flags, 0o600)
+                created = True
+                key = secrets.token_bytes(32)
+                offset = 0
+                while offset < len(key):
+                    offset += os.write(fd, key[offset:])
+                os.fsync(fd)
+            except FileExistsError:
+                pass
+            except BaseException:
+                if fd is not None:
+                    os.close(fd)
+                    fd = None
+                if created:
+                    try:
+                        os.remove(key_path)
+                    except OSError:
+                        pass
+                raise
+            finally:
+                if fd is not None:
+                    os.close(fd)
+
+        if not os.path.exists(key_path):
+            raise RuntimeError("输出事务签名私钥不存在，无法安全恢复")
+        if is_link_or_junction(key_path):
+            raise RuntimeError("输出事务签名私钥不能是链接或联接点")
+        metadata = os.lstat(key_path)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise RuntimeError("输出事务签名私钥不是普通文件")
+        if os.name != "nt" and stat.S_IMODE(metadata.st_mode) & 0o077:
+            raise RuntimeError("输出事务签名私钥权限过宽，必须仅当前用户可读写")
+        with open(key_path, "rb") as stream:
+            key = stream.read(33)
+        if len(key) != 32:
+            raise RuntimeError("输出事务签名私钥已损坏")
+        return key
+
+    @classmethod
+    def _signed_payload(cls, payload: dict, key: bytes) -> dict:
+        unsigned = dict(payload)
+        unsigned.pop(cls.TRANSACTION_HMAC_FIELD, None)
+        canonical = json.dumps(
+            unsigned,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        signed = dict(unsigned)
+        signed[cls.TRANSACTION_HMAC_FIELD] = hmac.new(
+            key, canonical, hashlib.sha256
+        ).hexdigest()
+        return signed
+
+    @classmethod
+    def _verify_signed_payload(cls, payload: dict, key: bytes) -> bool:
+        if not isinstance(payload, dict):
+            return False
+        supplied = payload.get(cls.TRANSACTION_HMAC_FIELD)
+        if not isinstance(supplied, str) or not re.fullmatch(r"[0-9a-f]{64}", supplied):
+            return False
+        expected = cls._signed_payload(payload, key)[cls.TRANSACTION_HMAC_FIELD]
+        return hmac.compare_digest(supplied, expected)
+
+    @classmethod
+    def _token_from_journal_path(cls, journal_path: str) -> str:
+        name = os.path.basename(journal_path)
+        match = re.fullmatch(
+            re.escape(cls.TRANSACTION_PREFIX)
+            + r"([0-9a-f]{32})"
+            + re.escape(cls.TRANSACTION_SUFFIX),
+            name,
+        )
+        if not match:
+            raise ValueError("事务日志标识无效")
+        return match.group(1)
+
+    @classmethod
+    def _read_decision_marker(
+        cls, journal_path: str, token: str, decision: str, key: bytes
+    ) -> bool:
+        marker = f"{journal_path}.{decision}"
+        if not os.path.exists(marker):
+            return False
+        if not os.path.isfile(marker) or os.path.getsize(marker) > 4096:
+            raise RuntimeError(f"输出事务 {decision} 决策标记签名无效")
+        try:
+            with open(marker, encoding="utf-8") as stream:
+                payload = json.load(stream)
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise RuntimeError(f"输出事务 {decision} 决策标记签名无效") from exc
+        if (
+            not cls._verify_signed_payload(payload, key)
+            or payload.get("version") != 1
+            or payload.get("token") != token
+            or payload.get("decision") != decision
+        ):
+            raise RuntimeError(f"输出事务 {decision} 决策标记签名无效")
+        return True
 
     @staticmethod
     @contextmanager
@@ -453,6 +629,10 @@ class FileExporter:
             for path in (protected_stages or [])
         }
         if acquire_locks:
+            directories = [
+                directory for directory in directories
+                if cls._has_recovery_candidates(directory)
+            ]
             for directory in directories:
                 try:
                     with cls._transaction_lock(directory):
@@ -499,6 +679,27 @@ class FileExporter:
         return recovered
 
     @classmethod
+    def _has_recovery_candidates(cls, directory: str) -> bool:
+        """只读识别 CompareTool 自有恢复物，避免扫描时污染普通目录。"""
+        try:
+            entries = os.scandir(directory)
+        except OSError:
+            return False
+        with entries:
+            for entry in entries:
+                is_journal = (
+                    entry.name.startswith(cls.TRANSACTION_PREFIX)
+                    and entry.name.endswith(cls.TRANSACTION_SUFFIX)
+                )
+                is_stage = any(
+                    pattern.fullmatch(entry.name)
+                    for pattern in cls._ORPHAN_STAGE_PATTERNS
+                )
+                if (is_journal or is_stage) and is_owned(entry.path):
+                    return True
+        return False
+
+    @classmethod
     def _cleanup_orphan_stages(cls, directory: str, protected=None):
         """清理尚未创建事务日志就强退留下的内部暂存物。"""
         protected = protected or set()
@@ -512,6 +713,9 @@ class FileExporter:
                 continue
             if not is_owned(entry.path):
                 warn(f"跳过没有 CompareTool 所有权标记的同名前缀路径: {entry.path}")
+                continue
+            if not ownership_is_abandoned(entry.path):
+                warn(f"跳过仍由存活 CompareTool 进程持有的暂存路径: {entry.path}")
                 continue
             entry_path = os.path.normcase(os.path.abspath(entry.path))
             protects_current_work = entry_path in protected
@@ -539,17 +743,32 @@ class FileExporter:
     def _recover_transaction_journal(cls, journal_path: str, root: str):
         if not is_owned(journal_path):
             raise RuntimeError("事务日志缺少 CompareTool 所有权标记")
-        with open(journal_path, encoding="utf-8") as stream:
-            payload = json.load(stream)
-        if payload.get("version") != 1 or not isinstance(payload.get("states"), list):
+        if (
+            not os.path.isfile(journal_path)
+            or os.path.getsize(journal_path) > cls.MAX_TRANSACTION_JOURNAL_BYTES
+        ):
+            raise RuntimeError("事务日志过大或不是普通文件")
+        try:
+            with open(journal_path, encoding="utf-8") as stream:
+                raw_payload = stream.read(cls.MAX_TRANSACTION_JOURNAL_BYTES + 1)
+            payload = json.loads(raw_payload)
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise RuntimeError("事务日志无法解析") from exc
+
+        root = os.path.abspath(root)
+        key = cls._load_transaction_key(root, create=False)
+        if not cls._verify_signed_payload(payload, key):
+            raise RuntimeError("事务日志缺少有效 HMAC 签名，已保留现场")
+        if payload.get("version") != 2 or not isinstance(payload.get("states"), list):
             raise RuntimeError("事务日志格式不支持")
+        if len(payload["states"]) > cls.MAX_TRANSACTION_STATES:
+            raise RuntimeError("事务日志状态过多")
 
         token = payload.get("token", "")
         expected_name = f"{cls.TRANSACTION_PREFIX}{token}{cls.TRANSACTION_SUFFIX}"
         if not re.fullmatch(r"[0-9a-f]{32}", str(token)) or os.path.basename(journal_path) != expected_name:
             raise RuntimeError("事务日志标识不一致")
 
-        root = os.path.abspath(root)
         root_real = os.path.realpath(root)
         states = []
         for raw in payload["states"]:
@@ -588,7 +807,17 @@ class FileExporter:
                 if stage_parent_name.startswith(".comparetool_stage_")
                 else stage
             )
-            if not inside or not real_inside or not valid_stage_layout or not is_owned(stage_owner):
+            has_link = any(
+                os.path.lexists(path) and is_link_or_junction(path)
+                for path in (stage, target, backup)
+            )
+            if (
+                not inside
+                or not real_inside
+                or not valid_stage_layout
+                or not is_owned(stage_owner)
+                or has_link
+            ):
                 raise RuntimeError("事务日志路径越界")
             if backup != os.path.abspath(f"{target}.comparetool_backup_{token}"):
                 raise RuntimeError("事务备份路径无效")
@@ -599,8 +828,12 @@ class FileExporter:
                 "had_target": bool(raw.get("had_target")),
             })
 
-        commit_marker = os.path.isfile(f"{journal_path}.commit")
-        rollback_marker = os.path.isfile(f"{journal_path}.rollback")
+        commit_marker = cls._read_decision_marker(
+            journal_path, token, "commit", key
+        )
+        rollback_marker = cls._read_decision_marker(
+            journal_path, token, "rollback", key
+        )
         if commit_marker and rollback_marker:
             raise RuntimeError("事务决策标记冲突")
         inferred_commit = bool(states) and all(

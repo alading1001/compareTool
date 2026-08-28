@@ -425,6 +425,11 @@ class VCSParsingTests(unittest.TestCase):
                 self.project_path = project_path
                 self.exclude_patterns = []
 
+            def _pin_source_identity(self):
+                self._source_identity_pinned = True
+                self._pinned_project_url = "https://example.invalid/repo/project"
+                self._pinned_peg_revision = "2"
+
             def _run(self, args):
                 return """<?xml version="1.0"?>
 <diff><paths>
@@ -513,14 +518,37 @@ class ReportAndTaskSafetyTests(unittest.TestCase):
                 CompareToolApp._validate_source_output_separation(
                     [source], [root]
                 )
-            with self.assertRaisesRegex(ValueError, "输出文件位于输入源码目录内"):
+            with self.assertRaisesRegex(ValueError, "输出文件与输入源码路径重叠"):
                 CompareToolApp._validate_source_output_separation(
                     [source], [], [os.path.join(source, "report.html")]
+                )
+            source_below_file_target = os.path.join(root, "report.html", "source")
+            os.makedirs(source_below_file_target)
+            with self.assertRaisesRegex(ValueError, "输出文件与输入源码路径重叠"):
+                CompareToolApp._validate_source_output_separation(
+                    [source_below_file_target], [], [os.path.join(root, "report.html")]
                 )
 
             CompareToolApp._validate_source_output_separation(
                 [source], [os.path.join(root, "sibling-output")]
             )
+
+    def test_multi_run_uses_self_contained_unique_subdirectory(self):
+        with project_temp_dir() as root:
+            app = CompareToolApp.__new__(CompareToolApp)
+            app.output_dir_var = mock.Mock()
+            app.output_dir_var.get.return_value = root
+            app.output_batch_var = mock.Mock()
+            app.output_batch_var.get.return_value = "20260827"
+
+            run_dir, report, old_export, new_export = app._multi_run_paths()
+
+            batch_dir = os.path.normpath(os.path.join(root, "20260827"))
+            self.assertEqual(batch_dir, os.path.dirname(os.path.normpath(run_dir)))
+            self.assertTrue(os.path.basename(run_dir).startswith("multi_run_"))
+            self.assertEqual(os.path.normpath(run_dir), os.path.dirname(os.path.normpath(report)))
+            self.assertEqual(os.path.normpath(os.path.join(run_dir, "oldVersion")), os.path.normpath(old_export))
+            self.assertEqual(os.path.normpath(os.path.join(run_dir, "newVersion")), os.path.normpath(new_export))
 
     def test_reserved_windows_names_are_sanitized_consistently(self):
         self.assertEqual("_CON", CompareToolApp._sanitize_project_name("CON"))

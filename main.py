@@ -731,9 +731,10 @@ class CompareToolApp:
                     common = os.path.commonpath([source, target])
                 except ValueError:
                     continue
-                if os.path.normcase(common) == os.path.normcase(source):
+                if os.path.normcase(common) in (
+                        os.path.normcase(source), os.path.normcase(target)):
                     raise ValueError(
-                        "输出文件位于输入源码目录内，可能被后续比对误识别为源码：\n"
+                        "输出文件与输入源码路径重叠，可能覆盖源码或被后续比对误识别：\n"
                         f"输入：{source}\n输出：{target}"
                     )
 
@@ -1580,11 +1581,15 @@ class CompareToolApp:
 
     # ========== 生成报告 ==========
 
-    def _confirm_output_batch(self) -> bool:
-        self._refresh_output_paths_now()
+    def _confirm_output_batch(self, actual_output_dir: str = "") -> bool:
+        if not actual_output_dir:
+            self._refresh_output_paths_now()
         output_dir = self.output_dir_var.get().strip()
         batch_name = self._normalize_output_batch_field()
-        effective_output_dir = self._effective_output_dir(output_dir, batch_name)
+        effective_output_dir = (
+            actual_output_dir
+            or self._effective_output_dir(output_dir, batch_name)
+        )
         if batch_name:
             msg = (
                 f"本次输出批次名称：{batch_name}\n\n"
@@ -1607,12 +1612,21 @@ class CompareToolApp:
         self.generate_btn.config(state=state)
         self._sync_multi_task_buttons()
 
-    def _multi_report_path(self) -> str:
+    def _multi_run_paths(self):
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
-        return self._join_display_path(
-            self._effective_output_dir(),
-            f"multi_compare_report_{stamp}.html"
+        run_dir = self._join_display_path(
+            self._effective_output_dir(), f"multi_run_{stamp}"
         )
+        return (
+            run_dir,
+            self._join_display_path(run_dir, f"multi_compare_report_{stamp}.html"),
+            self._join_display_path(run_dir, "oldVersion"),
+            self._join_display_path(run_dir, "newVersion"),
+        )
+
+    def _multi_report_path(self) -> str:
+        """兼容旧调用；多项目实际生成必须一次性取得整组 run 路径。"""
+        return self._multi_run_paths()[1]
 
     @staticmethod
     def _make_report_stage_path(report_path: str) -> str:
@@ -1860,13 +1874,9 @@ class CompareToolApp:
                 return
             names[key] = name
 
-        effective_output_dir = self._effective_output_dir(output_dir)
-        self.old_export_var.set(self._join_display_path(effective_output_dir, "oldVersion"))
-        self.new_export_var.set(self._join_display_path(effective_output_dir, "newVersion"))
-
-        report_path = self._multi_report_path()
-        old_export = self.old_export_var.get().strip()
-        new_export = self.new_export_var.get().strip()
+        run_dir, report_path, old_export, new_export = self._multi_run_paths()
+        self.old_export_var.set(old_export)
+        self.new_export_var.set(new_export)
         instruction_path = os.path.join(
             os.path.dirname(os.path.abspath(report_path)),
             DELIVERY_INSTRUCTIONS_FILENAME,
@@ -1885,7 +1895,7 @@ class CompareToolApp:
         except ValueError as exc:
             messagebox.showwarning("提示", str(exc))
             return
-        if not self._confirm_output_batch():
+        if not self._confirm_output_batch(run_dir):
             return
 
         self._save_current_exclude_rules_for_current_key()
