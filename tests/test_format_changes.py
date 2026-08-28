@@ -78,6 +78,32 @@ class FormatChangeTests(unittest.TestCase):
         self.assertEqual(1, result.summary["modified_files"])
         self.assertEqual(0, result.summary["format_changed_files"])
 
+    def test_empty_file_and_single_line_feed_are_real_content_changes(self):
+        for old_bytes, new_bytes in ((b"", b"\n"), (b"\n", b"")):
+            with self.subTest(old=old_bytes, new=new_bytes):
+                result = self.generate(old_bytes, new_bytes)
+                file_diff = result.files[0]
+
+                self.assertEqual("M", file_diff.report_type)
+                self.assertFalse(file_diff.format_only)
+                self.assertEqual(1, file_diff.added_lines + file_diff.deleted_lines)
+
+    def test_renamed_empty_file_to_single_line_feed_is_not_format_only(self):
+        class RenameVCS(FakeVCS):
+            def get_changed_files(self, old_version, new_version):
+                return [ChangedFile(
+                    "new.txt", ChangeType.RENAMED, old_path="old.txt"
+                )]
+
+        result = DiffEngine(RenameVCS(b"", b"\n")).generate_diff(
+            "old", "new"
+        )
+        file_diff = result.files[0]
+        self.assertEqual("R", file_diff.report_type)
+        self.assertFalse(file_diff.format_only)
+        self.assertEqual(1, file_diff.added_lines)
+        self.assertEqual(0, file_diff.deleted_lines)
+
     def test_undecodable_change_is_not_guessed_as_format_only(self):
         result = self.generate(b"\x81", b"\x82")
 

@@ -50,24 +50,37 @@ class BaseVCS(ABC):
         return False
 
     def _is_excluded_tree(self, directory: str) -> bool:
-        """判断目录本身或任意深度后代是否被同一规则完整覆盖。"""
+        """仅从规则结构静态证明目录的任意深度后代均被覆盖。"""
         directory = directory.replace("\\", "/").rstrip("/")
-        direct_probe = f"{directory}/__comparetool_probe__"
-        nested_probe = (
-            f"{directory}/__comparetool_probe_dir__/__comparetool_probe__"
-        )
-        return any(
-            self._match_glob(direct_probe, pattern)
-            and self._match_glob(nested_probe, pattern)
-            for pattern in self.exclude_patterns
-        )
+        for raw_pattern in self.exclude_patterns:
+            pattern = raw_pattern.replace("\\", "/").rstrip("/")
+            if pattern == "**":
+                return True
+            if not pattern.endswith("/**"):
+                continue
+            directory_pattern = pattern[:-3].rstrip("/")
+            if directory_pattern and self._match_glob_pattern(
+                directory, directory_pattern, implicit_any_depth=False
+            ):
+                return True
+        return False
 
     def _match_glob(self, path: str, pattern: str) -> bool:
         """将 glob 模式转为正则匹配"""
+        return self._match_glob_pattern(
+            path, pattern, implicit_any_depth=True
+        )
+
+    @staticmethod
+    def _match_glob_pattern(
+        path: str, pattern: str, implicit_any_depth: bool
+    ) -> bool:
+        """匹配 glob；目录剪枝证明时禁止给无斜杠模式补隐式 **/。"""
+        path = path.replace('\\', '/')
         pattern = pattern.replace('\\', '/')
 
         # 不含 / 的简单模式（如 *.class）匹配任意目录深度
-        if '/' not in pattern and '**' not in pattern:
+        if implicit_any_depth and '/' not in pattern and '**' not in pattern:
             pattern = '**/' + pattern
 
         # **/ 替换为占位符（可选目录前缀，包括根目录）

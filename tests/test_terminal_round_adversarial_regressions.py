@@ -1,4 +1,5 @@
 import os
+import json
 import shutil
 import tempfile
 import unittest
@@ -42,6 +43,30 @@ class TerminalVCSAndReportTests(unittest.TestCase):
 
         self.assertFalse(vcs._should_prune_directory("foo"))
         self.assertFalse(vcs._is_excluded("foo/a/b/c.txt"))
+
+    def test_exclude_tree_never_uses_predictable_probe_names(self):
+        vcs = FolderVCS.__new__(FolderVCS)
+        for pattern in ("*comparetool*", "*probe*"):
+            with self.subTest(pattern=pattern):
+                vcs.exclude_patterns = [pattern]
+                self.assertFalse(vcs._should_prune_directory("business"))
+                self.assertFalse(vcs._is_excluded("business/order.txt"))
+
+    def test_exclude_tree_prunes_only_provable_recursive_patterns(self):
+        vcs = FolderVCS.__new__(FolderVCS)
+        cases = (
+            (["target/**"], "target", True),
+            (["target/**"], "nested/target", False),
+            (["**/target/**"], "nested/target", True),
+            (["foo/*/**"], "foo/module", True),
+            (["foo/*"], "foo/module", False),
+        )
+        for patterns, directory, expected in cases:
+            with self.subTest(patterns=patterns, directory=directory):
+                vcs.exclude_patterns = patterns
+                self.assertEqual(
+                    expected, vcs._should_prune_directory(directory)
+                )
 
     def test_endpoint_budget_rejects_large_non_rename_files_before_writing(self):
         delegate = _MultiVersionFolderDelegate.__new__(
@@ -231,6 +256,37 @@ class TerminalTransactionTests(unittest.TestCase):
 
             self.assertNotEqual(before, FileExporter._tree_identity(target))
 
+    def test_stages_are_created_at_trusted_root_not_mutable_target_child(self):
+        with project_temp_dir() as root:
+            batch = os.path.join(root, "batch")
+            target = os.path.join(batch, "oldVersion", "demo")
+            stage = FileExporter._make_stage_dir(
+                target,
+                stage_parent=root,
+                trusted_root=root,
+            )
+            report_stage = FileExporter._make_stage_file(
+                os.path.join(batch, "report.html"),
+                root,
+                ".comparetool_report_",
+                ".html",
+            )
+            try:
+                self.assertEqual(
+                    os.path.normcase(root),
+                    os.path.normcase(os.path.dirname(os.path.dirname(stage))),
+                )
+                self.assertEqual(
+                    os.path.normcase(root),
+                    os.path.normcase(os.path.dirname(report_stage)),
+                )
+                self.assertFalse(
+                    os.path.commonpath([stage, batch]) == os.path.abspath(batch)
+                )
+            finally:
+                FileExporter._cleanup_stage(stage)
+                FileExporter._cleanup_stage(report_stage)
+
     def _installed_transaction(self, root: str, token: str):
         stage = os.path.join(root, ".comparetool_report_probe.html")
         target = os.path.join(root, "report.html")
@@ -290,6 +346,108 @@ class TerminalTransactionTests(unittest.TestCase):
                 self.assertEqual(b"new-data", stream.read())
             self.assertFalse(os.path.lexists(state["backup"]))
             self.assertFalse(os.path.exists(journal))
+
+    def test_rollback_recovery_resumes_deterministic_quarantine_cleanup(self):
+        with project_temp_dir() as root:
+            token = "c" * 32
+            state, journal = self._installed_transaction(root, token)
+            FileExporter._mark_transaction(journal, "rollback")
+            quarantine = FileExporter._quarantine_paths(
+                state, token
+            )["installed"]
+            real_remove = FileExporter._remove_path
+            failed = False
+
+            def fail_once(path):
+                nonlocal failed
+                if os.path.abspath(path) == os.path.abspath(quarantine) and not failed:
+                    failed = True
+                    raise PermissionError("sharing violation")
+                return real_remove(path)
+
+            with mock.patch.object(
+                FileExporter, "_remove_path", side_effect=fail_once
+            ):
+                with self.assertRaisesRegex(RuntimeError, "sharing violation"):
+                    FileExporter.recover_transactions(root, raise_on_error=True)
+
+            self.assertTrue(os.path.exists(journal))
+            self.assertTrue(os.path.lexists(quarantine))
+            self.assertFalse(os.path.lexists(state["backup"]))
+            with open(state["target"], "rb") as stream:
+                self.assertEqual(b"old-data", stream.read())
+
+            FileExporter.recover_transactions(root, raise_on_error=True)
+            self.assertFalse(os.path.lexists(quarantine))
+            self.assertFalse(os.path.exists(journal))
+            with open(state["target"], "rb") as stream:
+                self.assertEqual(b"old-data", stream.read())
+
+    def test_commit_recovery_resumes_deterministic_quarantine_cleanup(self):
+        with project_temp_dir() as root:
+            token = "d" * 32
+            state, journal = self._installed_transaction(root, token)
+            FileExporter._mark_transaction(journal, "commit")
+            quarantine = FileExporter._quarantine_paths(
+                state, token
+            )["backup"]
+            real_remove = FileExporter._remove_path
+            failed = False
+
+            def fail_once(path):
+                nonlocal failed
+                if os.path.abspath(path) == os.path.abspath(quarantine) and not failed:
+                    failed = True
+                    raise PermissionError("sharing violation")
+                return real_remove(path)
+
+            with mock.patch.object(
+                FileExporter, "_remove_path", side_effect=fail_once
+            ):
+                with self.assertRaisesRegex(RuntimeError, "sharing violation"):
+                    FileExporter.recover_transactions(root, raise_on_error=True)
+
+            self.assertTrue(os.path.exists(journal))
+            self.assertTrue(os.path.lexists(quarantine))
+            self.assertFalse(os.path.lexists(state["backup"]))
+            with open(state["target"], "rb") as stream:
+                self.assertEqual(b"new-data", stream.read())
+
+            FileExporter.recover_transactions(root, raise_on_error=True)
+            self.assertFalse(os.path.lexists(quarantine))
+            self.assertFalse(os.path.exists(journal))
+            with open(state["target"], "rb") as stream:
+                self.assertEqual(b"new-data", stream.read())
+
+    def test_v4_random_quarantine_is_recovered_compatibly(self):
+        with project_temp_dir() as root:
+            token = "e" * 32
+            state, journal = self._installed_transaction(root, token)
+            FileExporter._mark_transaction(journal, "rollback")
+
+            with open(journal, encoding="utf-8") as stream:
+                payload = json.load(stream)
+            payload["version"] = 4
+            payload = FileExporter._signed_payload(
+                payload,
+                FileExporter._load_transaction_key(root, create=False),
+            )
+            with open(journal, "w", encoding="utf-8") as stream:
+                json.dump(payload, stream)
+                stream.flush()
+                os.fsync(stream.fileno())
+
+            legacy_quarantine = os.path.join(
+                root, f".comparetool_quarantine_{token}_{'f' * 32}"
+            )
+            os.replace(state["target"], legacy_quarantine)
+            os.replace(state["backup"], state["target"])
+
+            FileExporter.recover_transactions(root, raise_on_error=True)
+            self.assertFalse(os.path.lexists(legacy_quarantine))
+            self.assertFalse(os.path.exists(journal))
+            with open(state["target"], "rb") as stream:
+                self.assertEqual(b"old-data", stream.read())
 
 
 if __name__ == "__main__":

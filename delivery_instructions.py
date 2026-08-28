@@ -1,8 +1,6 @@
 import os
-import tempfile
-
+from file_exporter import FileExporter
 from vcs.base import ChangeType
-from stage_ownership import mark_owned, remove_ownership_marker
 
 
 DELIVERY_INSTRUCTIONS_FILENAME = "上线操作说明.txt"
@@ -14,25 +12,26 @@ def single_delivery_instructions_filename(project_name: str) -> str:
     return f"{name}_{DELIVERY_INSTRUCTIONS_FILENAME}" if name else DELIVERY_INSTRUCTIONS_FILENAME
 
 
-def prepare_delivery_instructions(project_results: list, target_path: str):
+def prepare_delivery_instructions(
+    project_results: list,
+    target_path: str,
+    trusted_root: str = "",
+):
     """在目标同目录生成带 BOM 的暂存说明文件，返回 (stage, target)。"""
     target_path = os.path.abspath(target_path)
-    parent = os.path.dirname(target_path) or "."
-    os.makedirs(parent, exist_ok=True)
-    fd, stage_path = tempfile.mkstemp(
-        prefix=".comparetool_delivery_",
-        suffix=".txt",
-        dir=parent,
+    stage_path = FileExporter._make_stage_file(
+        target_path,
+        trusted_root or os.path.dirname(target_path) or ".",
+        ".comparetool_delivery_",
+        ".txt",
     )
-    os.close(fd)
     try:
-        mark_owned(stage_path)
         write_delivery_instructions(project_results, stage_path)
         return stage_path, target_path
     except BaseException:
         if os.path.isfile(stage_path):
             os.remove(stage_path)
-        remove_ownership_marker(stage_path)
+        FileExporter._cleanup_stage(stage_path)
         raise
 
 

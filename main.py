@@ -83,7 +83,6 @@ from delivery_instructions import (
 )
 from logger import info, warn, error
 from path_safety import sanitize_windows_component
-from stage_ownership import mark_owned, remove_ownership_marker
 
 
 def _load_config():
@@ -1632,25 +1631,15 @@ class CompareToolApp:
         return self._multi_run_paths()[1]
 
     @staticmethod
-    def _make_report_stage_path(report_path: str) -> str:
-        parent = os.path.dirname(os.path.abspath(report_path))
-        os.makedirs(parent, exist_ok=True)
-        fd, stage_path = tempfile.mkstemp(
-            prefix=".comparetool_report_",
-            suffix=".html",
-            dir=parent,
+    def _make_report_stage_path(
+        report_path: str, trusted_root: str = ""
+    ) -> str:
+        return FileExporter._make_stage_file(
+            report_path,
+            trusted_root or os.path.dirname(os.path.abspath(report_path)),
+            ".comparetool_report_",
+            ".html",
         )
-        os.close(fd)
-        try:
-            mark_owned(stage_path)
-            return stage_path
-        except BaseException:
-            try:
-                os.remove(stage_path)
-            except OSError:
-                pass
-            remove_ownership_marker(stage_path)
-            raise
 
     def _create_vcs_for_task(self, task: dict):
         vcs_type = task["vcs_type"]
@@ -2022,7 +2011,9 @@ class CompareToolApp:
             info(f"生成报告: {report_path}")
             template_dir = os.path.join(BASE_DIR, "templates")
             report_gen = ReportGenerator(template_dir)
-            report_stage = self._make_report_stage_path(report_path)
+            report_stage = self._make_report_stage_path(
+                report_path, trusted_output_root
+            )
             export_pairs = []
             instruction_stage = ""
             try:
@@ -2040,10 +2031,12 @@ class CompareToolApp:
                     old_export,
                     new_export,
                     project_name=project_name,
+                    trusted_root=trusted_output_root,
                 )
                 instruction_stage, instruction_target = prepare_delivery_instructions(
                     [{"project_name": project_name, "diff_result": diff_result}],
                     instruction_target,
+                    trusted_root=trusted_output_root,
                 )
                 FileExporter._replace_outputs(
                     export_pairs + [
@@ -2113,8 +2106,16 @@ class CompareToolApp:
 
             self._check_multi_display_path_conflicts(project_results)
 
-            stage_old_root = FileExporter._make_stage_dir(old_export)
-            stage_new_root = FileExporter._make_stage_dir(new_export)
+            stage_old_root = FileExporter._make_stage_dir(
+                old_export,
+                stage_parent=trusted_output_root,
+                trusted_root=trusted_output_root,
+            )
+            stage_new_root = FileExporter._make_stage_dir(
+                new_export,
+                stage_parent=trusted_output_root,
+                trusted_root=trusted_output_root,
+            )
             for item in project_results:
                 task = item["task"]
                 exporter = FileExporter(item["diff_result"], item["vcs"])
@@ -2127,11 +2128,14 @@ class CompareToolApp:
 
             template_dir = os.path.join(BASE_DIR, "templates")
             report_gen = ReportGenerator(template_dir)
-            report_stage = self._make_report_stage_path(report_path)
+            report_stage = self._make_report_stage_path(
+                report_path, trusted_output_root
+            )
             report_gen.generate_multi(project_results, report_stage)
             instruction_stage, instruction_target = prepare_delivery_instructions(
                 project_results,
                 instruction_target,
+                trusted_root=trusted_output_root,
             )
 
             # 多项目输出必须整体替换根目录，否则删除/改名任务后会残留上次的

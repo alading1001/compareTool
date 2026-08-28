@@ -69,6 +69,7 @@ class FileExporter:
             new_dir,
             project_name=project_name,
             targets_are_staging_roots=targets_are_staging_roots,
+            trusted_root=trusted_root,
         )
         try:
             self._replace_outputs(
@@ -85,9 +86,9 @@ class FileExporter:
         new_dir: str,
         project_name: str = "",
         targets_are_staging_roots: bool = False,
+        trusted_root: str = "",
     ):
         """完整写入暂存目录，返回可与报告一起提交的 (stage, target) 列表。"""
-        stage_parent = ""
         if project_name:
             old_dir = self._safe_join(old_dir, project_name)
             new_dir = self._safe_join(new_dir, project_name)
@@ -97,14 +98,14 @@ class FileExporter:
         if os.path.normcase(old_dir) == os.path.normcase(new_dir):
             raise RuntimeError("新旧版本导出目录不能相同")
 
-        if project_name and not targets_are_staging_roots:
-            # 单项目的正式目标位于 oldVersion/newVersion/<项目名>，但内部
-            # 暂存目录不能也落进 oldVersion/newVersion，否则强退后既会混入
-            # 上线包，又无法在不扫描用户源码的前提下安全清理。把两侧随机
-            # 暂存根统一放到批次根，stage 本身仍与目标同盘，可原子替换。
-            stage_parent = self._transaction_root([old_dir, new_dir])
-            if not stage_parent:
-                raise RuntimeError("无法确定项目导出的同盘事务暂存目录")
+        # 暂存物始终直接放在生成开始时确定的可信输出根。正式目标可能位于
+        # batch/multi_run 等更深目录；若这些子目录在耗时生成期间被替换为
+        # junction，暂存源码仍不会跟随写出可信根，最终提交校验会安全拒绝。
+        trusted_root = os.path.abspath(
+            trusted_root or self._transaction_root([old_dir, new_dir])
+        )
+        if not trusted_root:
+            raise RuntimeError("无法确定项目导出的同盘事务暂存目录")
 
         self._validate_export_paths(old_dir, new_dir)
         old_ver = self.diff_result.old_version
@@ -113,8 +114,12 @@ class FileExporter:
         stage_new = ""
 
         try:
-            stage_old = self._make_stage_dir(old_dir, stage_parent=stage_parent)
-            stage_new = self._make_stage_dir(new_dir, stage_parent=stage_parent)
+            stage_old = self._make_stage_dir(
+                old_dir, stage_parent=trusted_root, trusted_root=trusted_root
+            )
+            stage_new = self._make_stage_dir(
+                new_dir, stage_parent=trusted_root, trusted_root=trusted_root
+            )
             for file_diff in self.diff_result.files:
                 if file_diff.change_type == ChangeType.DELETED:
                     self._write_file(stage_old, file_diff.file_path, old_ver, file_diff.old_content)
@@ -226,21 +231,75 @@ class FileExporter:
         except ValueError as exc:
             raise RuntimeError(str(exc)) from exc
 
-    @staticmethod
-    def _make_stage_dir(target_dir: str, stage_parent: str = "") -> str:
+    @classmethod
+    def _make_stage_dir(
+        cls,
+        target_dir: str,
+        stage_parent: str = "",
+        trusted_root: str = "",
+    ) -> str:
         parent = stage_parent or os.path.dirname(target_dir)
+        anchor = cls._validate_trusted_paths(
+            trusted_root or parent,
+            [parent, target_dir],
+            "输出暂存路径",
+        )
         os.makedirs(parent, exist_ok=True)
+        cls._validate_trusted_paths(anchor, [parent], "输出暂存目录")
         stage_root = tempfile.mkdtemp(prefix=".comparetool_stage_", dir=parent)
         try:
+            cls._validate_trusted_paths(
+                anchor, [stage_root], "输出暂存目录"
+            )
             mark_owned(stage_root)
             if not stage_parent:
                 return stage_root
             stage = os.path.join(stage_root, os.path.basename(target_dir))
             os.makedirs(stage)
+            cls._validate_trusted_paths(
+                anchor, [stage_root, stage], "输出暂存目录"
+            )
             return stage
         except BaseException:
             shutil.rmtree(stage_root, ignore_errors=True)
             remove_ownership_marker(stage_root)
+            raise
+
+    @classmethod
+    def _make_stage_file(
+        cls,
+        target_path: str,
+        trusted_root: str,
+        prefix: str,
+        suffix: str,
+    ) -> str:
+        """在可信输出根直接创建空暂存文件，内容写入前完成路径复核。"""
+        target_path = os.path.abspath(target_path)
+        anchor = cls._validate_trusted_paths(
+            trusted_root,
+            [target_path],
+            "输出暂存目标",
+        )
+        os.makedirs(anchor, exist_ok=True)
+        cls._validate_trusted_paths(anchor, [anchor], "可信输出根")
+        fd, stage_path = tempfile.mkstemp(
+            prefix=prefix,
+            suffix=suffix,
+            dir=anchor,
+        )
+        os.close(fd)
+        try:
+            cls._validate_trusted_paths(
+                anchor, [stage_path], "输出暂存文件"
+            )
+            mark_owned(stage_path)
+            return stage_path
+        except BaseException:
+            try:
+                os.remove(stage_path)
+            except OSError:
+                pass
+            remove_ownership_marker(stage_path)
             raise
 
     @classmethod
@@ -399,10 +458,122 @@ class FileExporter:
         )
 
     @classmethod
+    def _quarantine_paths(cls, state: dict, token: str = "") -> dict:
+        """从已签名的事务 token/路径确定性派生隔离路径。"""
+        overridden = state.get("_quarantine_paths")
+        if isinstance(overridden, dict):
+            return dict(overridden)
+        token = token or str(state.get("_token", ""))
+        if re.fullmatch(r"[0-9a-f]{32}", token) is None:
+            raise RuntimeError("事务隔离路径缺少有效标识")
+
+        def build(source: str, role: str) -> str:
+            source = os.path.abspath(source)
+            key = os.path.normcase(source).encode(
+                "utf-8", errors="surrogatepass"
+            )
+            suffix = hashlib.sha256(key).hexdigest()[:16]
+            return os.path.join(
+                os.path.dirname(source),
+                f".comparetool_quarantine_{token}_{role}_{suffix}",
+            )
+
+        return {
+            "stage": build(state["stage"], "stage"),
+            "installed": build(state["target"], "installed"),
+            "backup": build(state["backup"], "backup"),
+        }
+
+    @classmethod
+    def _discover_v4_quarantines(cls, state: dict, token: str):
+        """兼容 v4 随机隔离名；只接受唯一且身份仍匹配的旧隔离对象。"""
+        paths = cls._quarantine_paths(state, token)
+        pattern = re.compile(
+            r"^\.comparetool_quarantine_"
+            + re.escape(token)
+            + r"_[0-9a-f]{32}$"
+        )
+        candidates = []
+        for parent in {
+            os.path.dirname(state["stage"]),
+            os.path.dirname(state["target"]),
+            os.path.dirname(state["backup"]),
+        }:
+            try:
+                entries = list(os.scandir(parent))
+            except (FileNotFoundError, NotADirectoryError):
+                continue
+            except OSError as exc:
+                raise RuntimeError(
+                    f"无法扫描旧事务隔离目录: {parent}: {exc}"
+                ) from exc
+            candidates.extend(
+                entry.path for entry in entries if pattern.fullmatch(entry.name)
+            )
+
+        assigned = set()
+        assigned_candidates = []
+        for candidate in candidates:
+            if is_link_or_junction(candidate):
+                raise RuntimeError("旧事务隔离对象不能是链接或联接点")
+            matched_roles = []
+            for role, expected in (
+                ("installed", state["stage_identity"]),
+                ("backup", state["target_identity"]),
+            ):
+                try:
+                    cls._assert_quarantine_identity(
+                        candidate, expected, "旧事务隔离对象"
+                    )
+                except RuntimeError:
+                    continue
+                matched_roles.append(role)
+            if not matched_roles:
+                # 同一 v4 多目标事务在共享父目录下使用相同 token；该对象
+                # 可能属于另一 state，交给对应身份的 state 识别。
+                continue
+            if len(matched_roles) != 1:
+                raise RuntimeError("旧事务隔离对象身份不唯一或已变化")
+            role = matched_roles[0]
+            if role in assigned:
+                raise RuntimeError("旧事务存在多个同角色隔离对象")
+            assigned.add(role)
+            paths[role] = candidate
+            assigned_candidates.append(candidate)
+        state["_quarantine_paths"] = paths
+        state["_v4_scanned_candidates"] = candidates
+        state["_v4_assigned_candidates"] = assigned_candidates
+
+    @classmethod
+    def _assert_quarantine_identity(
+        cls, path: str, expected: dict, label: str
+    ):
+        """隔离目录允许上次删除中断后内容减少，但根对象必须仍是原对象。"""
+        current = cls._tree_identity(path)
+        if current == expected:
+            return
+        if (
+            expected.get("kind") == "dir"
+            and current.get("kind") == "dir"
+            and current.get("dev") == expected.get("dev")
+            and current.get("ino") == expected.get("ino")
+        ):
+            return
+        raise RuntimeError(
+            f"{label}的文件系统身份已变化，已停止自动处理: {path}"
+        )
+
+    @classmethod
     def _recovery_state_phase(cls, state: dict) -> str:
         stage_exists = os.path.lexists(state["stage"])
         target_exists = os.path.lexists(state["target"])
         backup_exists = os.path.lexists(state["backup"])
+        quarantines = cls._quarantine_paths(state)
+        stage_quarantine_exists = os.path.lexists(quarantines["stage"])
+        installed_quarantine_exists = os.path.lexists(
+            quarantines["installed"]
+        )
+        backup_quarantine_exists = os.path.lexists(quarantines["backup"])
         if stage_exists:
             cls._assert_identity(
                 state["stage"], state["stage_identity"], "恢复暂存项"
@@ -412,29 +583,105 @@ class FileExporter:
                 state["backup"], state["target_identity"], "恢复备份"
             )
 
-        if state["had_target"]:
-            if stage_exists and not backup_exists and target_exists:
-                cls._assert_identity(
-                    state["target"], state["target_identity"], "恢复正式输出"
+        for exists, role, expected, label in (
+            (
+                stage_quarantine_exists,
+                "stage",
+                state["stage_identity"],
+                "恢复暂存项隔离区",
+            ),
+            (
+                installed_quarantine_exists,
+                "installed",
+                state["stage_identity"],
+                "恢复已安装输出隔离区",
+            ),
+            (
+                backup_quarantine_exists,
+                "backup",
+                state["target_identity"],
+                "恢复旧备份隔离区",
+            ),
+        ):
+            if exists:
+                cls._assert_quarantine_identity(
+                    quarantines[role], expected, label
                 )
-                return "initial"
-            if stage_exists and backup_exists and not target_exists:
-                return "backed_up"
-            if not stage_exists and target_exists:
-                cls._assert_identity(
-                    state["target"], state["stage_identity"], "恢复已安装输出"
+
+        if stage_exists and stage_quarantine_exists:
+            raise RuntimeError("事务暂存项与其隔离区同时存在")
+        if backup_exists and backup_quarantine_exists:
+            raise RuntimeError("旧备份与其隔离区同时存在")
+
+        target_role = "missing"
+        if target_exists:
+            current_target = cls._tree_identity(state["target"])
+            if current_target == state["stage_identity"]:
+                target_role = "new"
+            elif current_target == state["target_identity"]:
+                target_role = "old"
+            else:
+                raise RuntimeError(
+                    "恢复正式输出的文件系统身份或内容元数据已变化，"
+                    f"已停止自动处理: {state['target']}"
                 )
+
+        if backup_quarantine_exists:
+            if (
+                not stage_exists
+                and target_role == "new"
+                and not backup_exists
+                and not stage_quarantine_exists
+                and not installed_quarantine_exists
+            ):
                 return "installed"
+            raise RuntimeError("旧备份隔离状态与事务对象不一致")
+
+        if installed_quarantine_exists:
+            if stage_exists or stage_quarantine_exists:
+                raise RuntimeError("已安装输出隔离时仍存在暂存项")
+            if state["had_target"]:
+                if target_role == "missing" and backup_exists:
+                    return "rollback_target_detached"
+                if target_role == "old" and not backup_exists:
+                    return "rollback_old_restored"
+            elif target_role == "missing" and not backup_exists:
+                return "rollback_old_restored"
+            raise RuntimeError("已安装输出隔离状态与事务对象不一致")
+
+        if stage_quarantine_exists:
+            expected_target_role = "old" if state["had_target"] else "missing"
+            if (
+                not stage_exists
+                and target_role == expected_target_role
+                and not backup_exists
+                and not installed_quarantine_exists
+            ):
+                return "rollback_old_restored"
+            raise RuntimeError("暂存项隔离状态与事务对象不一致")
+
+        if state["had_target"]:
+            if stage_exists and not backup_exists and target_role == "old":
+                return "initial"
+            if stage_exists and backup_exists and target_role == "missing":
+                return "backed_up"
+            if not stage_exists and target_role == "new":
+                return "installed"
+            if (
+                not stage_exists
+                and target_role == "old"
+                and not backup_exists
+            ):
+                return "rolled_back"
         else:
             if backup_exists:
                 raise RuntimeError("无旧目标的事务出现了意外备份")
-            if stage_exists and not target_exists:
+            if stage_exists and target_role == "missing":
                 return "initial"
-            if not stage_exists and target_exists:
-                cls._assert_identity(
-                    state["target"], state["stage_identity"], "恢复已安装输出"
-                )
+            if not stage_exists and target_role == "new":
                 return "installed"
+            if not stage_exists and target_role == "missing":
+                return "rolled_back"
         raise RuntimeError(
             "事务对象的存在状态与日志记录不一致，已保留现场: "
             f"{state['target']}"
@@ -480,14 +727,10 @@ class FileExporter:
         cls,
         path: str,
         expected: dict,
-        token: str,
+        quarantine: str,
         label: str,
         trusted_root: str = "",
     ) -> str:
-        quarantine = os.path.join(
-            os.path.dirname(path),
-            f".comparetool_quarantine_{token}_{uuid.uuid4().hex}",
-        )
         cls._move_verified(
             path,
             quarantine,
@@ -502,27 +745,44 @@ class FileExporter:
         cls,
         path: str,
         expected: dict,
-        token: str,
+        quarantine: str,
         label: str,
         trusted_root: str = "",
     ):
-        quarantine = cls._detach_verified(
-            path,
-            expected,
-            token,
-            label,
-            trusted_root=trusted_root,
+        if os.path.lexists(path):
+            if os.path.lexists(quarantine):
+                raise RuntimeError(
+                    f"{label}与其隔离区同时存在，已保留现场: {path}"
+                )
+            cls._detach_verified(
+                path,
+                expected,
+                quarantine,
+                label,
+                trusted_root=trusted_root,
+            )
+        elif not os.path.lexists(quarantine):
+            return
+        cls._finish_quarantine_delete(
+            quarantine, expected, label, trusted_root=trusted_root
         )
-        try:
-            cls._assert_identity(quarantine, expected, label)
-            cls._remove_path(quarantine)
-        except BaseException:
-            if not os.path.lexists(path) and os.path.lexists(quarantine):
-                try:
-                    os.rename(quarantine, path)
-                except OSError:
-                    pass
-            raise
+
+    @classmethod
+    def _finish_quarantine_delete(
+        cls,
+        quarantine: str,
+        expected: dict,
+        label: str,
+        trusted_root: str = "",
+    ):
+        if not os.path.lexists(quarantine):
+            return
+        if trusted_root:
+            cls._validate_trusted_paths(
+                trusted_root, [quarantine], label
+            )
+        cls._assert_quarantine_identity(quarantine, expected, label)
+        cls._remove_path(quarantine)
 
     @classmethod
     def _rollback_state(
@@ -532,13 +792,15 @@ class FileExporter:
         token: str,
         trusted_root: str = "",
     ):
+        state["_token"] = token
+        quarantines = cls._quarantine_paths(state, token)
         if phase == "installed":
             if state["had_target"] and not os.path.lexists(state["backup"]):
                 raise RuntimeError(f"待回滚输出缺少旧备份: {state['target']}")
             installed_quarantine = cls._detach_verified(
                 state["target"],
                 state["stage_identity"],
-                token,
+                quarantines["installed"],
                 "待回滚已安装输出",
                 trusted_root=trusted_root,
             )
@@ -551,12 +813,12 @@ class FileExporter:
                         "待恢复旧输出备份",
                         trusted_root=trusted_root,
                     )
-                cls._assert_identity(
+                cls._finish_quarantine_delete(
                     installed_quarantine,
                     state["stage_identity"],
                     "待删除已安装输出",
+                    trusted_root=trusted_root,
                 )
-                cls._remove_path(installed_quarantine)
             except BaseException:
                 if (
                     not os.path.lexists(state["target"])
@@ -567,6 +829,31 @@ class FileExporter:
                     except OSError:
                         pass
                 raise
+        elif phase == "rollback_target_detached":
+            if state["had_target"]:
+                cls._move_verified(
+                    state["backup"],
+                    state["target"],
+                    state["target_identity"],
+                    "待恢复旧输出备份",
+                    trusted_root=trusted_root,
+                )
+            cls._finish_quarantine_delete(
+                quarantines["installed"],
+                state["stage_identity"],
+                "待删除已安装输出",
+                trusted_root=trusted_root,
+            )
+        elif phase == "rollback_old_restored":
+            for role in ("installed", "stage"):
+                quarantine = quarantines[role]
+                if os.path.lexists(quarantine):
+                    cls._finish_quarantine_delete(
+                        quarantine,
+                        state["stage_identity"],
+                        "待清理回滚隔离项",
+                        trusted_root=trusted_root,
+                    )
         elif phase == "backed_up":
             cls._move_verified(
                 state["backup"],
@@ -575,11 +862,11 @@ class FileExporter:
                 "待恢复旧输出备份",
                 trusted_root=trusted_root,
             )
-        if os.path.lexists(state["stage"]):
+        if phase != "rolled_back" and os.path.lexists(state["stage"]):
             cls._delete_verified(
                 state["stage"],
                 state["stage_identity"],
-                token,
+                quarantines["stage"],
                 "待清理输出暂存项",
                 trusted_root=trusted_root,
             )
@@ -608,16 +895,24 @@ class FileExporter:
             ],
             "输出事务路径",
         )
-        with cls._transaction_lock(transaction_root, trusted_root=anchor):
+        # 所有暂存物和新事务日志都位于可信输出根，因此锁也提升到该根。
+        # 不同 batch/run 的提交会短暂串行，但不会让一个子目录 junction
+        # 把日志或 stage 引到根外。
+        with cls._transaction_lock(anchor, trusted_root=anchor):
             return cls._replace_outputs_locked(
                 pairs,
                 expected_target_states=expected_target_states,
                 trusted_root=anchor,
+                journal_root=anchor,
             )
 
     @classmethod
     def _replace_outputs_locked(
-        cls, pairs, expected_target_states=None, trusted_root: str = ""
+        cls,
+        pairs,
+        expected_target_states=None,
+        trusted_root: str = "",
+        journal_root: str = "",
     ):
         """成组替换文件或目录；任一步失败时恢复全部原有输出。"""
         token = uuid.uuid4().hex
@@ -671,8 +966,9 @@ class FileExporter:
                 cls._validate_trusted_paths(
                     trusted_root, [target], "输出目标路径"
                 )
+            recovery_root = os.path.abspath(journal_root or trusted_root)
             cls.recover_transactions(
-                transaction_root,
+                recovery_root,
                 raise_on_error=True,
                 protected_stages=[stage for stage, _target in normalized_pairs],
                 acquire_locks=False,
@@ -706,9 +1002,12 @@ class FileExporter:
                     "installed": False,
                     "stage_identity": cls._tree_identity(stage),
                     "target_identity": cls._tree_identity(target),
+                    "_token": token,
                 })
 
-            journal_path = cls._create_transaction_journal(states, token)
+            journal_path = cls._create_transaction_journal(
+                states, token, root=recovery_root
+            )
 
             for state in states:
                 if state["had_target"]:
@@ -777,7 +1076,7 @@ class FileExporter:
                         cls._delete_verified(
                             state["backup"],
                             state["target_identity"],
-                            token,
+                            cls._quarantine_paths(state, token)["backup"],
                             "输出备份",
                             trusted_root=trusted_root,
                         )
@@ -788,10 +1087,12 @@ class FileExporter:
                 cls._remove_journal(journal_path)
 
     @classmethod
-    def _create_transaction_journal(cls, states, token: str) -> str:
+    def _create_transaction_journal(
+        cls, states, token: str, root: str = ""
+    ) -> str:
         """在共同输出根目录写入恢复日志；无安全公共根时仍使用当前进程回滚。"""
         targets = [state["target"] for state in states]
-        root = cls._transaction_root(targets)
+        root = os.path.abspath(root) if root else cls._transaction_root(targets)
         if not root:
             return ""
 
@@ -800,6 +1101,7 @@ class FileExporter:
             root, f"{cls.TRANSACTION_PREFIX}{token}{cls.TRANSACTION_SUFFIX}"
         )
         for state in states:
+            state["_token"] = token
             if "stage_identity" not in state:
                 state["stage_identity"] = cls._tree_identity(state["stage"])
             if "target_identity" not in state:
@@ -817,7 +1119,7 @@ class FileExporter:
             if not is_owned(owner):
                 mark_owned(owner)
         payload = {
-            "version": 4,
+            "version": 5,
             "token": token,
             "states": [
                 {
@@ -1328,7 +1630,8 @@ class FileExporter:
         key = cls._load_transaction_key(root, create=False)
         if not cls._verify_signed_payload(payload, key):
             raise RuntimeError("事务日志缺少有效 HMAC 签名，已保留现场")
-        if payload.get("version") != 4 or not isinstance(payload.get("states"), list):
+        journal_version = payload.get("version")
+        if journal_version not in (4, 5) or not isinstance(payload.get("states"), list):
             raise RuntimeError("事务日志格式不支持")
         if len(payload["states"]) > cls.MAX_TRANSACTION_STATES:
             raise RuntimeError("事务日志状态过多")
@@ -1361,15 +1664,21 @@ class FileExporter:
                 real_inside = False
             stage_name = os.path.basename(stage)
             stage_parent_name = os.path.basename(os.path.dirname(stage))
+            stage_prefixes = (
+                ".comparetool_stage_",
+                ".comparetool_report_",
+                ".comparetool_delivery_",
+            )
             valid_stage_layout = (
                 os.path.dirname(stage) == os.path.dirname(target) and
-                stage_name.startswith((
-                    ".comparetool_stage_",
-                    ".comparetool_report_",
-                    ".comparetool_delivery_",
-                ))
+                stage_name.startswith(stage_prefixes)
+            ) or (
+                os.path.normcase(os.path.dirname(stage)) == os.path.normcase(root)
+                and stage_name.startswith(stage_prefixes)
             ) or (
                 stage_parent_name.startswith(".comparetool_stage_") and
+                os.path.normcase(os.path.dirname(os.path.dirname(stage))) ==
+                os.path.normcase(root) and
                 os.path.normcase(stage_name).casefold() ==
                 os.path.normcase(os.path.basename(target)).casefold()
             )
@@ -1402,14 +1711,41 @@ class FileExporter:
                 or (target_identity.get("kind") != "missing") != had_target
             ):
                 raise RuntimeError("事务对象身份记录无效")
-            states.append({
+            state = {
                 "stage": stage,
                 "target": target,
                 "backup": backup,
                 "had_target": had_target,
                 "stage_identity": stage_identity,
                 "target_identity": target_identity,
-            })
+                "_token": token,
+                "_journal_version": journal_version,
+            }
+            if journal_version == 4:
+                cls._discover_v4_quarantines(state, token)
+            quarantine_paths = cls._quarantine_paths(state, token)
+            try:
+                for role, path in quarantine_paths.items():
+                    ensure_no_link_components(
+                        anchor, path, f"事务隔离路径({role})"
+                    )
+            except ValueError as exc:
+                raise RuntimeError(str(exc)) from exc
+            states.append(state)
+
+        if journal_version == 4:
+            scanned = {
+                os.path.normcase(os.path.abspath(path)): path
+                for state in states
+                for path in state.get("_v4_scanned_candidates", [])
+            }
+            claims = {}
+            for state in states:
+                for path in state.get("_v4_assigned_candidates", []):
+                    key_path = os.path.normcase(os.path.abspath(path))
+                    claims[key_path] = claims.get(key_path, 0) + 1
+            if any(claims.get(key_path, 0) != 1 for key_path in scanned):
+                raise RuntimeError("旧事务隔离对象身份无法唯一归属")
 
         commit_marker = cls._read_decision_marker(
             journal_path, token, "commit", key
@@ -1432,8 +1768,15 @@ class FileExporter:
                     cls._delete_verified(
                         state["backup"],
                         state["target_identity"],
-                        token,
+                        cls._quarantine_paths(state, token)["backup"],
                         "恢复事务旧备份",
+                        trusted_root=anchor,
+                    )
+                else:
+                    cls._finish_quarantine_delete(
+                        cls._quarantine_paths(state, token)["backup"],
+                        state["target_identity"],
+                        "恢复事务旧备份隔离区",
                         trusted_root=anchor,
                     )
         else:

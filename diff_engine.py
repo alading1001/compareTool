@@ -938,11 +938,13 @@ class DiffEngine:
             (
                 old_normalized.endswith("\n")
                 and not new_normalized.endswith("\n")
+                and bool(old_normalized[:-1])
                 and old_normalized[:-1] == new_normalized
             )
             or (
                 new_normalized.endswith("\n")
                 and not old_normalized.endswith("\n")
+                and bool(new_normalized[:-1])
                 and new_normalized[:-1] == old_normalized
             )
         )
