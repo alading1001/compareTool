@@ -134,6 +134,9 @@ class FormatChangeTests(unittest.TestCase):
         self.assertIn('type: "F"', rendered)
         self.assertIn("格式变化文件", rendered)
         self.assertIn("仅格式变化，文字内容无变化", rendered)
+        self.assertIn('class="flt f on"', rendered)
+        for absent_type in ("a", "m", "d", "r"):
+            self.assertNotIn(f'class="flt {absent_type} on"', rendered)
 
     def test_multi_report_uses_format_display_type(self):
         result = self.generate("中文".encode("gbk"), "中文".encode("utf-8"))
@@ -151,6 +154,52 @@ class FormatChangeTests(unittest.TestCase):
 
         self.assertIn('type: "F"', rendered)
         self.assertIn("格式变化文件", rendered)
+        self.assertIn('class="flt f on"', rendered)
+        for absent_type in ("a", "m", "d", "r"):
+            self.assertNotIn(f'class="flt {absent_type} on"', rendered)
+
+    def test_filter_buttons_only_show_change_types_present_in_report(self):
+        summary = {
+            "project_count": 1,
+            "total_files": 6,
+            "added_files": 1,
+            "modified_files": 2,
+            "format_changed_files": 0,
+            "deleted_files": 1,
+            "required_directory_deletions": 0,
+            "renamed_files": 2,
+            "total_added_lines": 0,
+            "total_deleted_lines": 0,
+            "skipped_line_count_files": 0,
+            "report_omitted_files": 0,
+            "manifest_listed_files": 6,
+            "manifest_omitted_files": 0,
+        }
+        generator = ReportGenerator()
+        single = generator.env.get_template("report.html").render(
+            project_name="demo",
+            project_path="demo",
+            vcs_type="FakeVCS",
+            old_version="old",
+            new_version="new",
+            summary=summary,
+            files=[],
+            manifest_files=[],
+            show_project_root=True,
+            generated_at="2026-08-28 00:00:00",
+        )
+        multi = generator.env.get_template("multi_report.html").render(
+            summary=summary,
+            projects=[],
+            manifest_entries=[],
+            generated_at="2026-08-28 00:00:00",
+        )
+
+        for rendered in (single, multi):
+            self.assertIn('class="flt all on"', rendered)
+            for present_type in ("a", "m", "d", "r"):
+                self.assertIn(f'class="flt {present_type} on"', rendered)
+            self.assertNotIn('class="flt f on"', rendered)
 
     def test_format_only_file_is_still_exported_as_modified(self):
         vcs = FakeVCS("中文".encode("gbk"), "中文".encode("utf-8"))

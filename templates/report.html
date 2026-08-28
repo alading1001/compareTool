@@ -161,11 +161,21 @@ table.diff span { white-space: pre; }
         </div>
         <div class="filter-bar">
             <span class="flt all on" onclick="setFilter('all')">全部</span>
+{% if summary.added_files %}
             <span class="flt a on" onclick="toggleFilter('A', this)">新增</span>
+{% endif %}
+{% if summary.modified_files %}
             <span class="flt m on" onclick="toggleFilter('M', this)">修改</span>
+{% endif %}
+{% if summary.format_changed_files %}
             <span class="flt f on" onclick="toggleFilter('F', this)">格式变化</span>
+{% endif %}
+{% if summary.deleted_files %}
             <span class="flt d on" onclick="toggleFilter('D', this)">删除</span>
+{% endif %}
+{% if summary.renamed_files %}
             <span class="flt r on" onclick="toggleFilter('R', this)">重命名</span>
+{% endif %}
             <span style="font-size:10px;color:#bbb;margin-left:4px;">点击标签过滤，支持任意组合</span>
         </div>
         <div id="tree"></div>
@@ -174,9 +184,9 @@ table.diff span { white-space: pre; }
     <div class="main">
         <div class="diff-toolbar" id="diffNavBar">
             <span class="diff-toolbar-title" id="diffNavTitle"></span>
-            <button type="button" id="prevDiffBtn" onclick="jumpDiff(-1)">上一处</button>
+            <button type="button" id="prevDiffBtn" onclick="jumpDiff(-1, event)">上一处</button>
             <span class="diff-nav-count" id="diffCounter">0/0</span>
-            <button type="button" id="nextDiffBtn" onclick="jumpDiff(1)">下一处</button>
+            <button type="button" id="nextDiffBtn" onclick="jumpDiff(1, event)">下一处</button>
         </div>
         <div class="empty-state" id="emptyState">
             <span>← 点击左侧文件查看差异详情</span>
@@ -369,6 +379,9 @@ function showDiff(file) {
 
     var panel = document.createElement('div');
     panel.className = 'diff-panel active';
+    panel.tabIndex = -1;
+    panel.setAttribute('aria-label', '代码差异详情，使用左右方向键横向滚动');
+    panel.addEventListener('keydown', handleDiffHorizontalKeydown);
 
     var header = document.createElement('div');
     header.className = 'diff-file-header';
@@ -446,7 +459,30 @@ function setDiffNavTitle(title) {
     if (titleEl) titleEl.textContent = title || '';
 }
 
-function jumpDiff(direction) {
+function handleDiffHorizontalKeydown(event) {
+    if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    var direction = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0;
+    if (!direction) return;
+    var panel = event.currentTarget;
+    if (!panel || panel.scrollWidth <= panel.clientWidth) return;
+    event.preventDefault();
+    panel.scrollBy({ left: direction * 80, behavior: 'auto' });
+}
+
+function focusCurrentDiffPanel(triggerEvent) {
+    // 鼠标点击定位按钮后，按钮只是一次性命令；把后续方向键交给实际滚动的差异面板。
+    // 键盘触发 click 时 detail 为 0，保留按钮焦点，便于继续用 Enter/空格定位。
+    if (!triggerEvent || triggerEvent.detail === 0) return;
+    var panel = document.querySelector('.diff-panel.active');
+    if (!panel) return;
+    try {
+        panel.focus({preventScroll: true});
+    } catch (error) {
+        panel.focus();
+    }
+}
+
+function jumpDiff(direction, triggerEvent) {
     if (!currentDiffGroups.length) return;
     if (currentDiffIndex < 0) {
         currentDiffIndex = direction < 0 ? currentDiffGroups.length - 1 : 0;
@@ -454,6 +490,7 @@ function jumpDiff(direction) {
         currentDiffIndex = (currentDiffIndex + direction + currentDiffGroups.length) % currentDiffGroups.length;
     }
     scrollToCurrentDiff();
+    focusCurrentDiffPanel(triggerEvent);
 }
 
 function scrollToCurrentDiff() {

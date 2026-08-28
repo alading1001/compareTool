@@ -455,6 +455,30 @@ class DiffFidelityTests(unittest.TestCase):
         ):
             self.assertGreater(source.index(declaration), script_start)
 
+    def test_pointer_diff_navigation_hands_arrow_keys_to_diff_panel(self):
+        generator = ReportGenerator()
+        for template_name in ("report.html", "multi_report.html"):
+            with self.subTest(template=template_name):
+                source, _filename, _uptodate = generator.env.loader.get_source(
+                    generator.env, template_name
+                )
+                self.assertIn('onclick="jumpDiff(-1, event)"', source)
+                self.assertIn('onclick="jumpDiff(1, event)"', source)
+                self.assertIn("panel.tabIndex = -1;", source)
+                self.assertIn(
+                    "panel.addEventListener('keydown', handleDiffHorizontalKeydown);",
+                    source,
+                )
+                self.assertIn("triggerEvent.detail === 0", source)
+                self.assertIn("panel.focus({preventScroll: true});", source)
+                self.assertIn("event.key === 'ArrowLeft'", source)
+                self.assertIn("event.key === 'ArrowRight'", source)
+                self.assertIn("event.preventDefault();", source)
+                self.assertIn(
+                    "panel.scrollBy({ left: direction * 80, behavior: 'auto' });",
+                    source,
+                )
+
 
 class VCSHardeningTests(unittest.TestCase):
     def test_git_diff_and_later_reads_share_pinned_commit_ids(self):
