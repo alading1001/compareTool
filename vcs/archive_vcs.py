@@ -27,6 +27,8 @@ class ArchiveVCS(BaseVCS):
     MAX_TAR_METADATA_RECORDS = 4096
     MAX_TAR_PAX_FIELDS = 4096
     MAX_ZIP_CENTRAL_DIRECTORY_BYTES = 256 * 1024 * 1024
+    MAX_ARCHIVE_SOURCE_BYTES = 20 * 1024 * 1024 * 1024
+    MIN_WORKING_FREE_BYTES = 1024 * 1024 * 1024
 
     _ZIP_EOCD_SIGNATURE = b"PK\x05\x06"
     _ZIP64_EOCD_SIGNATURE = b"PK\x06\x06"
@@ -45,8 +47,17 @@ class ArchiveVCS(BaseVCS):
         self._new_metadata = {}
         try:
             self._tmp_archive_sources = create_temp_dir(prefix="cmp_old_archive_")
-            old_snapshot = self._snapshot_archive(old_archive, "old")
-            new_snapshot = self._snapshot_archive(new_archive, "new")
+            old_capture = self._capture_archive_source(old_archive)
+            new_capture = self._capture_archive_source(new_archive)
+            source_bytes = old_capture["size"] + new_capture["size"]
+            if source_bytes > self.MAX_ARCHIVE_SOURCE_BYTES:
+                raise RuntimeError(
+                    f"压缩包源文件总大小超过上限: {source_bytes} > "
+                    f"{self.MAX_ARCHIVE_SOURCE_BYTES}"
+                )
+            self._ensure_free_space(self._tmp_archive_sources, source_bytes)
+            old_snapshot = self._snapshot_archive(old_capture, "old")
+            new_snapshot = self._snapshot_archive(new_capture, "new")
             self._tmp_old = create_temp_dir(prefix="cmp_old_")
             self._tmp_new = create_temp_dir(prefix="cmp_new_")
             self._extract(old_snapshot, self._tmp_old, self._old_metadata)
@@ -87,8 +98,7 @@ class ArchiveVCS(BaseVCS):
             getattr(metadata, "st_mtime_ns", int(metadata.st_mtime * 1_000_000_000)),
         )
 
-    def _snapshot_archive(self, source: str, label: str) -> str:
-        """把用户选择的归档固定为自有快照，避免预检与解压读到不同文件。"""
+    def _capture_archive_source(self, source: str) -> dict:
         source = os.path.abspath(source)
         if is_link_or_junction(source):
             raise RuntimeError(f"不允许将符号链接或联接点作为压缩包源: {source}")
@@ -98,6 +108,25 @@ class ArchiveVCS(BaseVCS):
             raise RuntimeError(f"无法读取压缩包源: {source}: {exc}") from exc
         if not stat.S_ISREG(path_before.st_mode):
             raise RuntimeError(f"压缩包源不是普通文件: {source}")
+        return {
+            "path": source,
+            "signature": self._path_stat_signature(path_before),
+            "size": path_before.st_size,
+        }
+
+    def _snapshot_archive(self, capture: dict, label: str) -> str:
+        """按两端复制前共同捕获的身份快照固定归档源。"""
+        source = capture["path"]
+        expected_signature = capture["signature"]
+        try:
+            path_before = os.stat(source, follow_symlinks=False)
+        except OSError as exc:
+            raise RuntimeError(f"无法读取压缩包源: {source}: {exc}") from exc
+        if (
+            is_link_or_junction(source)
+            or self._path_stat_signature(path_before) != expected_signature
+        ):
+            raise RuntimeError(f"压缩包源在成对捕获后发生变化，已中止: {source}")
 
         target = os.path.join(
             self._tmp_archive_sources,
@@ -136,6 +165,15 @@ class ArchiveVCS(BaseVCS):
             raise RuntimeError(f"压缩包源在快照期间发生变化，已中止: {source}")
         return target
 
+    def _ensure_free_space(self, path: str, payload_bytes: int):
+        free_bytes = shutil.disk_usage(path).free
+        required = payload_bytes + self.MIN_WORKING_FREE_BYTES
+        if free_bytes < required:
+            raise RuntimeError(
+                "压缩包任务可用磁盘空间不足，已中止生成: "
+                f"需要至少 {required} 字节，当前 {free_bytes} 字节"
+            )
+
     @staticmethod
     def _is_zip(path: str) -> bool:
         return path.lower().endswith(('.zip', '.jar', '.war', '.ear', '.aar'))
@@ -160,10 +198,11 @@ class ArchiveVCS(BaseVCS):
         self._preflight_zip(path)
         with zipfile.ZipFile(path, 'r') as zf:
             members = zf.infolist()
-            self._validate_archive_limits(
+            total_size = self._validate_archive_limits(
                 path,
                 [(info.filename, info.file_size, info.compress_size, info.is_dir()) for info in members],
             )
+            self._ensure_free_space(dest, total_size)
             decoded_members = [
                 (info, self._fix_zip_filename(info)) for info in members
             ]
@@ -208,11 +247,12 @@ class ArchiveVCS(BaseVCS):
         with tarfile.open(path, mode) as tf:
             members = tf.getmembers()
             archive_size = max(os.path.getsize(path), 1)
-            self._validate_archive_limits(
+            total_size = self._validate_archive_limits(
                 path,
                 [(member.name, member.size, archive_size, member.isdir()) for member in members],
                 check_member_ratio=False,
             )
+            self._ensure_free_space(dest, total_size)
             self._validate_archive_targets(
                 dest,
                 [(member.name, member.isdir()) for member in members],
@@ -655,6 +695,7 @@ class ArchiveVCS(BaseVCS):
                     raise ValueError(
                         f"压缩包成员展开比例过高，已拒绝解压: {name} ({ratio:.0f}:1)"
                     )
+        return total_size
 
     @staticmethod
     def _fix_zip_filename(info: zipfile.ZipInfo) -> str:

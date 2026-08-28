@@ -93,3 +93,25 @@ def is_link_or_junction(path: str) -> bool:
         getattr(stat, "IO_REPARSE_TAG_SYMLINK", 0xA000000C),
         getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", 0xA0000003),
     }
+
+
+def ensure_no_link_components(root: str, path: str, label: str = "路径") -> None:
+    """确认 root 到 path 的所有现存组件都不是链接、联接点或挂载点。"""
+    root = os.path.abspath(root)
+    path = os.path.abspath(path)
+    try:
+        inside = os.path.normcase(os.path.commonpath([root, path])) == os.path.normcase(root)
+    except ValueError:
+        inside = False
+    if not inside:
+        raise ValueError(f"{label}越出事务根: {path}")
+
+    current = root
+    components = [] if os.path.normcase(path) == os.path.normcase(root) else os.path.relpath(
+        path, root
+    ).split(os.sep)
+    for component in [""] + components:
+        if component:
+            current = os.path.join(current, component)
+        if os.path.lexists(current) and is_link_or_junction(current):
+            raise ValueError(f"{label}祖先包含符号链接或联接点: {current}")

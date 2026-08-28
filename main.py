@@ -1948,6 +1948,12 @@ class CompareToolApp:
                 [old_export, new_export],
                 [report_path, instruction_target],
             )
+            expected_target_states = FileExporter.capture_target_states([
+                FileExporter._safe_join(old_export, project_name),
+                FileExporter._safe_join(new_export, project_name),
+                report_path,
+                instruction_target,
+            ])
             info(f"=== 开始生成比对报告 ===")
             info(f"project_path={project_path}, vcs_type={vcs_type}, old={old_version}, new={new_version}")
 
@@ -2025,10 +2031,13 @@ class CompareToolApp:
                     [{"project_name": project_name, "diff_result": diff_result}],
                     instruction_target,
                 )
-                FileExporter._replace_outputs(export_pairs + [
-                    (report_stage, report_path),
-                    (instruction_stage, instruction_target),
-                ])
+                FileExporter._replace_outputs(
+                    export_pairs + [
+                        (report_stage, report_path),
+                        (instruction_stage, instruction_target),
+                    ],
+                    expected_target_states=expected_target_states,
+                )
             finally:
                 FileExporter.cleanup_stages(export_pairs)
                 FileExporter._cleanup_stage(report_stage)
@@ -2067,6 +2076,12 @@ class CompareToolApp:
                 [old_export, new_export],
                 [report_path, instruction_target],
             )
+            expected_target_states = FileExporter.capture_target_states([
+                old_export,
+                new_export,
+                report_path,
+                instruction_target,
+            ])
             info("=== 开始生成多项目总报告 ===")
             report_budget = {}
             for idx, task in enumerate(tasks, start=1):
@@ -2108,7 +2123,10 @@ class CompareToolApp:
                 (report_stage, report_path),
                 (instruction_stage, instruction_target),
             ]
-            FileExporter._replace_outputs(export_pairs)
+            FileExporter._replace_outputs(
+                export_pairs,
+                expected_target_states=expected_target_states,
+            )
 
             summary = ReportGenerator._multi_summary(project_results)
             info(f"=== 多项目完成: {summary} ===")

@@ -59,9 +59,29 @@ class DiffResult:
     files: List[FileDiff] = field(default_factory=list)
     required_directory_deletions: List[str] = field(default_factory=list)
 
+    MAX_REPORT_MANIFEST_FILES = 100_000
+    MAX_REPORT_MANIFEST_PATH_BYTES = 20 * 1024 * 1024
+
     @property
     def report_files(self) -> List[FileDiff]:
         return [item for item in self.files if not item.report_detail_omitted]
+
+    @property
+    def report_manifest_files(self) -> List[FileDiff]:
+        selected = []
+        path_bytes = 0
+        for item in self.files:
+            item_bytes = len(item.file_path.encode("utf-8", errors="replace"))
+            if item.old_path:
+                item_bytes += len(item.old_path.encode("utf-8", errors="replace"))
+            if (
+                len(selected) >= self.MAX_REPORT_MANIFEST_FILES
+                or path_bytes + item_bytes > self.MAX_REPORT_MANIFEST_PATH_BYTES
+            ):
+                break
+            selected.append(item)
+            path_bytes += item_bytes
+        return selected
 
     @property
     def summary(self) -> Dict:
@@ -81,6 +101,7 @@ class DiffResult:
         report_omitted_files = sum(
             1 for f in self.files if f.report_detail_omitted
         )
+        manifest_listed_files = len(self.report_manifest_files)
         return {
             "total_files": len(self.files),
             "added_files": added,
@@ -94,6 +115,8 @@ class DiffResult:
             "line_counts_complete": skipped_line_count_files == 0,
             "skipped_line_count_files": skipped_line_count_files,
             "report_omitted_files": report_omitted_files,
+            "manifest_listed_files": manifest_listed_files,
+            "manifest_omitted_files": len(self.files) - manifest_listed_files,
         }
 
 
@@ -113,8 +136,9 @@ class DiffEngine:
     MAX_TEXT_DIFF_BYTES = 5 * 1024 * 1024
     MAX_TEXT_DIFF_LINES = 10_000
     MAX_TEXT_DIFF_LINE_BYTES = 64 * 1024
-    MAX_TEXT_DIFF_LINE_PRODUCT = 25_000_000
+    MAX_TEXT_DIFF_LINE_PRODUCT = 4_000_000
     MAX_TEXT_DIFF_CHARACTER_PRODUCT = 25_000_000
+    MAX_TEXT_DIFF_COMBINED_WORK = 50_000_000
     MAX_REPORT_TEXT_BYTES = 50 * 1024 * 1024
     MAX_REPORT_TEXT_LINES = 100_000
     MAX_REPORT_RENDER_ROWS = 60_000
@@ -155,41 +179,10 @@ class DiffEngine:
         if getattr(self.vcs, "merge_exact_renames", True):
             changed_files = self._merge_exact_renames(changed_files, old_version, new_version)
 
-        old_removed_paths = [
-            item.old_path or item.path
-            for item in changed_files
-            if item.change_type in (ChangeType.DELETED, ChangeType.RENAMED)
-        ]
-        new_file_paths = [
-            item.path for item in changed_files
-            if item.change_type in (ChangeType.ADDED, ChangeType.RENAMED)
-        ]
-        required_directories = {
-            directory
-            for directory in (
-                getattr(self.vcs, "required_directory_deletions", []) or []
-            )
-            if any(
-                new_path.casefold() == directory.casefold()
-                or directory.casefold().startswith(
-                    new_path.rstrip("/").casefold() + "/"
-                )
-                for new_path in new_file_paths
-            )
-        }
-        for new_path in new_file_paths:
-            prefix = new_path.rstrip("/").casefold() + "/"
-            matching_old = next(
-                (
-                    old_path for old_path in old_removed_paths
-                    if old_path.casefold().startswith(prefix)
-                ),
-                "",
-            )
-            if matching_old:
-                old_parts = matching_old.split("/")
-                new_depth = len(new_path.rstrip("/").split("/"))
-                required_directories.add("/".join(old_parts[:new_depth]))
+        required_directories = self._infer_required_directory_deletions(
+            changed_files,
+            getattr(self.vcs, "required_directory_deletions", []) or [],
+        )
 
         result = DiffResult(
             project_path=self.vcs.project_path,
@@ -247,9 +240,9 @@ class DiffEngine:
 
         endpoint_sizes = []
         if cf.change_type != ChangeType.ADDED:
-            endpoint_sizes.append(self._get_file_size(old_version, old_path))
+            endpoint_sizes.append(self._get_file_raw_size(old_version, old_path))
         if cf.change_type != ChangeType.DELETED:
-            endpoint_sizes.append(self._get_file_size(new_version, cf.path))
+            endpoint_sizes.append(self._get_file_raw_size(new_version, cf.path))
         known_sizes = [size for size in endpoint_sizes if size is not None]
         if self._has_reliable_file_size() and len(known_sizes) != len(endpoint_sizes):
             raise RuntimeError(
@@ -267,6 +260,20 @@ class DiffEngine:
             old_raw = self._get_raw_bytes(old_version, old_path)
         if cf.change_type != ChangeType.DELETED:
             new_raw = self._get_raw_bytes(new_version, cf.path)
+        expected_raw = []
+        if cf.change_type != ChangeType.ADDED:
+            expected_raw.append(("旧版本", old_path, old_raw, endpoint_sizes[0]))
+        if cf.change_type != ChangeType.DELETED:
+            size_index = 0 if cf.change_type == ChangeType.ADDED else 1
+            expected_raw.append(("新版本", cf.path, new_raw, endpoint_sizes[size_index]))
+        for label, path, data, expected_size in expected_raw:
+            if data is None:
+                raise RuntimeError(f"无法读取{label}原始字节，已中止生成: {path}")
+            if expected_size is not None and len(data) != expected_size:
+                raise RuntimeError(
+                    f"{label}文件大小与读取字节不一致，已中止生成: "
+                    f"{path} ({expected_size} != {len(data)})"
+                )
         raw_values = [data for data in (old_raw, new_raw) if data is not None]
         if any(len(data) > self.MAX_TEXT_DIFF_BYTES for data in raw_values):
             file_diff.side_by_side_html = self._large_file_placeholder(cf, raw_values)
@@ -324,6 +331,18 @@ class DiffEngine:
 
         old_line_count = self._line_count_for_budget(old_raw)
         new_line_count = self._line_count_for_budget(new_raw)
+        combined_work = self._combined_diff_work(old_raw, new_raw)
+        if combined_work > self.MAX_TEXT_DIFF_COMBINED_WORK:
+            file_diff.side_by_side_html = self._complexity_placeholder(
+                cf,
+                (
+                    f"行对与行内字符组合工作量 {combined_work:,} 超过计算上限 "
+                    f"{self.MAX_TEXT_DIFF_COMBINED_WORK:,}"
+                ),
+            )
+            file_diff.line_counts_complete = False
+            self._prepend_metadata(file_diff)
+            return file_diff
         character_product = self._character_diff_product(old_raw, new_raw)
         if character_product > self.MAX_TEXT_DIFF_CHARACTER_PRODUCT:
             file_diff.side_by_side_html = self._complexity_placeholder(
@@ -512,6 +531,71 @@ class DiffEngine:
         paired_lines = min(len(old_lines), len(new_lines))
         return old_longest * new_longest * paired_lines
 
+    @classmethod
+    def _combined_diff_work(
+        cls, old_data: Optional[bytes], new_data: Optional[bytes]
+    ) -> int:
+        """限制 Differ 枚举行对后再执行行内比较的组合成本。"""
+        if old_data is None or new_data is None:
+            return 0
+        old_lines = old_data.splitlines()
+        new_lines = new_data.splitlines()
+        if not old_lines or not new_lines:
+            return 0
+        longest = max(
+            max((len(line) for line in old_lines), default=0),
+            max((len(line) for line in new_lines), default=0),
+            1,
+        )
+        return len(old_lines) * len(new_lines) * longest
+
+    @staticmethod
+    def _infer_required_directory_deletions(
+        changed_files: List[ChangedFile], declared_directories
+    ) -> List[str]:
+        old_removed_paths = [
+            (item.old_path or item.path).replace("\\", "/")
+            for item in changed_files
+            if item.change_type in (ChangeType.DELETED, ChangeType.RENAMED)
+        ]
+        new_file_paths = [
+            item.path.replace("\\", "/")
+            for item in changed_files
+            if item.change_type in (ChangeType.ADDED, ChangeType.RENAMED)
+        ]
+        new_path_keys = {path.rstrip("/").casefold() for path in new_file_paths}
+        required = set()
+        for directory in declared_directories:
+            parts = directory.replace("\\", "/").strip("/").split("/")
+            prefix = []
+            for part in parts:
+                prefix.append(part)
+                if "/".join(prefix).casefold() in new_path_keys:
+                    required.add(directory)
+                    break
+
+        trie = {"children": {}, "descendant": ""}
+        for old_path in old_removed_paths:
+            node = trie
+            old_parts = old_path.strip("/").split("/")
+            for index, part in enumerate(old_parts):
+                node = node["children"].setdefault(
+                    part.casefold(), {"children": {}, "descendant": ""}
+                )
+                if index < len(old_parts) - 1 and not node["descendant"]:
+                    node["descendant"] = old_path
+        for new_path in new_file_paths:
+            parts = new_path.strip("/").split("/")
+            node = trie
+            for part in parts:
+                node = node["children"].get(part.casefold())
+                if node is None:
+                    break
+            if node is not None and node["descendant"]:
+                old_parts = node["descendant"].split("/")
+                required.add("/".join(old_parts[:len(parts)]))
+        return sorted(required)
+
     def _reserve_report_entry(self, cf: ChangedFile) -> str:
         path_bytes = len(cf.path.encode("utf-8", errors="replace"))
         if cf.old_path:
@@ -548,6 +632,16 @@ class DiffEngine:
         getter = getattr(self.vcs, "get_file_size", None)
         if getter is None:
             return None
+        try:
+            size = getter(version, file_path)
+        except (OSError, RuntimeError, ValueError):
+            return None
+        return size if isinstance(size, int) and size >= 0 else None
+
+    def _get_file_raw_size(self, version: str, file_path: str) -> Optional[int]:
+        getter = getattr(self.vcs, "get_file_raw_size", None)
+        if getter is None:
+            return self._get_file_size(version, file_path)
         try:
             size = getter(version, file_path)
         except (OSError, RuntimeError, ValueError):

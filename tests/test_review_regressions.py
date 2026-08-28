@@ -542,11 +542,12 @@ class ExportTransactionRegressionTests(unittest.TestCase):
             write_text(victim, "must survive")
             token = "e" * 32
             stage = os.path.join(output, ".comparetool_report_abcdefgh.html")
+            write_text(stage, "staged")
             state = {
                 "stage": stage,
                 "target": victim,
                 "backup": f"{victim}.comparetool_backup_{token}",
-                "had_target": False,
+                "had_target": True,
                 "installed": False,
             }
             journal = FileExporter._create_transaction_journal([state], token)

@@ -150,6 +150,10 @@ class BaseVCS(ABC):
         """返回端点文件字节数；无法低成本确定时返回 None。"""
         return None
 
+    def get_file_raw_size(self, version: str, file_path: str) -> Optional[int]:
+        """返回仓库原始字节数；默认与导出端点大小一致。"""
+        return self.get_file_size(version, file_path)
+
     def get_file_signature(self, version: str, file_path: str):
         """返回可跨端点比较的 (size, digest)；正式 VCS 应分块实现。"""
         return None

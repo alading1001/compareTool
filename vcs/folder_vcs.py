@@ -14,6 +14,11 @@ from logger import warn
 class FolderVCS(BaseVCS):
     """文件夹直接比对实现"""
 
+    MAX_SNAPSHOT_FILES = 100_000
+    MAX_SNAPSHOT_ENTRIES = 200_000
+    MAX_SNAPSHOT_TOTAL_BYTES = 20 * 1024 * 1024 * 1024
+    MIN_SNAPSHOT_FREE_BYTES = 1024 * 1024 * 1024
+
     def __init__(self, old_dir: str, new_dir: str, snapshot: bool = True):
         source_old = os.path.realpath(os.path.abspath(old_dir))
         source_new = os.path.realpath(os.path.abspath(new_dir))
@@ -44,11 +49,33 @@ class FolderVCS(BaseVCS):
             if self._snapshotted:
                 return
             try:
+                # 两端都先固定身份和路径集合，再开始复制，避免复制旧端期间
+                # 新端新增/替换的文件被悄悄纳入同一次任务。
+                old_capture = self._capture_directory(self.source_old_dir)
+                new_capture = self._capture_directory(self.source_new_dir)
+                total_files = len(old_capture["files"]) + len(new_capture["files"])
+                total_bytes = old_capture["total_bytes"] + new_capture["total_bytes"]
+                if total_files > self.MAX_SNAPSHOT_FILES:
+                    raise RuntimeError(
+                        f"文件夹快照文件数超过上限: {total_files} > "
+                        f"{self.MAX_SNAPSHOT_FILES}"
+                    )
+                if total_bytes > self.MAX_SNAPSHOT_TOTAL_BYTES:
+                    raise RuntimeError(
+                        f"文件夹快照总字节数超过上限: {total_bytes} > "
+                        f"{self.MAX_SNAPSHOT_TOTAL_BYTES}"
+                    )
                 old_snapshot = self._snapshot_directory(
-                    self.source_old_dir, "comparetool_folder_old_"
+                    self.source_old_dir,
+                    "comparetool_folder_old_",
+                    old_capture,
+                    total_bytes,
                 )
                 new_snapshot = self._snapshot_directory(
-                    self.source_new_dir, "comparetool_folder_new_"
+                    self.source_new_dir,
+                    "comparetool_folder_new_",
+                    new_capture,
+                    new_capture["total_bytes"],
                 )
             except BaseException:
                 self.cleanup()
@@ -90,10 +117,20 @@ class FolderVCS(BaseVCS):
                     # 保留目录拓扑以正确识别“目录被文件替换”，但不进入或复制其内容。
                     directories.add(rel)
                     dirnames.remove(name)
+                    if len(files) + len(directories) > self.MAX_SNAPSHOT_ENTRIES:
+                        raise RuntimeError(
+                            "文件夹快照目录和文件条目数超过上限: "
+                            f"{self.MAX_SNAPSHOT_ENTRIES}"
+                        )
                     continue
                 if is_link_or_junction(full):
                     raise RuntimeError(f"比对目录包含符号链接或联接点，已拒绝读取: {full}")
                 directories.add(rel)
+                if len(files) + len(directories) > self.MAX_SNAPSHOT_ENTRIES:
+                    raise RuntimeError(
+                        "文件夹快照目录和文件条目数超过上限: "
+                        f"{self.MAX_SNAPSHOT_ENTRIES}"
+                    )
             for f in filenames:
                 full = os.path.join(dirpath, f)
                 rel = os.path.relpath(full, root).replace("\\", "/")
@@ -102,6 +139,15 @@ class FolderVCS(BaseVCS):
                 if is_link_or_junction(full):
                     raise RuntimeError(f"比对目录包含符号链接，已拒绝读取: {full}")
                 files.add(rel)
+                if len(files) > self.MAX_SNAPSHOT_FILES:
+                    raise RuntimeError(
+                        f"文件夹快照文件数超过上限: {self.MAX_SNAPSHOT_FILES}"
+                    )
+                if len(files) + len(directories) > self.MAX_SNAPSHOT_ENTRIES:
+                    raise RuntimeError(
+                        "文件夹快照目录和文件条目数超过上限: "
+                        f"{self.MAX_SNAPSHOT_ENTRIES}"
+                    )
         return files, directories
 
     @staticmethod
@@ -144,7 +190,7 @@ class FolderVCS(BaseVCS):
             raise RuntimeError(f"比对源目录在快照期间被替换: {path}")
         return metadata.st_dev, metadata.st_ino
 
-    def _snapshot_directory(self, source: str, prefix: str) -> str:
+    def _capture_directory(self, source: str) -> dict:
         root_identity = self._directory_identity(source)
         files, directories = self._walk_tree(source, apply_excludes=True)
         initial_directory_identities = {
@@ -159,8 +205,38 @@ class FolderVCS(BaseVCS):
             )
             for relative_path in files
         }
+        return {
+            "root_identity": root_identity,
+            "files": files,
+            "directories": directories,
+            "directory_identities": initial_directory_identities,
+            "file_signatures": initial_file_signatures,
+            "total_bytes": sum(
+                signature[2] for signature in initial_file_signatures.values()
+            ),
+        }
+
+    def _snapshot_directory(
+        self,
+        source: str,
+        prefix: str,
+        capture: dict,
+        required_free_bytes: int,
+    ) -> str:
+        root_identity = capture["root_identity"]
+        files = capture["files"]
+        directories = capture["directories"]
+        initial_directory_identities = capture["directory_identities"]
+        initial_file_signatures = capture["file_signatures"]
         target = create_temp_dir(prefix=prefix)
         self._owned_temp_dirs.append(target)
+        free_bytes = shutil.disk_usage(target).free
+        required = required_free_bytes + self.MIN_SNAPSHOT_FREE_BYTES
+        if free_bytes < required:
+            raise RuntimeError(
+                "文件夹快照可用磁盘空间不足，已中止生成: "
+                f"需要至少 {required} 字节，当前 {free_bytes} 字节"
+            )
         for directory in sorted(directories, key=lambda value: (value.count("/"), value)):
             os.makedirs(self._resolve_file_path(target, directory), exist_ok=True)
         for rel_path in sorted(files):

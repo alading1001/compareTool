@@ -502,6 +502,21 @@ class SVNVCS(BaseVCS):
 
     def export_file_to_path(self, version: str, file_path: str, target_path: str):
         rev = self._resolve_version(version)
+        self.export_raw_file_to_path(rev, file_path, target_path)
+        if self._file_contains_null(target_path):
+            return
+        style = self._get_eol_style(rev, file_path).strip().lower()
+        if style == "crlf" or (style == "native" and os.linesep == "\r\n"):
+            self._rewrite_file_eol(target_path, b"\r\n")
+        elif style == "cr" or (style == "native" and os.linesep == "\r"):
+            self._rewrite_file_eol(target_path, b"\r")
+        elif style == "lf":
+            self._rewrite_file_eol(target_path, b"\n")
+
+    def export_raw_file_to_path(
+        self, version: str, file_path: str, target_path: str
+    ):
+        rev = self._resolve_version(version)
         file_url = self._file_url(rev, file_path)
         try:
             with open(target_path, "wb") as target:
@@ -519,15 +534,6 @@ class SVNVCS(BaseVCS):
                 f"无法流式导出 SVN 文件: {file_path}@{rev}\n"
                 + _decode_bytes(result.stderr)
             )
-        if self._file_contains_null(target_path):
-            return
-        style = self._get_eol_style(rev, file_path).strip().lower()
-        if style == "crlf" or (style == "native" and os.linesep == "\r\n"):
-            self._rewrite_file_eol(target_path, b"\r\n")
-        elif style == "cr" or (style == "native" and os.linesep == "\r"):
-            self._rewrite_file_eol(target_path, b"\r")
-        elif style == "lf":
-            self._rewrite_file_eol(target_path, b"\n")
 
     def _get_eol_style(self, version: str, file_path: str) -> str:
         """按所选 revision 从仓库读取 svn:eol-style（删除文件也能正确读取）。"""

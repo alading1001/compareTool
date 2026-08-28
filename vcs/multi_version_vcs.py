@@ -215,7 +215,7 @@ class _MultiVersionFolderDelegate(BaseVCS):
         if exclude_patterns:
             super().set_exclude_patterns(exclude_patterns)
 
-    def _finish_plan(self, entities: List[_LogicalFile], content_getter, raw_content_getter):
+    def _finish_plan(self, entities: List[_LogicalFile], content_writer, raw_content_writer):
         os.makedirs(self._old_dir, exist_ok=True)
         os.makedirs(self._new_dir, exist_ok=True)
         os.makedirs(self._old_raw_dir, exist_ok=True)
@@ -250,18 +250,6 @@ class _MultiVersionFolderDelegate(BaseVCS):
             prepare_reads(effective)
 
         for entity, old_path, new_path in effective:
-            old_data = self._read_endpoint(
-                content_getter, entity.old_version, old_path, "旧版本"
-            )
-            new_data = self._read_endpoint(
-                content_getter, entity.new_version, new_path, "新版本"
-            )
-            old_raw = self._read_endpoint(
-                raw_content_getter, entity.old_version, old_path, "旧版本原始字节"
-            )
-            new_raw = self._read_endpoint(
-                raw_content_getter, entity.new_version, new_path, "新版本原始字节"
-            )
             metadata = self._compare_endpoint_metadata(
                 entity.old_version,
                 old_path,
@@ -277,41 +265,70 @@ class _MultiVersionFolderDelegate(BaseVCS):
                 "new_mode": metadata.get("new_mode", ""),
             }
 
+            old_target = self._reserve_endpoint_target(
+                self._old_dir, old_path, old_targets
+            )
+            new_target = self._reserve_endpoint_target(
+                self._new_dir, new_path, new_targets
+            )
+            old_raw_target = self._reserve_endpoint_target(
+                self._old_raw_dir, old_path, old_raw_targets
+            )
+            new_raw_target = self._reserve_endpoint_target(
+                self._new_raw_dir, new_path, new_raw_targets
+            )
+            self._write_endpoint_file(
+                content_writer,
+                entity.old_version,
+                old_path,
+                old_target,
+                "旧版本",
+            )
+            self._write_endpoint_file(
+                content_writer,
+                entity.new_version,
+                new_path,
+                new_target,
+                "新版本",
+            )
+            self._write_endpoint_file(
+                raw_content_writer,
+                entity.old_version,
+                old_path,
+                old_raw_target,
+                "旧版本原始字节",
+            )
+            self._write_endpoint_file(
+                raw_content_writer,
+                entity.new_version,
+                new_path,
+                new_raw_target,
+                "新版本原始字节",
+            )
+
             if (
                 old_path is not None
                 and new_path is not None
                 and old_path == new_path
-                and old_data == new_data
-                and old_raw == new_raw
+                and FolderVCS._same_file_content(old_target, new_target)
+                and FolderVCS._same_file_content(old_raw_target, new_raw_target)
                 and not metadata_changes
             ):
+                for target in (
+                    old_target, new_target, old_raw_target, new_raw_target
+                ):
+                    os.remove(target)
                 continue
 
             if old_path is None:
-                self._write_endpoint(self._new_dir, new_path, new_data, new_targets)
-                self._write_endpoint(
-                    self._new_raw_dir, new_path, new_raw, new_raw_targets
-                )
                 self._planned_files.append(ChangedFile(
                     new_path, ChangeType.ADDED, **metadata_kwargs
                 ))
             elif new_path is None:
-                self._write_endpoint(self._old_dir, old_path, old_data, old_targets)
-                self._write_endpoint(
-                    self._old_raw_dir, old_path, old_raw, old_raw_targets
-                )
                 self._planned_files.append(ChangedFile(
                     old_path, ChangeType.DELETED, **metadata_kwargs
                 ))
             elif old_path != new_path:
-                self._write_endpoint(self._old_dir, old_path, old_data, old_targets)
-                self._write_endpoint(self._new_dir, new_path, new_data, new_targets)
-                self._write_endpoint(
-                    self._old_raw_dir, old_path, old_raw, old_raw_targets
-                )
-                self._write_endpoint(
-                    self._new_raw_dir, new_path, new_raw, new_raw_targets
-                )
                 self._planned_files.append(ChangedFile(
                     new_path,
                     ChangeType.RENAMED,
@@ -319,14 +336,6 @@ class _MultiVersionFolderDelegate(BaseVCS):
                     **metadata_kwargs,
                 ))
             else:
-                self._write_endpoint(self._old_dir, old_path, old_data, old_targets)
-                self._write_endpoint(self._new_dir, new_path, new_data, new_targets)
-                self._write_endpoint(
-                    self._old_raw_dir, old_path, old_raw, old_raw_targets
-                )
-                self._write_endpoint(
-                    self._new_raw_dir, new_path, new_raw, new_raw_targets
-                )
                 self._planned_files.append(ChangedFile(
                     new_path, ChangeType.MODIFIED, **metadata_kwargs
                 ))
@@ -336,21 +345,18 @@ class _MultiVersionFolderDelegate(BaseVCS):
             self._old_raw_dir, self._new_raw_dir, snapshot=False
         )
 
-    @staticmethod
-    def _read_endpoint(content_getter, version: str, path: Optional[str], label: str):
-        if path is None:
-            return None
-        data = content_getter(version, path)
-        if data is None:
-            raise RuntimeError(f"无法读取{label}文件端点，已中止生成: {path}@{version}")
-        return data
-
     def _compare_endpoint_metadata(
             self, old_version, old_path, new_version, new_path) -> dict:
         return {}
 
     @staticmethod
-    def _write_endpoint(base_dir: str, path: str, data: bytes, targets: Dict[str, str]):
+    def _reserve_endpoint_target(
+        base_dir: str,
+        path: Optional[str],
+        targets: Dict[str, str],
+    ) -> Optional[str]:
+        if path is None:
+            return None
         key = os.path.normcase(path.replace("\\", "/")).casefold()
         if key in targets:
             raise RuntimeError(
@@ -363,8 +369,28 @@ class _MultiVersionFolderDelegate(BaseVCS):
         except ValueError as exc:
             raise RuntimeError(str(exc)) from exc
         os.makedirs(os.path.dirname(target), exist_ok=True)
-        with open(target, "wb") as handle:
-            handle.write(data)
+        return target
+
+    @staticmethod
+    def _write_endpoint_file(
+        writer,
+        version: str,
+        path: Optional[str],
+        target: Optional[str],
+        label: str,
+    ):
+        if path is None:
+            return
+        try:
+            writer(version, path, target)
+        except Exception as exc:
+            raise RuntimeError(
+                f"无法写入{label}文件端点，已中止生成: {path}@{version}\n{exc}"
+            ) from exc
+        if not os.path.isfile(target) or os.path.islink(target):
+            raise RuntimeError(
+                f"{label}文件端点不是普通文件，已中止生成: {path}@{version}"
+            )
 
     def set_exclude_patterns(self, patterns: List[str]):
         super().set_exclude_patterns(patterns)
@@ -397,6 +423,11 @@ class _MultiVersionFolderDelegate(BaseVCS):
 
     def get_file_size(self, version: str, file_path: str):
         return self._folder.get_file_size(self._to_folder_ver(version), file_path)
+
+    def get_file_raw_size(self, version: str, file_path: str):
+        return self._raw_folder.get_file_size(
+            self._to_folder_ver(version), file_path
+        )
 
     def get_file_signature(self, version: str, file_path: str):
         return self._folder.get_file_signature(
@@ -432,6 +463,12 @@ class _MultiVersionFolderDelegate(BaseVCS):
 
 class GitMultiVersionVCS(_MultiVersionFolderDelegate):
     """Git 多版本：按当前分支第一父历史生成每个文件自己的首尾端点。"""
+
+    MAX_GIT_RENAME_PAIR_CANDIDATES = 50_000
+    MAX_GIT_RENAME_SCORING_EVALUATIONS = 2_000
+    MAX_GIT_RENAME_SCORING_BYTES = 8 * 1024 * 1024 * 1024
+    MAX_GIT_STORED_AMBIGUOUS_CANDIDATES = 50_000
+    MAX_GIT_PENDING_DELETES = 50_000
 
     def __init__(
         self,
@@ -527,6 +564,10 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
         ambiguous_candidate_sets = []
         pending_deletes = []
         self._git_rename_candidate_cache = {}
+        self._git_pair_candidates = 0
+        self._git_scoring_evaluations = 0
+        self._git_scoring_bytes = 0
+        self._git_stored_ambiguous_candidates = 0
         for commit in linear_history:
             parent = self._first_parent(commit)
             changes, ambiguous_path_pairs = self._changes_for_commit(commit, parent)
@@ -538,11 +579,11 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
                 targets = {}
                 for change, entity, was_selected in resolved_changes:
                     if change.action == "D":
-                        sources[change.path] = (entity, was_selected)
+                        sources[change.path] = (entity, entity.selected)
                     elif change.action == "A":
                         targets[change.path] = entity
                     elif change.action == "R":
-                        sources[change.old_path] = (entity, was_selected)
+                        sources[change.old_path] = (entity, entity.selected)
                         targets[change.path] = entity
                     elif change.action == "M":
                         targets[change.path] = entity
@@ -558,6 +599,7 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
                             targets[target_path],
                         ))
                 if candidates:
+                    self._reserve_stored_ambiguous_candidates(len(candidates))
                     ambiguous_candidate_sets.append(
                         (commit, planner.current_step, False, candidates)
                     )
@@ -567,9 +609,10 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
             resolved_add_paths = set()
             for change, entity, was_selected in resolved_changes:
                 if change.action == "D":
-                    resolved_deletes.append(
-                        (change.path, entity, was_selected, parent)
-                    )
+                    if entity.selected:
+                        resolved_deletes.append(
+                            (change.path, entity, True, parent)
+                        )
                 elif change.action == "A":
                     resolved_targets.append((change.path, entity))
                     resolved_add_paths.add(change.path)
@@ -580,6 +623,10 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
             # 后在另一个提交以相同或高相似内容新增，直接当两个实体会让
             # newVersion 留下旧路径。这里保留竞争候选，只有候选两侧后来都
             # 关联选中变更时才 fail closed，普通无关删除/新增不受影响。
+            self._reserve_git_pair_candidates(
+                len(pending_deletes) * len(resolved_targets),
+                "跨提交删除/新增候选",
+            )
             for target_path, target_entity in resolved_targets:
                 candidates = []
                 for (
@@ -599,6 +646,7 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
                             target_entity,
                         ))
                 if candidates:
+                    self._reserve_stored_ambiguous_candidates(len(candidates))
                     ambiguous_candidate_sets.append(
                         (commit, planner.current_step, True, candidates)
                     )
@@ -610,6 +658,11 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
                     if item[0] not in resolved_add_paths
                 ]
             pending_deletes.extend(resolved_deletes)
+            if len(pending_deletes) > self.MAX_GIT_PENDING_DELETES:
+                raise RuntimeError(
+                    "Git 多版本待定删除文件过多，无法在资源上限内安全追踪身份，"
+                    "已中止生成。请缩小所选版本范围或增加排除规则。"
+                )
 
         suspicious = []
         for commit, event_step, include_same_step, candidates in ambiguous_candidate_sets:
@@ -652,8 +705,8 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
 
         self._finish_plan(
             planner.selected_entities,
-            self._read_git_endpoint,
-            self._read_git_raw_endpoint,
+            self._write_git_endpoint,
+            self._write_git_raw_endpoint,
         )
 
     def _first_parent(self, commit: str) -> str:
@@ -681,8 +734,12 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
         return parent
 
     def _changes_for_commit(self, commit: str, parent: str):
-        reliable = self._diff_changes(commit, parent, "50%")
-        permissive = self._diff_changes(commit, parent, "1%")
+        reliable = self._filter_git_history_changes(
+            self._diff_changes(commit, parent, "50%")
+        )
+        permissive = self._filter_git_history_changes(
+            self._diff_changes(commit, parent, "1%")
+        )
         reliable_renames = {(item.old_path, item.path) for item in reliable if item.action == "R"}
         low_similarity_pairs = {
             (item.old_path, item.path)
@@ -694,6 +751,16 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
         adds = [item for item in reliable if item.action == "A"]
         renames = [item for item in reliable if item.action == "R"]
         modifications = [item for item in reliable if item.action == "M"]
+        pair_count = (
+            len(deletes) * len(adds)
+            + len(deletes) * len(renames)
+            + len(renames) * len(adds)
+            + len(deletes) * len(modifications)
+            + len(renames) * len(modifications)
+            + len(renames) * max(0, len(renames) - 1)
+            + len(low_similarity_pairs)
+        )
+        self._reserve_git_pair_candidates(pair_count, "单提交重命名竞争矩阵")
         ambiguous_pairs = {
             (deleted.path, added.path)
             for deleted in deletes
@@ -741,6 +808,50 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
                 ambiguous_pairs.add((source.old_path, target.path))
         return reliable, sorted(ambiguous_pairs)
 
+    def _filter_git_history_changes(
+        self, changes: List[_HistoryChange]
+    ) -> List[_HistoryChange]:
+        """在每个历史步应用排除边界；跨边界 rename 降级为 A/D。"""
+        filtered = []
+        for change in changes:
+            if change.action == "R":
+                old_excluded = self._is_excluded(change.old_path)
+                new_excluded = self._is_excluded(change.path)
+                if old_excluded and new_excluded:
+                    continue
+                if old_excluded:
+                    filtered.append(_HistoryChange("A", change.path))
+                elif new_excluded:
+                    filtered.append(_HistoryChange("D", change.old_path))
+                else:
+                    filtered.append(change)
+                continue
+            if not self._is_excluded(change.path):
+                filtered.append(change)
+        return filtered
+
+    def _reserve_git_pair_candidates(self, count: int, label: str):
+        if count <= 0:
+            return
+        self._git_pair_candidates += count
+        if self._git_pair_candidates > self.MAX_GIT_RENAME_PAIR_CANDIDATES:
+            raise RuntimeError(
+                f"Git 多版本{label}过多（累计 {self._git_pair_candidates}），"
+                "无法在资源上限内安全判定文件身份，已中止生成。"
+                "请缩小所选版本范围或增加排除规则。"
+            )
+
+    def _reserve_stored_ambiguous_candidates(self, count: int):
+        self._git_stored_ambiguous_candidates += count
+        if (
+            self._git_stored_ambiguous_candidates
+            > self.MAX_GIT_STORED_AMBIGUOUS_CANDIDATES
+        ):
+            raise RuntimeError(
+                "Git 多版本待复核的身份候选过多，已中止生成。"
+                "请缩小所选版本范围或增加排除规则。"
+            )
+
     def _git_rename_candidate(
         self,
         old_version: str,
@@ -753,16 +864,27 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
         cached = self._git_rename_candidate_cache.get(key)
         if cached is not None:
             return cached
-        old_blob = self._content_vcs.get_file_content_raw_bytes(
-            old_version, old_path
-        )
-        new_blob = self._content_vcs.get_file_content_raw_bytes(
-            new_version, new_path
-        )
-        if old_blob is None or new_blob is None:
+        self._git_scoring_evaluations += 1
+        if (
+            self._git_scoring_evaluations
+            > self.MAX_GIT_RENAME_SCORING_EVALUATIONS
+        ):
             raise RuntimeError(
-                "无法读取 Git 重命名候选 blob："
+                "Git 多版本重命名评分次数超过安全上限，已中止生成。"
+                "请缩小所选版本范围或增加排除规则。"
+            )
+        old_size = self._content_vcs.get_file_size(old_version, old_path)
+        new_size = self._content_vcs.get_file_size(new_version, new_path)
+        if old_size is None or new_size is None:
+            raise RuntimeError(
+                "无法确认 Git 重命名候选 blob 大小："
                 f"{old_path}@{old_version} -> {new_path}@{new_version}"
+            )
+        self._git_scoring_bytes += old_size + new_size
+        if self._git_scoring_bytes > self.MAX_GIT_RENAME_SCORING_BYTES:
+            raise RuntimeError(
+                "Git 多版本重命名评分累计字节数超过安全上限，已中止生成。"
+                "请缩小所选版本范围或增加排除规则。"
             )
 
         candidate_root = tempfile.mkdtemp(
@@ -773,10 +895,12 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
             new_dir = os.path.join(candidate_root, "new")
             os.makedirs(old_dir)
             os.makedirs(new_dir)
-            with open(os.path.join(old_dir, "source"), "wb") as stream:
-                stream.write(old_blob)
-            with open(os.path.join(new_dir, "target"), "wb") as stream:
-                stream.write(new_blob)
+            self._content_vcs.export_raw_file_to_path(
+                old_version, old_path, os.path.join(old_dir, "source")
+            )
+            self._content_vcs.export_raw_file_to_path(
+                new_version, new_path, os.path.join(new_dir, "target")
+            )
             result = subprocess.run(
                 [
                     self._git_exe,
@@ -855,13 +979,13 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
             changes.append(_HistoryChange(status, path))
         return changes
 
-    def _read_git_endpoint(self, version: str, path: str) -> Optional[bytes]:
+    def _write_git_endpoint(self, version: str, path: str, target: str):
         self._validate_git_endpoint_mode(version, path)
-        return self._content_vcs.get_file_content_bytes(version, path)
+        self._content_vcs.export_file_to_path(version, path, target)
 
-    def _read_git_raw_endpoint(self, version: str, path: str) -> Optional[bytes]:
+    def _write_git_raw_endpoint(self, version: str, path: str, target: str):
         self._validate_git_endpoint_mode(version, path)
-        return self._content_vcs.get_file_content_raw_bytes(version, path)
+        self._content_vcs.export_raw_file_to_path(version, path, target)
 
     def _validate_git_endpoint_mode(self, version: str, path: str):
         cache_key = (str(version), path)
@@ -1083,7 +1207,6 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         if self._project_repo_path == "/":
             self._project_repo_path = ""
         self._project_root_transitions = []
-        self._svn_raw_cache = {}
         self._svn_eol_cache = {}
         self._svn_property_cache = {}
 
@@ -1119,8 +1242,8 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
 
         self._finish_plan(
             planner.selected_entities,
-            self._read_svn_endpoint,
-            self._read_svn_raw_endpoint,
+            self._write_svn_endpoint,
+            self._write_svn_raw_endpoint,
         )
 
     def _parse_revisions(self) -> List[int]:
@@ -1843,30 +1966,13 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         cache[key] = kind
         return kind
 
-    def _read_svn_endpoint(self, version: str, path: str) -> Optional[bytes]:
-        data = self._read_svn_raw_endpoint(version, path)
-        if data is None or not self._content_vcs._is_text_bytes(data):
-            return data
-        style = self._get_svn_eol_style(version, path).strip().lower()
-        if style == "crlf" or (style == "native" and os.linesep == "\r\n"):
-            data = self._content_vcs._apply_crlf(self._content_vcs._normalize_lf(data))
-        elif style == "cr" or (style == "native" and os.linesep == "\r"):
-            data = self._content_vcs._normalize_lf(data).replace(b"\n", b"\r")
-        elif style == "lf":
-            data = self._content_vcs._normalize_lf(data)
-        return data
-
-    def _read_svn_raw_endpoint(self, version: str, path: str) -> Optional[bytes]:
-        cache_key = (str(version), path)
-        if cache_key in self._svn_raw_cache:
-            return self._svn_raw_cache[cache_key]
+    def _write_svn_endpoint(self, version: str, path: str, target: str):
         self._validate_svn_regular_endpoint(version, path)
-        try:
-            data = self._run_bytes(["cat", self._svn_file_url(version, path)])
-        except RuntimeError:
-            data = None
-        self._svn_raw_cache[cache_key] = data
-        return data
+        self._content_vcs.export_file_to_path(version, path, target)
+
+    def _write_svn_raw_endpoint(self, version: str, path: str, target: str):
+        self._validate_svn_regular_endpoint(version, path)
+        self._content_vcs.export_raw_file_to_path(version, path, target)
 
     def _get_svn_eol_style(self, version: str, path: str) -> str:
         cache_key = (str(version), path)

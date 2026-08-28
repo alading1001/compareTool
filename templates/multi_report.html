@@ -128,6 +128,7 @@ table.diff span { white-space: pre; }
 <div class="delivery-note">
     上线说明：删除文件 {{ summary.deleted_files }} 个、删除旧目录 {{ summary.required_directory_deletions }} 个、重命名 {{ summary.renamed_files }} 个；完整旧路径清单见报告同目录《{{ delivery_instructions_name | default('上线操作说明.txt') }}》。
 {% if summary.report_omitted_files %}<br>为控制报告体积，另有 {{ summary.report_omitted_files }} 个文件未展开到左侧明细；总文件数仍完整，全部删除/重命名仍写入上线说明，源码包仍包含所有应交付文件，但这些省略的修改项未继续细分是否仅格式变化。{% endif %}
+{% if summary.manifest_omitted_files %}<br>弹窗变更清单达到容量上限，仅列出 {{ summary.manifest_listed_files }} / {{ summary.total_files }} 个文件；完整删除和重命名操作仍以上线说明为准。{% endif %}
 {% if summary.skipped_line_count_files %}<br>有 {{ summary.skipped_line_count_files }} 个文件因二进制、体积或复杂度限制未统计行数，当前行数合计仅代表已完成统计的文件。{% endif %}
 </div>
 
@@ -205,6 +206,18 @@ fileData.push({
     html: document.getElementById("sbs-{{ project_loop.index }}-{{ loop.index }}").innerHTML
 });
 {% endfor %}
+{% endfor %}
+var manifestData = [];
+{% for entry in manifest_entries %}
+manifestData.push({
+    project: {{ entry.project_name | tojson }},
+    showProjectRoot: {{ entry.show_project_root | tojson }},
+    path: {{ entry.file.file_path | replace('\\','/') | tojson }},
+    oldPath: {{ entry.file.old_path | replace('\\','/') | tojson }},
+    displayPath: {{ ((entry.project_name ~ '/' ~ (entry.file.file_path | replace('\\','/'))) if entry.show_project_root else (entry.file.file_path | replace('\\','/'))) | tojson }},
+    oldDisplayPath: {{ ((entry.project_name ~ '/' ~ (entry.file.old_path | replace('\\','/'))) if entry.show_project_root and entry.file.old_path else (entry.file.old_path | replace('\\','/'))) | tojson }},
+    type: {{ entry.file.report_type | tojson }}
+});
 {% endfor %}
 var currentDiffAnchors = [];
 var currentDiffGroups = [];
@@ -428,21 +441,29 @@ function openSummary() {
     var w = window.open('', '_blank', 'width=920,height=760');
     if (!w) return;
     var groups = {A:[], M:[], F:[], D:[], R:[]};
-    fileData.forEach(function(f) {
+    manifestData.forEach(function(f) {
         if (groups[f.type]) groups[f.type].push(summaryPath(f));
     });
     var labels = {A:'新增文件', M:'修改文件', F:'格式变化文件', D:'删除文件', R:'重命名文件'};
+    var totals = {
+        A: {{ summary.added_files }}, M: {{ summary.modified_files }},
+        F: {{ summary.format_changed_files }}, D: {{ summary.deleted_files }},
+        R: {{ summary.renamed_files }}
+    };
     var lines = [
         '变更清单',
         '',
         '共 {{ summary.project_count }} 个项目，{{ summary.total_files }} 个变更文件'
     ];
+{% if summary.manifest_omitted_files %}
+    lines.push('清单容量上限：仅列出 {{ summary.manifest_listed_files }} / {{ summary.total_files }} 个变更文件；完整删除和重命名操作以上线说明为准。');
+{% endif %}
     ['A','M','F','D','R'].forEach(function(t) {
         var list = groups[t].sort();
         lines.push('');
-        lines.push(labels[t] + '（' + list.length + ' 个）');
+        lines.push(labels[t] + '（共 ' + totals[t] + ' 个，当前列出 ' + list.length + ' 个）');
         if (list.length === 0) {
-            lines.push('无');
+            lines.push(totals[t] === 0 ? '无' : '未列出（清单已达到容量上限）');
         } else {
             list.forEach(function(p) { lines.push(p); });
         }

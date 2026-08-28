@@ -33,6 +33,7 @@ class ReportGenerator:
             new_version=diff_result.new_version,
             summary=summary,
             files=diff_result.report_files,
+            manifest_files=diff_result.report_manifest_files,
             show_project_root=show_project_root,
             delivery_instructions_name=delivery_instructions_name,
             generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -45,10 +46,16 @@ class ReportGenerator:
 
     def generate_multi(self, project_results: list, output_path: str):
         summary = self._multi_summary(project_results)
+        manifest_entries = self._multi_manifest(project_results)
+        summary["manifest_listed_files"] = len(manifest_entries)
+        summary["manifest_omitted_files"] = max(
+            0, summary["total_files"] - len(manifest_entries)
+        )
         template = self.env.get_template("multi_report.html")
         context = dict(
             summary=summary,
             projects=project_results,
+            manifest_entries=manifest_entries,
             delivery_instructions_name=DELIVERY_INSTRUCTIONS_FILENAME,
             generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         )
@@ -85,3 +92,32 @@ class ReportGenerator:
                 summary[key] += s.get(key, 0)
         summary["line_counts_complete"] = summary["skipped_line_count_files"] == 0
         return summary
+
+    @staticmethod
+    def _multi_manifest(project_results: list) -> list:
+        entries = []
+        path_bytes = 0
+        for project in project_results:
+            project_name = project["project_name"]
+            show_project_root = project["show_project_root"]
+            for file_diff in project["diff_result"].files:
+                item_bytes = len(
+                    file_diff.file_path.encode("utf-8", errors="replace")
+                )
+                if file_diff.old_path:
+                    item_bytes += len(
+                        file_diff.old_path.encode("utf-8", errors="replace")
+                    )
+                if (
+                    len(entries) >= DiffResult.MAX_REPORT_MANIFEST_FILES
+                    or path_bytes + item_bytes
+                    > DiffResult.MAX_REPORT_MANIFEST_PATH_BYTES
+                ):
+                    return entries
+                entries.append({
+                    "project_name": project_name,
+                    "show_project_root": show_project_root,
+                    "file": file_diff,
+                })
+                path_bytes += item_bytes
+        return entries

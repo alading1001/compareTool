@@ -7,6 +7,7 @@ import time
 from typing import List
 
 from logger import warn
+from stage_ownership import pid_is_alive
 
 
 TEMP_DIR_ENV = "COMPARETOOL_TEMP_DIR"
@@ -184,21 +185,9 @@ def _cleanup_stale_temp_dirs(root: str):
             pid = int(payload.get("pid", 0))
             if payload.get("magic") != _TEMP_MAGIC or now - created < _STALE_AFTER_SECONDS:
                 continue
-            if _pid_is_alive(pid):
+            if pid_is_alive(pid):
                 continue
             remove_temp_dir(entry.path)
             warn(f"已清理 CompareTool 遗留临时目录: {entry.path}")
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             continue
-
-
-def _pid_is_alive(pid: int) -> bool:
-    if pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-        return True
-    except PermissionError:
-        return True
-    except OSError:
-        return False

@@ -138,8 +138,9 @@ class GitVCS(BaseVCS):
         return result.stdout
 
     def get_changed_files(self, old_version: str, new_version: str) -> List[ChangedFile]:
-        old_endpoint = self._pin_version(old_version)
-        new_endpoint = self._pin_version(new_version)
+        pinned = self._pin_versions_stable((old_version, new_version))
+        old_endpoint = pinned[str(old_version)]
+        new_endpoint = pinned[str(new_version)]
         self._snapshot_git_config()
         output = self._run_bytes([
             "diff", "--raw", "-z", "--find-renames", old_endpoint, new_endpoint, "--"
@@ -258,16 +259,39 @@ class GitVCS(BaseVCS):
             pins = self._version_pins
         if key in pins:
             return pins[key]
-        try:
-            resolved = self._run_bytes([
-                "rev-parse", "--verify", f"{key}^{{commit}}"
-            ]).decode("ascii", errors="strict").strip()
-        except (RuntimeError, UnicodeDecodeError) as exc:
-            raise RuntimeError(f"无法固定 Git 版本端点，已中止生成: {version}") from exc
-        if not re.fullmatch(r"[0-9a-fA-F]{40,64}", resolved):
-            raise RuntimeError(f"Git 版本端点解析结果无效: {version} -> {resolved}")
+        resolved = self._resolve_ref_once(key)
         pins[key] = resolved
         return resolved
+
+    def _resolve_ref_once(self, version: str) -> str:
+        try:
+            resolved = self._run_bytes([
+                "rev-parse", "--verify", f"{version}^{{commit}}"
+            ]).decode("ascii", errors="strict").strip()
+        except (RuntimeError, UnicodeDecodeError) as exc:
+            raise RuntimeError(
+                f"无法固定 Git 版本端点，已中止生成: {version}"
+            ) from exc
+        if not re.fullmatch(r"[0-9a-fA-F]{40,64}", resolved):
+            raise RuntimeError(f"Git 版本端点解析结果无效: {version} -> {resolved}")
+        return resolved
+
+    def _pin_versions_stable(self, versions) -> dict:
+        """成组复核所有 ref，避免取得跨 ref transaction 的混合快照。"""
+        keys = list(dict.fromkeys(str(version) for version in versions))
+        pins = getattr(self, "_version_pins", None)
+        if pins is not None and all(key in pins for key in keys):
+            return {key: pins[key] for key in keys}
+        first = {key: self._resolve_ref_once(key) for key in keys}
+        second = {key: self._resolve_ref_once(key) for key in keys}
+        if first != second:
+            raise RuntimeError("Git 版本引用在任务快照期间发生变化，已中止生成")
+        pins = getattr(self, "_version_pins", None)
+        if pins is None:
+            self._version_pins = {}
+            pins = self._version_pins
+        pins.update(first)
+        return first
 
     def _resolve_version(self, version: str) -> str:
         return getattr(self, "_version_pins", {}).get(str(version), str(version))
@@ -376,6 +400,15 @@ class GitVCS(BaseVCS):
         endpoint = self._resolve_version(version)
         attrs = self._get_checkout_attributes(endpoint, file_path)
         self._validate_checkout_attributes(file_path, attrs)
+        self.export_raw_file_to_path(endpoint, file_path, target_path)
+        if (
+            not self._file_contains_null(target_path)
+            and self._checkout_uses_crlf(endpoint, file_path, b"text")
+        ):
+            self._rewrite_file_lf_to_crlf(target_path)
+
+    def export_raw_file_to_path(self, version: str, file_path: str, target_path: str):
+        endpoint = self._resolve_version(version)
         try:
             with open(target_path, "wb") as target:
                 result = subprocess.run(
@@ -392,11 +425,6 @@ class GitVCS(BaseVCS):
                 f"无法流式导出 Git 文件: {file_path}\n"
                 + result.stderr.decode("utf-8", errors="replace")
             )
-        if (
-            not self._file_contains_null(target_path)
-            and self._checkout_uses_crlf(endpoint, file_path, b"text")
-        ):
-            self._rewrite_file_lf_to_crlf(target_path)
 
     def _autocrlf_effective(self) -> bool:
         """检查 core.autocrlf 是否为 true（缓存结果）"""

@@ -106,6 +106,11 @@ def _pid_is_alive(pid: int) -> bool:
         return False
 
 
+def pid_is_alive(pid: int) -> bool:
+    """公共的保守进程存活探测；无法确认时按存活处理。"""
+    return _pid_is_alive(pid)
+
+
 def remove_ownership_marker(path: str):
     try:
         os.remove(ownership_marker(path))
