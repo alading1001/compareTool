@@ -6,7 +6,4 @@ __pycache__/
 *.pyc
 compareTool.log
 compareTool_config.json
-/.claude
-/compareTool_config.json
-/__pycache__
-/vcs/__pycache__
+/.claude/
