@@ -11,6 +11,7 @@ from path_safety import (
     regular_file_handle_identity,
     regular_file_path_identity,
     safe_join,
+    windows_directories_replaced_by_files,
 )
 from .base import BaseVCS, ChangedFile, ChangeType
 from .temp_storage import create_temp_dir, remove_temp_dir
@@ -31,13 +32,13 @@ class FolderVCS(BaseVCS):
         source_old = os.path.realpath(os.path.abspath(old_dir))
         source_new = os.path.realpath(os.path.abspath(new_dir))
         try:
-            common = os.path.commonpath([source_old, source_new])
-        except ValueError:
-            common = ""
-        if os.path.normcase(common) in (
-            os.path.normcase(source_old), os.path.normcase(source_new)
-        ):
-            raise ValueError("旧、新版本文件夹必须不同且不能互为祖先目录")
+            # Windows 目录可以单独启用大小写敏感；不能用 normcase 后的
+            # 路径字符串判同，否则同一父目录下不同 FileId 的 old/OLD 会被
+            # 假报为零差异。samefile 使用实际文件系统身份，同时仍兼容 x/.
+            self._same_source = os.path.samefile(source_old, source_new)
+        except OSError:
+            # 缺失/不可访问端点由后续快照给出原有的明确错误。
+            self._same_source = False
 
         super().__init__(new_dir)  # 报告仍显示用户选择的新版本目录
         self.source_old_dir = old_dir
@@ -46,6 +47,10 @@ class FolderVCS(BaseVCS):
         self._snapshot_requested = snapshot
         self._snapshot_lock = threading.Lock()
         self._snapshotted = not snapshot
+        self._captured_changed_files = None
+        self._captured_old_directories = set()
+        self._defer_snapshot_final_verification = False
+        self._snapshot_avoid_paths = (source_old, source_new)
         self.required_directory_deletions = []
         self.old_dir = old_dir
         self.new_dir = new_dir
@@ -60,44 +65,95 @@ class FolderVCS(BaseVCS):
                 # 两端都先固定身份和路径集合，再开始复制，避免复制旧端期间
                 # 新端新增/替换的文件被悄悄纳入同一次任务。
                 old_capture = self._capture_directory(self.source_old_dir)
-                new_capture = self._capture_directory(self.source_new_dir)
-                total_files = len(old_capture["files"]) + len(new_capture["files"])
-                total_bytes = old_capture["total_bytes"] + new_capture["total_bytes"]
-                if (
-                    self.MAX_SNAPSHOT_FILES is not None
-                    and total_files > self.MAX_SNAPSHOT_FILES
-                ):
-                    raise RuntimeError(
-                        f"文件夹快照文件数超过上限: {total_files} > "
-                        f"{self.MAX_SNAPSHOT_FILES}"
+                # 同一目录作为两个端点时，它们表示同一个稳定状态；
+                # 只捕获一次并复用，避免两次扫描之间的变化被伪造成差异。
+                new_capture = (
+                    old_capture
+                    if self._same_source
+                    else self._capture_directory(self.source_new_dir)
+                )
+                captures = (old_capture,) if self._same_source else (
+                    old_capture, new_capture
+                )
+                if self.MAX_SNAPSHOT_FILES is not None:
+                    total_files = sum(len(capture["files"]) for capture in captures)
+                    if total_files > self.MAX_SNAPSHOT_FILES:
+                        raise RuntimeError(
+                            f"文件夹快照文件数超过上限: {total_files} > "
+                            f"{self.MAX_SNAPSHOT_FILES}"
+                        )
+                if self.MAX_SNAPSHOT_TOTAL_BYTES is not None:
+                    total_bytes = sum(
+                        signature[1]
+                        for capture in captures
+                        for signature in capture["file_signatures"].values()
                     )
-                if (
-                    self.MAX_SNAPSHOT_TOTAL_BYTES is not None
-                    and total_bytes > self.MAX_SNAPSHOT_TOTAL_BYTES
-                ):
-                    raise RuntimeError(
-                        f"文件夹快照总字节数超过上限: {total_bytes} > "
-                        f"{self.MAX_SNAPSHOT_TOTAL_BYTES}"
-                    )
+                    if total_bytes > self.MAX_SNAPSHOT_TOTAL_BYTES:
+                        raise RuntimeError(
+                            f"文件夹快照总字节数超过上限: {total_bytes} > "
+                            f"{self.MAX_SNAPSHOT_TOTAL_BYTES}"
+                        )
+
+                changed_files = (
+                    []
+                    if self._same_source
+                    else self._compare_captures(old_capture, new_capture)
+                )
+                old_snapshot_files = {
+                    item.path for item in changed_files
+                    if item.change_type in (ChangeType.DELETED, ChangeType.MODIFIED)
+                }
+                new_snapshot_files = {
+                    item.path for item in changed_files
+                    if item.change_type in (ChangeType.ADDED, ChangeType.MODIFIED)
+                }
+                old_snapshot_bytes = sum(
+                    old_capture["file_signatures"][path][1]
+                    for path in old_snapshot_files
+                )
+                new_snapshot_bytes = sum(
+                    new_capture["file_signatures"][path][1]
+                    for path in new_snapshot_files
+                )
+
+                # 先固定整棵树的身份并完成内容比较，只把报告和导出真正会读取
+                # 的变更端点复制到独立临时根。这样稳定性不降级，同时磁盘需求
+                # 从“两棵完整目录”收敛到“变更文件的两端”。
+                old_snapshot_capture = dict(old_capture)
+                old_snapshot_capture["snapshot_files"] = old_snapshot_files
+                new_snapshot_capture = dict(new_capture)
+                new_snapshot_capture["snapshot_files"] = new_snapshot_files
+                self._defer_snapshot_final_verification = True
                 old_snapshot = self._snapshot_directory(
                     self.source_old_dir,
                     "comparetool_folder_old_",
-                    old_capture,
-                    total_bytes,
+                    old_snapshot_capture,
+                    old_snapshot_bytes + new_snapshot_bytes,
                 )
-                new_snapshot = self._snapshot_directory(
-                    self.source_new_dir,
-                    "comparetool_folder_new_",
-                    new_capture,
-                    new_capture["total_bytes"],
+                new_snapshot = (
+                    old_snapshot
+                    if self._same_source
+                    else self._snapshot_directory(
+                        self.source_new_dir,
+                        "comparetool_folder_new_",
+                        new_snapshot_capture,
+                        new_snapshot_bytes,
+                    )
                 )
+                self._verify_capture(self.source_old_dir, old_capture)
+                if not self._same_source:
+                    self._verify_capture(self.source_new_dir, new_capture)
             except BaseException:
                 self.cleanup()
                 self.old_dir = self.source_old_dir
                 self.new_dir = self.source_new_dir
                 raise
+            finally:
+                self._defer_snapshot_final_verification = False
             self.old_dir = old_snapshot
             self.new_dir = new_snapshot
+            self._captured_changed_files = list(changed_files)
+            self._captured_old_directories = set(old_capture["directories"])
             self._snapshotted = True
 
     def _should_prune_directory(self, relative_path: str) -> bool:
@@ -213,10 +269,105 @@ class FolderVCS(BaseVCS):
             "directories": directories,
             "directory_identities": initial_directory_identities,
             "file_signatures": initial_file_signatures,
-            "total_bytes": sum(
-                signature[1] for signature in initial_file_signatures.values()
-            ),
         }
+
+    def _compare_captures(self, old_capture: dict, new_capture: dict):
+        old_files = old_capture["files"]
+        new_files = new_capture["files"]
+        result = [
+            ChangedFile(path=path, change_type=ChangeType.ADDED)
+            for path in sorted(new_files - old_files)
+        ]
+        result.extend(
+            ChangedFile(path=path, change_type=ChangeType.DELETED)
+            for path in sorted(old_files - new_files)
+        )
+        for path in sorted(old_files & new_files):
+            if not self._same_captured_file_content(
+                self.source_old_dir,
+                self.source_new_dir,
+                path,
+                old_capture["file_signatures"][path],
+                new_capture["file_signatures"][path],
+            ):
+                result.append(ChangedFile(path=path, change_type=ChangeType.MODIFIED))
+        return result
+
+    def _same_captured_file_content(
+        self,
+        old_source: str,
+        new_source: str,
+        relative_path: str,
+        old_signature: tuple,
+        new_signature: tuple,
+    ) -> bool:
+        if old_signature[1] != new_signature[1]:
+            return False
+
+        old_path = self._resolve_file_path(old_source, relative_path)
+        new_path = self._resolve_file_path(new_source, relative_path)
+        try:
+            with open_regular_file_no_links(old_path) as old_stream, \
+                    open_regular_file_no_links(new_path) as new_stream:
+                if regular_file_handle_identity(old_stream) != old_signature:
+                    raise RuntimeError(
+                        f"旧版本文件在快照复制前发生变化: {old_path}"
+                    )
+                if regular_file_handle_identity(new_stream) != new_signature:
+                    raise RuntimeError(
+                        f"新版本文件在快照复制前发生变化: {new_path}"
+                    )
+                same = True
+                while True:
+                    old_chunk = old_stream.read(1024 * 1024)
+                    new_chunk = new_stream.read(1024 * 1024)
+                    if old_chunk != new_chunk:
+                        same = False
+                        break
+                    if not old_chunk:
+                        break
+                if regular_file_handle_identity(old_stream) != old_signature:
+                    raise RuntimeError(
+                        f"旧版本文件在快照复制期间发生变化: {old_path}"
+                    )
+                if regular_file_handle_identity(new_stream) != new_signature:
+                    raise RuntimeError(
+                        f"新版本文件在快照复制期间发生变化: {new_path}"
+                    )
+        except OSError as exc:
+            raise RuntimeError(
+                f"读取文件夹端点内容失败: {relative_path}: {exc}"
+            ) from exc
+
+        if self._file_signature(old_path) != old_signature:
+            raise RuntimeError(f"旧版本文件在快照复制期间发生变化: {old_path}")
+        if self._file_signature(new_path) != new_signature:
+            raise RuntimeError(f"新版本文件在快照复制期间发生变化: {new_path}")
+        return same
+
+    def _verify_capture(self, source: str, capture: dict):
+        final_files, final_directories = self._walk_tree(
+            source, apply_excludes=True
+        )
+        if (
+            final_files != capture["files"]
+            or final_directories != capture["directories"]
+        ):
+            raise RuntimeError(f"比对源目录路径集合在快照期间发生变化: {source}")
+        if self._directory_identity(source) != capture["root_identity"]:
+            raise RuntimeError(f"比对源目录在快照期间被替换: {source}")
+        for relative_path, expected_identity in capture[
+            "directory_identities"
+        ].items():
+            current_path = self._resolve_file_path(source, relative_path)
+            if self._directory_identity(current_path) != expected_identity:
+                raise RuntimeError(f"比对源目录在快照期间被替换: {current_path}")
+        for relative_path, expected_signature in capture["file_signatures"].items():
+            current_path = self._resolve_file_path(source, relative_path)
+            if self._file_signature(current_path) != expected_signature:
+                raise RuntimeError(
+                    f"比对源文件在快照期间发生变化: {current_path}"
+                )
 
     def _snapshot_directory(
         self,
@@ -225,23 +376,18 @@ class FolderVCS(BaseVCS):
         capture: dict,
         required_free_bytes: int,
     ) -> str:
-        root_identity = capture["root_identity"]
         files = capture["files"]
-        directories = capture["directories"]
-        initial_directory_identities = capture["directory_identities"]
         initial_file_signatures = capture["file_signatures"]
-        target = create_temp_dir(prefix=prefix)
+        selected_files = capture.get("snapshot_files", files)
+        target = create_temp_dir(
+            prefix=prefix,
+            avoid_paths=self._snapshot_avoid_paths,
+            required_free_bytes=(
+                required_free_bytes + self.MIN_SNAPSHOT_FREE_BYTES
+            ),
+        )
         self._owned_temp_dirs.append(target)
-        free_bytes = shutil.disk_usage(target).free
-        required = required_free_bytes + self.MIN_SNAPSHOT_FREE_BYTES
-        if free_bytes < required:
-            raise RuntimeError(
-                "文件夹快照可用磁盘空间不足，已中止生成: "
-                f"需要至少 {required} 字节，当前 {free_bytes} 字节"
-            )
-        for directory in sorted(directories, key=lambda value: (value.count("/"), value)):
-            os.makedirs(self._resolve_file_path(target, directory), exist_ok=True)
-        for rel_path in sorted(files):
+        for rel_path in sorted(selected_files):
             source_path = self._resolve_file_path(source, rel_path)
             target_path = self._resolve_file_path(target, rel_path)
             os.makedirs(os.path.dirname(target_path), exist_ok=True)
@@ -267,59 +413,41 @@ class FolderVCS(BaseVCS):
                     f"比对源文件在快照复制期间发生变化: {source_path}"
                 )
 
-        final_files, final_directories = self._walk_tree(
-            source, apply_excludes=True
-        )
-        if final_files != files or final_directories != directories:
-            raise RuntimeError(f"比对源目录路径集合在快照期间发生变化: {source}")
-        if self._directory_identity(source) != root_identity:
-            raise RuntimeError(f"比对源目录在快照期间被替换: {source}")
-        for relative_path, expected_identity in initial_directory_identities.items():
-            current_path = self._resolve_file_path(source, relative_path)
-            if self._directory_identity(current_path) != expected_identity:
-                raise RuntimeError(f"比对源目录在快照期间被替换: {current_path}")
-        for relative_path, expected_signature in initial_file_signatures.items():
-            current_path = self._resolve_file_path(source, relative_path)
-            if self._file_signature(current_path) != expected_signature:
-                raise RuntimeError(
-                    f"比对源文件在快照期间发生变化: {current_path}"
-                )
+        if not self._defer_snapshot_final_verification:
+            self._verify_capture(source, capture)
         return target
 
     def get_changed_files(self, old_version: str = "", new_version: str = "") -> List[ChangedFile]:
         """对比两个文件夹，返回差异文件列表"""
         self._ensure_snapshot()
-        old_files, old_dirs = self._walk_tree(self.old_dir)
-        new_files, _new_dirs = self._walk_tree(self.new_dir)
+        if self._captured_changed_files is not None:
+            result = list(self._captured_changed_files)
+            old_dirs = set(self._captured_old_directories)
+        else:
+            old_files, old_dirs = self._walk_tree(self.old_dir)
+            new_files, _new_dirs = self._walk_tree(self.new_dir)
 
-        result = []
+            result = []
 
-        for f in new_files - old_files:
-            result.append(ChangedFile(path=f, change_type=ChangeType.ADDED))
+            for f in new_files - old_files:
+                result.append(ChangedFile(path=f, change_type=ChangeType.ADDED))
 
-        for f in old_files - new_files:
-            result.append(ChangedFile(path=f, change_type=ChangeType.DELETED))
+            for f in old_files - new_files:
+                result.append(ChangedFile(path=f, change_type=ChangeType.DELETED))
 
-        for f in old_files & new_files:
-            # 同一文件路径但内容不同
-            if not self._same_file_content(
-                os.path.join(self.old_dir, f), os.path.join(self.new_dir, f)
-            ):
-                result.append(ChangedFile(path=f, change_type=ChangeType.MODIFIED))
+            for f in old_files & new_files:
+                # snapshot=False 只用于已经由上层固定的端点目录。
+                if not self._same_file_content(
+                    os.path.join(self.old_dir, f), os.path.join(self.new_dir, f)
+                ):
+                    result.append(ChangedFile(path=f, change_type=ChangeType.MODIFIED))
 
         new_endpoint_files = {
             item.path for item in result
             if item.change_type in (ChangeType.ADDED, ChangeType.RENAMED)
         }
-        self.required_directory_deletions = sorted(
-            directory for directory in old_dirs
-            if any(
-                new_path.casefold() == directory.casefold()
-                or directory.casefold().startswith(
-                    new_path.rstrip("/").casefold() + "/"
-                )
-                for new_path in new_endpoint_files
-            )
+        self.required_directory_deletions = windows_directories_replaced_by_files(
+            old_dirs, new_endpoint_files
         )
 
         return self._filter_files(result)
@@ -372,6 +500,9 @@ class FolderVCS(BaseVCS):
         if not os.path.isfile(full_path):
             return None
         return os.path.getsize(full_path)
+
+    def get_known_file_raw_size(self, version: str, file_path: str):
+        return self.get_file_size(version, file_path)
 
     def get_file_signature(self, version: str, file_path: str):
         folder = self._resolve_version_dir(version)

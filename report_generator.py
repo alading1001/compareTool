@@ -31,6 +31,20 @@ class ReportGenerator:
     ):
         summary = diff_result.summary
         template = self.env.get_template("report.html")
+        report_files = diff_result.report_files
+        manifest_files = diff_result.report_manifest_files
+        manifest_matches_files = (
+            report_files is manifest_files
+            or (
+                len(report_files) == len(manifest_files)
+                and all(
+                    report_file is manifest_file
+                    for report_file, manifest_file in zip(
+                        report_files, manifest_files
+                    )
+                )
+            )
+        )
         context = dict(
             project_name=diff_result.project_name,
             project_path=diff_result.project_path,
@@ -38,8 +52,9 @@ class ReportGenerator:
             old_version=diff_result.old_version,
             new_version=diff_result.new_version,
             summary=summary,
-            files=diff_result.report_files,
-            manifest_files=diff_result.report_manifest_files,
+            files=report_files,
+            manifest_files=manifest_files,
+            manifest_matches_files=manifest_matches_files,
             show_project_root=show_project_root,
             delivery_instructions_name=delivery_instructions_name,
             generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -50,16 +65,27 @@ class ReportGenerator:
 
     def generate_multi(self, project_results: list, output_path: str):
         summary = self._multi_summary(project_results)
-        manifest_entries = self._multi_manifest(project_results)
-        summary["manifest_listed_files"] = len(manifest_entries)
+        manifest_matches_files = (
+            DiffResult.MAX_REPORT_MANIFEST_FILES is None
+            and DiffResult.MAX_REPORT_MANIFEST_PATH_BYTES is None
+            and summary["report_omitted_files"] == 0
+        )
+        if manifest_matches_files:
+            manifest_entries = ()
+            manifest_listed_files = summary["total_files"]
+        else:
+            manifest_entries = self._multi_manifest(project_results)
+            manifest_listed_files = len(manifest_entries)
+        summary["manifest_listed_files"] = manifest_listed_files
         summary["manifest_omitted_files"] = max(
-            0, summary["total_files"] - len(manifest_entries)
+            0, summary["total_files"] - manifest_listed_files
         )
         template = self.env.get_template("multi_report.html")
         context = dict(
             summary=summary,
             projects=project_results,
             manifest_entries=manifest_entries,
+            manifest_matches_files=manifest_matches_files,
             delivery_instructions_name=DELIVERY_INSTRUCTIONS_FILENAME,
             generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         )
@@ -83,15 +109,13 @@ class ReportGenerator:
                 fd = -1
                 for chunk in stream:
                     payload = str(chunk).encode("utf-8")
-                    total += len(payload)
-                    if (
-                        cls.MAX_REPORT_OUTPUT_BYTES is not None
-                        and total > cls.MAX_REPORT_OUTPUT_BYTES
-                    ):
-                        raise RuntimeError(
-                            "最终 HTML 报告超过统一大小上限: "
-                            f"{total} > {cls.MAX_REPORT_OUTPUT_BYTES} 字节"
-                        )
+                    if cls.MAX_REPORT_OUTPUT_BYTES is not None:
+                        total += len(payload)
+                        if total > cls.MAX_REPORT_OUTPUT_BYTES:
+                            raise RuntimeError(
+                                "最终 HTML 报告超过统一大小上限: "
+                                f"{total} > {cls.MAX_REPORT_OUTPUT_BYTES} 字节"
+                            )
                     target.write(payload)
                 target.flush()
                 os.fsync(target.fileno())

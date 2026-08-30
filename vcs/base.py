@@ -152,7 +152,9 @@ class BaseVCS(ABC):
     def get_file_content_bytes(self, version: str, file_path: str) -> bytes:
         """获取指定版本的文件原始字节。失败返回 None，文件为空返回 b"""""
         content = self.get_file_content(version, file_path)
-        return content.encode("utf-8") if content else None
+        if content is None:
+            return None
+        return content.encode("utf-8")
 
     def get_file_content_raw_bytes(self, version: str, file_path: str) -> bytes:
         """获取仓库/快照中的原始字节，用于编码和换行符差异分析。
@@ -169,17 +171,22 @@ class BaseVCS(ABC):
         """返回仓库原始字节数；默认与导出端点大小一致。"""
         return self.get_file_size(version, file_path)
 
+    def get_known_file_raw_size(
+        self, version: str, file_path: str
+    ) -> Optional[int]:
+        """返回已由稳定快照掌握的原始大小；不得为此发起额外 VCS 查询。"""
+        return None
+
     def get_file_signature(self, version: str, file_path: str):
-        """返回可跨端点比较的 (size, digest)；正式 VCS 应分块实现。"""
+        """返回可跨端点比较的可哈希内容签名；正式 VCS 应分块实现。"""
         return None
 
     def export_file_to_path(self, version: str, file_path: str, target_path: str):
-        """把端点内容写入暂存目标；具体 VCS 应覆写为流式实现。"""
-        size = self.get_file_size(version, file_path)
-        if size is None or size > 16 * 1024 * 1024:
-            raise RuntimeError(
-                f"VCS 不支持安全流式导出，已拒绝读取未知或过大的文件: {file_path}"
-            )
+        """把端点内容写入暂存目标；具体 VCS 应覆写为流式实现。
+
+        这是遗留适配器的兼容回退。内置 VCS 均实现流式导出；旧适配器
+        只能提供整块字节时，仍应按旧语义完整写出，而不是按预计大小拒绝。
+        """
         data = self.get_file_content_bytes(version, file_path)
         if data is None:
             raise RuntimeError(f"无法读取版本 {version} 中的文件: {file_path}")

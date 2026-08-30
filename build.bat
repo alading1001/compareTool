@@ -7,51 +7,85 @@ echo ============================================
 echo.
 
 set "PYTHON_CMD="
+set "BASE_PYTHON="
 
-py -3 --version >nul 2>&1
-if not errorlevel 1 (
-    set "PYTHON_CMD=py -3"
+if exist ".venv\Scripts\python.exe" (
+    set "PYTHON_CMD=".venv\Scripts\python.exe""
 )
 
 if not defined PYTHON_CMD (
-    python --version >nul 2>&1
+    py -3.12 --version >nul 2>&1
     if not errorlevel 1 (
-        set "PYTHON_CMD=python"
+        set "BASE_PYTHON=py -3.12"
     )
 )
 
-if not defined PYTHON_CMD (
+if not defined PYTHON_CMD if not defined BASE_PYTHON (
+    py -3 --version >nul 2>&1
+    if not errorlevel 1 (
+        set "BASE_PYTHON=py -3"
+    )
+)
+
+if not defined PYTHON_CMD if not defined BASE_PYTHON (
+    python --version >nul 2>&1
+    if not errorlevel 1 (
+        set "BASE_PYTHON=python"
+    )
+)
+
+if not defined PYTHON_CMD if not defined BASE_PYTHON (
     if exist "%LOCALAPPDATA%\Python\bin\python.exe" (
         "%LOCALAPPDATA%\Python\bin\python.exe" --version >nul 2>&1
         if not errorlevel 1 (
-            set "PYTHON_CMD="%LOCALAPPDATA%\Python\bin\python.exe""
+            set "BASE_PYTHON="%LOCALAPPDATA%\Python\bin\python.exe""
         )
     )
 )
 
-if not defined PYTHON_CMD (
+if not defined PYTHON_CMD if not defined BASE_PYTHON (
     echo Python was not found.
     echo Please install Python or add it to PATH, then run build.bat again.
     pause
     exit /b 1
 )
 
+if not defined PYTHON_CMD (
+    echo Creating project virtual environment...
+    %BASE_PYTHON% -m venv .venv
+    if errorlevel 1 (
+        echo Failed to create project virtual environment.
+        pause
+        exit /b 1
+    )
+    set "PYTHON_CMD=".venv\Scripts\python.exe""
+)
+
 echo Python: %PYTHON_CMD%
 echo.
 
-REM Check whether PyInstaller is installed.
+REM Check whether all build dependencies are installed.
+set "INSTALL_DEPS="
 %PYTHON_CMD% -m pip show pyinstaller >nul 2>&1
 if errorlevel 1 (
-    echo [1/2] Installing PyInstaller...
-    %PYTHON_CMD% -m pip install pyinstaller
+    set "INSTALL_DEPS=1"
+)
+%PYTHON_CMD% -m pip show jinja2 >nul 2>&1
+if errorlevel 1 (
+    set "INSTALL_DEPS=1"
+)
+
+if defined INSTALL_DEPS (
+    echo [1/2] Installing build dependencies...
+    %PYTHON_CMD% -m pip install -r requirements.txt
     if errorlevel 1 (
         echo.
-        echo Failed to install PyInstaller.
+        echo Failed to install build dependencies.
         pause
         exit /b 1
     )
 ) else (
-    echo [1/2] PyInstaller already installed
+    echo [1/2] Build dependencies already installed
 )
 
 echo.

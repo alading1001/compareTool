@@ -57,11 +57,15 @@ def _dedupe_paths(paths: List[str]) -> List[str]:
 def candidate_temp_roots() -> List[str]:
     """按优先级返回 CompareTool 临时工作根目录候选。"""
     configured = os.environ.get(TEMP_DIR_ENV, "").strip()
-    if configured:
-        return [os.path.abspath(os.path.expandvars(os.path.expanduser(configured)))]
-
     runtime_root = os.path.join(_runtime_base_dir(), *_RUNTIME_TEMP_PARTS)
     candidates = []
+
+    if configured:
+        # 显式配置仍保持最高优先级；需要避开输入树的调用方可以跳过这个
+        # 候选并继续使用后面的安全回退，而普通调用仍会首先使用它。
+        candidates.append(
+            os.path.abspath(os.path.expandvars(os.path.expanduser(configured)))
+        )
 
     if os.name == "nt":
         system_drive = _system_drive()
@@ -80,28 +84,88 @@ def candidate_temp_roots() -> List[str]:
     return _dedupe_paths(candidates)
 
 
-def create_temp_dir(prefix: str) -> str:
-    """创建临时工作目录；仅在更高优先级目录不可用时才回退。"""
+def _path_is_within(path: str, root: str) -> bool:
+    path_real = os.path.normcase(os.path.realpath(os.path.abspath(path)))
+    root_real = os.path.normcase(os.path.realpath(os.path.abspath(root)))
+    try:
+        return os.path.normcase(os.path.commonpath([path_real, root_real])) == root_real
+    except ValueError:
+        return False
+
+
+def _unsafe_temp_root(root: str, avoid_paths) -> str:
+    for avoided in avoid_paths:
+        if avoided and _path_is_within(root, avoided):
+            return os.path.realpath(os.path.abspath(avoided))
+    return ""
+
+
+def create_temp_dir(
+        prefix: str, avoid_paths=None, required_free_bytes: int = 0) -> str:
+    """创建临时工作目录；不可写或空间不足时继续尝试下一候选。"""
     errors = []
-    configured = bool(os.environ.get(TEMP_DIR_ENV, "").strip())
+    avoid_paths = tuple(avoid_paths or ())
+    required_free_bytes = max(0, int(required_free_bytes or 0))
+    configured_value = os.environ.get(TEMP_DIR_ENV, "").strip()
+    configured_root = ""
+    if configured_value:
+        configured_root = os.path.normcase(os.path.abspath(
+            os.path.expandvars(os.path.expanduser(configured_value))
+        ))
     for root in candidate_temp_roots():
+        unsafe_input = _unsafe_temp_root(root, avoid_paths)
+        if unsafe_input:
+            errors.append(
+                f"{root}: 候选临时根位于比对输入目录内 ({unsafe_input})"
+            )
+            continue
         try:
             os.makedirs(root, exist_ok=True)
             _cleanup_stale_temp_dirs(root)
+            if required_free_bytes:
+                free_bytes = shutil.disk_usage(root).free
+                if free_bytes < required_free_bytes:
+                    errors.append(
+                        f"{root}: 可用空间不足，需要 {required_free_bytes} 字节，"
+                        f"当前 {free_bytes} 字节"
+                    )
+                    if (
+                        configured_root
+                        and os.path.normcase(os.path.abspath(root)) == configured_root
+                    ):
+                        break
+                    continue
             path = tempfile.mkdtemp(prefix=prefix, dir=root)
+            unsafe_input = _unsafe_temp_root(path, avoid_paths)
+            if unsafe_input:
+                shutil.rmtree(path, ignore_errors=True)
+                errors.append(
+                    f"{root}: 创建出的临时目录位于比对输入目录内 "
+                    f"({unsafe_input})"
+                )
+                continue
             _mark_temp_dir(path)
             if os.name == "nt" and _drive(path) == _system_drive():
                 warn(f"CompareTool 临时目录回退到系统盘: {path}")
             return path
         except OSError as exc:
             errors.append(f"{root}: {exc}")
-            if configured:
+            if (
+                configured_root
+                and os.path.normcase(os.path.abspath(root)) == configured_root
+            ):
                 break
 
     detail = "\n".join(errors)
-    if configured:
+    if configured_root and not avoid_paths:
         raise RuntimeError(
             f"无法使用环境变量 {TEMP_DIR_ENV} 指定的临时目录。\n{detail}"
+        )
+    if avoid_paths:
+        raise RuntimeError(
+            "无法在比对输入目录之外创建 CompareTool 临时工作目录；"
+            "所有候选均不安全或不可用。\n"
+            f"{detail}"
         )
     raise RuntimeError(f"无法创建 CompareTool 临时工作目录。\n{detail}")
 

@@ -2,6 +2,7 @@ import json
 import os
 import secrets
 import shutil
+import subprocess
 import sys
 import tempfile
 import threading
@@ -9,6 +10,7 @@ import webbrowser
 import tkinter as tk
 from datetime import datetime
 from tkinter import ttk, filedialog, messagebox
+from xml.etree import ElementTree
 
 # PyInstaller 打包后的资源路径处理
 if getattr(sys, 'frozen', False):
@@ -82,7 +84,7 @@ from delivery_instructions import (
     single_delivery_instructions_filename,
 )
 from logger import info, warn, error
-from path_safety import sanitize_windows_component
+from path_safety import sanitize_windows_component, windows_path_key
 
 
 def _load_config():
@@ -684,7 +686,7 @@ class CompareToolApp:
     @staticmethod
     def _project_name_key(name: str) -> str:
         """Windows 导出目录按大小写不敏感规则判重。"""
-        return os.path.normcase((name or "").strip()).casefold()
+        return windows_path_key((name or "").strip())
 
     @staticmethod
     def _sanitize_output_batch_name(name: str) -> str:
@@ -700,8 +702,15 @@ class CompareToolApp:
 
     @staticmethod
     def _validate_source_output_separation(
-            source_paths, directory_targets, file_targets=()):
-        """拒绝输出覆盖输入，或把生成物写进会被遍历的源码目录。"""
+            source_paths, directory_targets, file_targets=(),
+            allow_descendant_outputs=False):
+        """拒绝输出覆盖输入；固定仓库端点可允许专用输出位于工作副本内。
+
+        Folder/Archive 会直接遍历或读取用户选择的磁盘输入，因此输出落入
+        输入树会污染端点，必须严格隔离。Git/SVN（含多版本）读取的则是已经
+        固定的 commit/revision；对这些模式，输入树下的专用未跟踪输出不会
+        进入比对，不能仅因目录关系就让旧版可完成的任务失败。
+        """
         sources = [
             os.path.realpath(os.path.abspath(path))
             for path in source_paths if path
@@ -721,8 +730,13 @@ class CompareToolApp:
                     common = os.path.commonpath([source, target])
                 except ValueError:
                     continue
-                if os.path.normcase(common) in (
-                        os.path.normcase(source), os.path.normcase(target)):
+                common_key = os.path.normcase(common)
+                source_key = os.path.normcase(source)
+                target_key = os.path.normcase(target)
+                if (
+                    common_key == target_key
+                    or (common_key == source_key and not allow_descendant_outputs)
+                ):
                     raise ValueError(
                         "输出目录与输入源码目录重叠，可能覆盖源码或把上次产物计入比对：\n"
                         f"输入：{source}\n输出：{target}"
@@ -732,12 +746,278 @@ class CompareToolApp:
                     common = os.path.commonpath([source, target])
                 except ValueError:
                     continue
-                if os.path.normcase(common) in (
-                        os.path.normcase(source), os.path.normcase(target)):
+                common_key = os.path.normcase(common)
+                source_key = os.path.normcase(source)
+                target_key = os.path.normcase(target)
+                if (
+                    common_key == target_key
+                    or (common_key == source_key and not allow_descendant_outputs)
+                ):
                     raise ValueError(
                         "输出文件与输入源码路径重叠，可能覆盖源码或被后续比对误识别：\n"
                         f"输入：{source}\n输出：{target}"
                     )
+
+    @staticmethod
+    def _validate_repository_output_targets(
+            project_path: str, vcs_type: str, targets):
+        """允许仓库内专用输出，但绝不替换版本控制已经占用的源码路径。"""
+        if vcs_type not in ("git", "git_multi", "svn", "svn_multi"):
+            return
+        project_root = os.path.realpath(os.path.abspath(project_path))
+
+        git_executable = None
+        git_bare = False
+        svn_executable = None
+        if vcs_type in ("git", "git_multi"):
+            git_executable = GitVCS._find_git()
+            try:
+                top_result = subprocess.run(
+                    [git_executable, "rev-parse", "--show-toplevel"],
+                    cwd=project_root,
+                    capture_output=True,
+                    timeout=None,
+                )
+            except (FileNotFoundError, OSError) as exc:
+                raise ValueError(f"无法确认 Git 工作树根目录：{exc}") from exc
+            if top_result.returncode == 0:
+                git_root_text = top_result.stdout.decode(
+                    "utf-8", errors="surrogateescape"
+                ).strip()
+                if not git_root_text:
+                    raise ValueError("无法确认 Git 工作树根目录")
+                repository_root = os.path.realpath(
+                    os.path.abspath(git_root_text)
+                )
+            else:
+                # 裸仓库没有 working tree，8 月 27 日前仍可用 git diff/show
+                # 生成报告。输出在仓库外应继续允许，仓库目录本身全部视为
+                # Git 元数据，不能拿来放报告或源码包。
+                try:
+                    bare_result = subprocess.run(
+                        [git_executable, "rev-parse", "--is-bare-repository"],
+                        cwd=project_root,
+                        capture_output=True,
+                        timeout=None,
+                    )
+                    git_dir_result = subprocess.run(
+                        [git_executable, "rev-parse", "--absolute-git-dir"],
+                        cwd=project_root,
+                        capture_output=True,
+                        timeout=None,
+                    )
+                except (FileNotFoundError, OSError) as exc:
+                    raise ValueError(f"无法确认 Git 仓库根目录：{exc}") from exc
+                git_bare = (
+                    bare_result.returncode == 0
+                    and bare_result.stdout.strip().lower() == b"true"
+                    and git_dir_result.returncode == 0
+                )
+                git_dir_text = git_dir_result.stdout.decode(
+                    "utf-8", errors="surrogateescape"
+                ).strip()
+                if not git_bare or not git_dir_text:
+                    detail = (top_result.stderr or top_result.stdout).decode(
+                        "utf-8", errors="replace"
+                    ).strip()
+                    raise ValueError(
+                        "无法确认 Git 工作树根目录"
+                        + (f"：{detail}" if detail else "")
+                    )
+                repository_root = os.path.realpath(
+                    os.path.abspath(git_dir_text)
+                )
+        else:
+            svn_executable = SVNVCS._find_svn()
+            # SVN 1.7+ 只在工作副本根保留 .svn；旧式工作副本会在多层
+            # 都存在 .svn，取最外层仍可覆盖同一工作副本的兄弟目录。
+            repository_root = project_root
+            current = project_root
+            while True:
+                if os.path.isdir(os.path.join(current, ".svn")):
+                    repository_root = current
+                parent = os.path.dirname(current)
+                if parent == current:
+                    break
+                current = parent
+
+        def nested_repository_marker(directory: str) -> str:
+            """只识别真实仓库结构；普通同名源码目录不是仓库边界。"""
+            git_marker = os.path.join(directory, ".git")
+            if os.path.isdir(git_marker):
+                if (
+                    os.path.isfile(os.path.join(git_marker, "HEAD"))
+                    and (
+                        os.path.isdir(os.path.join(git_marker, "objects"))
+                        or os.path.isfile(os.path.join(git_marker, "commondir"))
+                    )
+                ):
+                    return git_marker
+            elif os.path.isfile(git_marker):
+                try:
+                    with open(
+                        git_marker, "r", encoding="utf-8", errors="replace"
+                    ) as stream:
+                        pointer = stream.readline(4097).strip()
+                except OSError:
+                    pointer = ""
+                if len(pointer) <= 4096 and pointer.lower().startswith("gitdir:"):
+                    git_dir = pointer.split(":", 1)[1].strip()
+                    if not os.path.isabs(git_dir):
+                        git_dir = os.path.join(directory, git_dir)
+                    git_dir = os.path.realpath(os.path.abspath(git_dir))
+                    if os.path.isfile(os.path.join(git_dir, "HEAD")):
+                        return git_marker
+
+            # 裸 Git 仓库没有 .git 子项，但本身仍是不能写入报告的源码根。
+            if (
+                os.path.isfile(os.path.join(directory, "HEAD"))
+                and os.path.isfile(os.path.join(directory, "config"))
+                and os.path.isdir(os.path.join(directory, "objects"))
+            ):
+                return directory
+
+            svn_marker = os.path.join(directory, ".svn")
+            if os.path.isdir(svn_marker) and (
+                os.path.isfile(os.path.join(svn_marker, "wc.db"))
+                or os.path.isfile(os.path.join(svn_marker, "entries"))
+            ):
+                return svn_marker
+            return ""
+
+        relative_targets = []
+        for target in targets:
+            if not target:
+                continue
+            resolved = os.path.realpath(os.path.abspath(target))
+            try:
+                common = os.path.commonpath([repository_root, resolved])
+            except ValueError:
+                continue
+            if os.path.normcase(common) != os.path.normcase(repository_root):
+                continue
+            relative = os.path.relpath(
+                resolved, repository_root
+            ).replace("\\", "/")
+            components = [part.casefold() for part in relative.split("/")]
+            if any(part in (".git", ".svn") for part in components):
+                raise ValueError(
+                    "输出目标位于版本控制元数据目录内，已拒绝覆盖：\n"
+                    f"{resolved}"
+                )
+
+            # 目标的祖先若是真实嵌套仓库，写入会覆盖另一份源码；目标自身
+            # 及其后代则属于本次声明要整体替换的输出，里面的 .git/.svn
+            # 可能正是上次按用户要求导出的普通源码内容，不能据此拒绝生成。
+            ancestor = os.path.dirname(resolved)
+            while (
+                ancestor
+                and os.path.normcase(ancestor) != os.path.normcase(repository_root)
+            ):
+                nested_marker = nested_repository_marker(ancestor)
+                if nested_marker:
+                    raise ValueError(
+                        "输出目标位于独立 Git/SVN 工作副本内，"
+                        "为避免覆盖源码已拒绝生成：\n"
+                        f"{nested_marker}"
+                    )
+                parent = os.path.dirname(ancestor)
+                if parent == ancestor:
+                    break
+                ancestor = parent
+            relative_targets.append((relative, resolved))
+
+        if not relative_targets:
+            return
+
+        if vcs_type in ("git", "git_multi"):
+            if git_bare:
+                raise ValueError(
+                    "输出目标位于 Git 裸仓库元数据目录内，已拒绝覆盖：\n"
+                    + "\n".join(path for _relative, path in relative_targets)
+                )
+            try:
+                pathspecs = [
+                    ":(top,literal,icase)"
+                    + os.path.relpath(
+                        resolved, repository_root
+                    ).replace("\\", "/")
+                    for _relative, resolved in relative_targets
+                ]
+                result = subprocess.run(
+                    [git_executable, "ls-files", "-z", "--stage", "--", *pathspecs],
+                    cwd=repository_root,
+                    capture_output=True,
+                    timeout=None,
+                )
+            except (FileNotFoundError, OSError) as exc:
+                raise ValueError(
+                    f"无法确认仓库内输出目标是否占用 Git 源码路径：{exc}"
+                ) from exc
+            if result.returncode != 0:
+                detail = (result.stderr or result.stdout).decode(
+                    "utf-8", errors="replace"
+                ).strip()
+                raise ValueError(
+                    "无法确认仓库内输出目标是否占用 Git 源码路径"
+                    + (f"：{detail}" if detail else "")
+                )
+            if result.stdout:
+                raise ValueError(
+                    "仓库内输出目标包含 Git 已跟踪文件或子模块，"
+                    "为避免覆盖源码已拒绝生成：\n"
+                    + "\n".join(path for _relative, path in relative_targets)
+                )
+            return
+
+        svn_executable = SVNVCS._find_svn()
+        svn_targets = [target for _relative, target in relative_targets]
+        try:
+            result = subprocess.run(
+                [
+                    svn_executable,
+                    "status",
+                    "--xml",
+                    "--verbose",
+                    "--depth",
+                    "infinity",
+                    "--",
+                    *svn_targets,
+                ],
+                cwd=repository_root,
+                capture_output=True,
+                timeout=None,
+            )
+        except (FileNotFoundError, OSError) as exc:
+            raise ValueError(
+                f"无法确认仓库内输出目标是否占用 SVN 源码路径：{exc}"
+            ) from exc
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout).decode(
+                "utf-8", errors="replace"
+            ).strip()
+            raise ValueError(
+                "无法确认仓库内输出目标是否占用 SVN 源码路径"
+                + (f"：{detail}" if detail else "")
+            )
+        try:
+            status_root = ElementTree.fromstring(result.stdout or b"<status />")
+        except ElementTree.ParseError as exc:
+            raise ValueError(
+                "无法解析 SVN 输出目标状态，已拒绝覆盖：\n"
+                + "\n".join(svn_targets)
+            ) from exc
+        versioned = [
+            node.get("item", "")
+            for node in status_root.findall(".//wc-status")
+            if node.get("item", "") not in ("", "none", "unversioned", "ignored")
+        ]
+        if versioned:
+            raise ValueError(
+                "仓库内输出目标包含 SVN 已版本化路径，"
+                "为避免覆盖源码已拒绝生成：\n"
+                + "\n".join(svn_targets)
+            )
 
     @staticmethod
     def _task_source_directories(task: dict) -> list:
@@ -1823,10 +2103,21 @@ class CompareToolApp:
             single_delivery_instructions_filename(project_name),
         )
         try:
+            self._validate_repository_output_targets(
+                project_path,
+                vcs_type,
+                [
+                    FileExporter._safe_join(old_export, project_name),
+                    FileExporter._safe_join(new_export, project_name),
+                    report_path,
+                    instruction_path,
+                ],
+            )
             self._validate_source_output_separation(
                 source_paths,
                 [old_export, new_export],
                 [report_path, instruction_path],
+                allow_descendant_outputs=not (is_folder or is_archive),
             )
         except ValueError as exc:
             messagebox.showwarning("提示", str(exc))
@@ -1887,17 +2178,21 @@ class CompareToolApp:
             os.path.dirname(os.path.abspath(report_path)),
             DELIVERY_INSTRUCTIONS_FILENAME,
         )
-        source_paths = [
-            source
-            for task in self._multi_tasks
-            for source in self._task_source_directories(task)
-        ]
         try:
-            self._validate_source_output_separation(
-                source_paths,
-                [old_export, new_export],
-                [report_path, instruction_path],
-            )
+            for task in self._multi_tasks:
+                self._validate_repository_output_targets(
+                    task.get("project_path", ""),
+                    task.get("vcs_type", ""),
+                    [old_export, new_export, report_path, instruction_path],
+                )
+                self._validate_source_output_separation(
+                    self._task_source_directories(task),
+                    [old_export, new_export],
+                    [report_path, instruction_path],
+                    allow_descendant_outputs=task.get("vcs_type") not in (
+                        "folder", "archive"
+                    ),
+                )
         except ValueError as exc:
             messagebox.showwarning("提示", str(exc))
             return
@@ -1943,10 +2238,21 @@ class CompareToolApp:
                 os.path.dirname(os.path.abspath(report_path)),
                 single_delivery_instructions_filename(project_name),
             )
+            self._validate_repository_output_targets(
+                project_path,
+                vcs_type,
+                [
+                    FileExporter._safe_join(old_export, project_name),
+                    FileExporter._safe_join(new_export, project_name),
+                    report_path,
+                    instruction_target,
+                ],
+            )
             self._validate_source_output_separation(
                 source_paths,
                 [old_export, new_export],
                 [report_path, instruction_target],
+                allow_descendant_outputs=vcs_type not in ("folder", "archive"),
             )
             expected_target_states = FileExporter.capture_target_states(
                 [
@@ -2081,21 +2387,26 @@ class CompareToolApp:
                 os.path.dirname(os.path.abspath(report_path)),
                 DELIVERY_INSTRUCTIONS_FILENAME,
             )
-            self._validate_source_output_separation(
-                [
-                    source
-                    for task in tasks
-                    for source in self._task_source_directories(task)
-                ],
-                [old_export, new_export],
-                [report_path, instruction_target],
-            )
+            for task in tasks:
+                self._validate_repository_output_targets(
+                    task.get("project_path", ""),
+                    task.get("vcs_type", ""),
+                    [old_export, new_export, report_path, instruction_target],
+                )
+                self._validate_source_output_separation(
+                    self._task_source_directories(task),
+                    [old_export, new_export],
+                    [report_path, instruction_target],
+                    allow_descendant_outputs=task.get("vcs_type") not in (
+                        "folder", "archive"
+                    ),
+                )
             expected_target_states = FileExporter.capture_target_states(
                 [old_export, new_export, report_path, instruction_target],
                 trusted_root=trusted_output_root,
             )
             info("=== 开始生成多项目总报告 ===")
-            report_budget = {}
+            report_budget = {} if DiffEngine.report_limits_enabled() else None
             for idx, task in enumerate(tasks, start=1):
                 info(f"多项目任务 {idx}/{len(tasks)}: {task.get('project_name')} {task.get('vcs_type')}")
                 self.root.after(0, lambda idx=idx, total=len(tasks), name=task.get("project_name", ""):

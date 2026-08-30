@@ -215,6 +215,9 @@ fileData.push({
 });
 {% endfor %}
 {% endfor %}
+{% if manifest_matches_files | default(false) %}
+var manifestData = fileData;
+{% else %}
 var manifestData = [];
 {% for entry in manifest_entries %}
 manifestData.push({
@@ -225,13 +228,16 @@ manifestData.push({
     type: {{ entry.file.report_type | tojson }}
 });
 {% endfor %}
+{% endif %}
 function addDisplayPaths(file) {
     var prefix = file.showProjectRoot ? file.project + '/' : '';
     file.displayPath = prefix + file.path;
     file.oldDisplayPath = file.oldPath ? prefix + file.oldPath : '';
 }
 fileData.forEach(addDisplayPaths);
+{% if not (manifest_matches_files | default(false)) %}
 manifestData.forEach(addDisplayPaths);
+{% endif %}
 var currentDiffAnchors = [];
 var currentDiffGroups = [];
 var currentDiffIndex = -1;

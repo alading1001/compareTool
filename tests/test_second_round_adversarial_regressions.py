@@ -13,7 +13,11 @@ from delivery_instructions import write_delivery_instructions
 from diff_engine import DiffEngine, DiffResult, FileDiff
 from file_exporter import FileExporter
 from main import CompareToolApp
-from path_safety import sanitize_windows_component, split_safe_relative_path
+from path_safety import (
+    is_name_surrogate_reparse_tag,
+    sanitize_windows_component,
+    split_safe_relative_path,
+)
 from report_generator import ReportGenerator
 from stage_ownership import mark_owned
 from vcs.archive_vcs import ArchiveVCS
@@ -62,11 +66,23 @@ class BytesVCS(BaseVCS):
 
 
 class PathAndSnapshotTests(unittest.TestCase):
-    def test_windows_short_alias_and_superscript_devices_are_blocked(self):
+    def test_windows_short_alias_is_only_blocked_for_untrusted_archives(self):
+        self.assertEqual(
+            ["dir", "LONGFI~1.TXT"],
+            split_safe_relative_path("dir/LONGFI~1.TXT"),
+        )
         with self.assertRaisesRegex(ValueError, "8.3"):
-            split_safe_relative_path("dir/LONGFI~1.TXT")
+            split_safe_relative_path(
+                "dir/LONGFI~1.TXT", reject_short_alias=True
+            )
         self.assertEqual("_COM¹", sanitize_windows_component("COM¹"))
-        self.assertEqual("_ABC~1.TXT", sanitize_windows_component("ABC~1.TXT"))
+        self.assertEqual("ABC~1.TXT", sanitize_windows_component("ABC~1.TXT"))
+
+    def test_windows_content_reparse_tags_are_not_treated_as_path_redirects(self):
+        self.assertTrue(is_name_surrogate_reparse_tag(0xA000000C))  # symlink
+        self.assertTrue(is_name_surrogate_reparse_tag(0xA0000003))  # mount point
+        self.assertFalse(is_name_surrogate_reparse_tag(0x9000001A))  # cloud
+        self.assertFalse(is_name_surrogate_reparse_tag(0x80000013))  # dedup
 
     def test_folder_endpoints_snapshot_lazily_then_remain_stable(self):
         with project_temp_dir() as root:
@@ -228,12 +244,16 @@ class PathAndSnapshotTests(unittest.TestCase):
             finally:
                 vcs.cleanup()
 
-    def test_same_or_nested_folder_endpoints_are_rejected(self):
+    def test_same_folder_endpoint_returns_zero_changes(self):
         with project_temp_dir() as root:
-            child = os.path.join(root, "child")
-            os.makedirs(child)
-            with self.assertRaisesRegex(ValueError, "不能互为祖先"):
-                FolderVCS(root, child)
+            write_bytes(os.path.join(root, "value.txt"), b"same")
+            vcs = FolderVCS(root, os.path.join(root, "."))
+            try:
+                self.assertEqual(
+                    [], vcs.get_changed_files(root, os.path.join(root, "."))
+                )
+            finally:
+                vcs.cleanup()
 
     def test_excluded_replacement_file_cannot_leave_directory_delete_instruction(self):
         with project_temp_dir() as root:
@@ -704,15 +724,19 @@ class ArchiveAndTransactionTests(unittest.TestCase):
     def test_oversized_hidden_tar_metadata_is_rejected_before_payload_read(self):
         with project_temp_dir() as root:
             archive = os.path.join(root, "bad.tar")
+            explicit_limit = 1024 * 1024
             info = tarfile.TarInfo("pax")
             info.type = tarfile.XHDTYPE
-            info.size = ArchiveVCS.MAX_TAR_METADATA_BYTES + 1
+            info.size = explicit_limit + 1
             with open(archive, "wb") as stream:
                 stream.write(info.tobuf())
             dest = os.path.join(root, "dest")
             os.makedirs(dest)
-            with self.assertRaisesRegex(ValueError, "扩展元数据过大"):
-                ArchiveVCS.__new__(ArchiveVCS)._extract_tar(archive, dest)
+            with mock.patch.object(
+                ArchiveVCS, "MAX_TAR_METADATA_BYTES", explicit_limit
+            ):
+                with self.assertRaisesRegex(ValueError, "扩展元数据过大"):
+                    ArchiveVCS.__new__(ArchiveVCS)._preflight_tar(archive, dest)
 
     def test_cumulative_tar_metadata_limit_rejects_small_headers(self):
         with project_temp_dir() as root:
@@ -909,21 +933,21 @@ class ArchiveAndTransactionTests(unittest.TestCase):
             with open(os.path.join(root, "new", "large.bin"), "rb") as stream:
                 self.assertEqual(b"first-second", stream.read())
 
-    def test_inherited_export_rejects_unknown_size_before_whole_file_read(self):
+    def test_inherited_export_keeps_legacy_unknown_size_compatibility(self):
         vcs = BytesVCS(new_data=b"payload", change_type=ChangeType.ADDED)
-        vcs.get_file_content_bytes = mock.Mock(
-            side_effect=AssertionError("不应整文件读取")
-        )
+        original_getter = vcs.get_file_content_bytes
+        vcs.get_file_content_bytes = mock.Mock(wraps=original_getter)
         result = DiffResult(
             "demo", "demo", "Fake", "old", "new",
             files=[FileDiff("unknown.bin", ChangeType.ADDED)],
         )
         with project_temp_dir() as root:
-            with self.assertRaisesRegex(RuntimeError, "不支持安全流式导出"):
-                FileExporter(result, vcs).export(
-                    os.path.join(root, "old"), os.path.join(root, "new")
-                )
-        vcs.get_file_content_bytes.assert_not_called()
+            FileExporter(result, vcs).export(
+                os.path.join(root, "old"), os.path.join(root, "new")
+            )
+            with open(os.path.join(root, "new", "unknown.bin"), "rb") as stream:
+                self.assertEqual(b"payload", stream.read())
+        vcs.get_file_content_bytes.assert_called_once_with("new", "unknown.bin")
 
     def test_streaming_eol_rewrite_handles_crlf_across_chunk_boundary(self):
         with project_temp_dir() as root:

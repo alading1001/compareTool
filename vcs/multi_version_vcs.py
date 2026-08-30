@@ -5,12 +5,18 @@ import shutil
 import subprocess
 import tempfile
 import threading
-from dataclasses import dataclass
+import heapq
+from bisect import bisect_left
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set
 from urllib.parse import quote, unquote
 from xml.etree import ElementTree
 
-from path_safety import safe_join
+from path_safety import (
+    safe_join,
+    windows_directories_replaced_by_files,
+    windows_path_key,
+)
 from .base import BaseVCS, ChangedFile, ChangeType
 from .folder_vcs import FolderVCS
 from .git_vcs import GitVCS, GIT_NOT_FOUND_MESSAGE
@@ -108,6 +114,114 @@ def parse_multi_versions(raw: str) -> List[str]:
     return result
 
 
+def _path_is_covered_by_prefix(path: str, prefixes) -> bool:
+    """判断路径是否等于某前缀或位于其下；复杂度只与路径深度有关。"""
+    prefix_set = prefixes if isinstance(prefixes, set) else set(prefixes)
+    current = (path or "").replace("\\", "/").strip("/")
+    while current:
+        if current in prefix_set:
+            return True
+        parent, separator, _name = current.rpartition("/")
+        if not separator:
+            break
+        current = parent
+    return "" in prefix_set
+
+
+def _strict_descendant_paths(sorted_paths, prefix: str) -> List[str]:
+    """从已排序路径中近线性取得某目录下的严格后代。"""
+    marker = (prefix or "").replace("\\", "/").strip("/") + "/"
+    index = bisect_left(sorted_paths, marker)
+    result = []
+    while index < len(sorted_paths) and sorted_paths[index].startswith(marker):
+        result.append(sorted_paths[index])
+        index += 1
+    return result
+
+
+def _minimal_strict_descendant_paths(sorted_paths, prefix: str) -> List[str]:
+    """只保留最上层严格后代；一个目录前缀即可覆盖它的整棵子树。"""
+    marker = (prefix or "").replace("\\", "/").strip("/") + "/"
+    index = bisect_left(sorted_paths, marker)
+    result = []
+    selected = set()
+    while index < len(sorted_paths) and sorted_paths[index].startswith(marker):
+        path = sorted_paths[index]
+        covering = _covering_path_prefix(path, selected)
+        if covering is not None:
+            # 只有已经进入 ``covering/`` 子树后才跳到区间末尾；否则会把
+            # 排序上位于 ``a`` 与 ``a/child`` 之间的同级 ``a-``、``a.``
+            # 一并越过。
+            if path == covering:
+                index += 1
+            else:
+                index = bisect_left(sorted_paths, covering + "0", index + 1)
+            continue
+        result.append(path)
+        selected.add(path)
+        index += 1
+    return result
+
+
+def _covering_path_prefix(path: str, prefixes):
+    prefix_set = prefixes if isinstance(prefixes, set) else set(prefixes)
+    current = (path or "").replace("\\", "/").strip("/")
+    while current:
+        if current in prefix_set:
+            return current
+        parent, separator, _name = current.rpartition("/")
+        if not separator:
+            break
+        current = parent
+    return "" if "" in prefix_set else None
+
+
+def _strict_descendant_paths_excluding(
+    sorted_paths, prefix: str, excluded_prefixes
+) -> List[str]:
+    """取得严格后代，并用前缀跳跃避开已由嵌套移动消费的整棵子树。"""
+    marker = (prefix or "").replace("\\", "/").strip("/") + "/"
+    excluded = (
+        excluded_prefixes
+        if isinstance(excluded_prefixes, set)
+        else set(excluded_prefixes)
+    )
+    index = bisect_left(sorted_paths, marker)
+    result = []
+    while index < len(sorted_paths) and sorted_paths[index].startswith(marker):
+        path = sorted_paths[index]
+        covering = _covering_path_prefix(path, excluded)
+        if covering is not None:
+            if path == covering:
+                index += 1
+            else:
+                index = bisect_left(sorted_paths, covering + "0", index + 1)
+            continue
+        result.append(path)
+        index += 1
+    return result
+
+
+def _has_strict_descendant_path(sorted_paths, prefix: str) -> bool:
+    marker = (prefix or "").replace("\\", "/").strip("/") + "/"
+    index = bisect_left(sorted_paths, marker)
+    return (
+        index < len(sorted_paths)
+        and sorted_paths[index].startswith(marker)
+    )
+
+
+def _longest_ancestor_candidate(path: str, candidates_by_prefix):
+    """取得最具体的严格祖先候选组，避免逐项扫描所有目录移动。"""
+    current = (path or "").replace("\\", "/").strip("/")
+    while "/" in current:
+        current = current.rsplit("/", 1)[0]
+        candidates = candidates_by_prefix.get(current)
+        if candidates:
+            return max(candidates)
+    return None
+
+
 def _remove_tree(path: str):
     if os.path.isdir(path):
         try:
@@ -121,6 +235,34 @@ class _HistoryChange:
     action: str
     path: str
     old_path: str = ""
+
+
+@dataclass
+class _GitAmbiguousPathCandidates:
+    """显式候选和紧凑笛卡尔候选组；迭代时才展开组合。"""
+
+    explicit_pairs: Set[tuple]
+    cartesian_groups: List[tuple]
+    scored_groups: List[tuple] = field(default_factory=list)
+    permissive_groups: List[tuple] = field(default_factory=list)
+    reliable_renames: Set[tuple] = field(default_factory=set)
+
+    def __bool__(self):
+        return bool(
+            self.explicit_pairs
+            or self.cartesian_groups
+            or self.scored_groups
+            or self.permissive_groups
+        )
+
+    def __iter__(self):
+        yield from sorted(self.explicit_pairs)
+        for source_paths, target_paths, excluded_pairs in self.cartesian_groups:
+            for source_path in source_paths:
+                for target_path in target_paths:
+                    pair = (source_path, target_path)
+                    if pair not in excluded_pairs:
+                        yield pair
 
 
 @dataclass(eq=False)
@@ -144,6 +286,7 @@ class _EndpointPlanner:
         self._step = 0
         self._change_count = 0
         self._path_bytes = 0
+        self._deleted_paths_sorted = None
 
     # 默认不按历史规模预测拒绝任务；数值仅作为显式策略/测试注入点。
     MAX_HISTORY_STEPS = None
@@ -171,33 +314,41 @@ class _EndpointPlanner:
         old_version: str,
         new_version: str,
     ):
+        self._deleted_paths_sorted = None
         self._step += 1
         if (
             self.MAX_HISTORY_STEPS is not None
             and self._step > self.MAX_HISTORY_STEPS
         ):
             raise RuntimeError("多版本历史步数超过安全上限，已中止生成")
-        self._change_count += len(changes)
-        self._path_bytes += sum(
-            len(item.path.encode("utf-8", errors="surrogatepass"))
-            + len(item.old_path.encode("utf-8", errors="surrogatepass"))
-            for item in changes
-        )
-        if (
-            self.MAX_HISTORY_CHANGES is not None
-            and self._change_count > self.MAX_HISTORY_CHANGES
-        ):
-            raise RuntimeError("多版本历史变更记录数超过安全上限，已中止生成")
-        if (
-            self.MAX_HISTORY_PATH_BYTES is not None
-            and self._path_bytes > self.MAX_HISTORY_PATH_BYTES
-        ):
-            raise RuntimeError("多版本历史路径文本超过安全上限，已中止生成")
+        if self.MAX_HISTORY_CHANGES is not None:
+            self._change_count += len(changes)
+            if self._change_count > self.MAX_HISTORY_CHANGES:
+                raise RuntimeError("多版本历史变更记录数超过安全上限，已中止生成")
+        if self.MAX_HISTORY_PATH_BYTES is not None:
+            self._path_bytes += sum(
+                len(item.path.encode("utf-8", errors="surrogatepass"))
+                + len(item.old_path.encode("utf-8", errors="surrogatepass"))
+                for item in changes
+            )
+            if self._path_bytes > self.MAX_HISTORY_PATH_BYTES:
+                raise RuntimeError("多版本历史路径文本超过安全上限，已中止生成")
         step = self._step
-        before = {entity: path for path, entity in self._active.items()}
-        implicit_before: Dict[_LogicalFile, str] = {}
-        touched: Set[_LogicalFile] = set()
+        before_paths: Optional[Dict[_LogicalFile, Optional[str]]] = (
+            {} if selected else None
+        )
+        after_paths: Optional[Dict[_LogicalFile, Optional[str]]] = (
+            {} if selected else None
+        )
         resolved = []
+
+        def remember_before(entity: _LogicalFile, path: Optional[str]):
+            if before_paths is not None and entity not in before_paths:
+                before_paths[entity] = path
+
+        def remember_after(entity: _LogicalFile, path: Optional[str]):
+            if after_paths is not None:
+                after_paths[entity] = path
 
         for change in changes:
             action = change.action
@@ -206,11 +357,15 @@ class _EndpointPlanner:
 
             if action == "R":
                 entity = self._active.pop(old_path, None)
+                if entity is not None:
+                    remember_before(entity, old_path)
                 if entity is None:
                     entity = self._deleted.pop(old_path, None)
+                    if entity is not None:
+                        remember_before(entity, None)
                 if entity is None:
                     entity = self._new_entity()
-                    implicit_before[entity] = old_path
+                    remember_before(entity, old_path)
                 existing = self._active.get(path)
                 if existing is not None and existing is not entity:
                     raise RuntimeError(
@@ -219,41 +374,54 @@ class _EndpointPlanner:
                     )
                 self._active[path] = entity
                 self._deleted.pop(path, None)
-                touched.add(entity)
+                remember_after(entity, path)
                 resolved.append((change, entity, entity.selected))
                 continue
 
             if action == "D":
                 entity = self._active.pop(path, None)
+                if entity is not None:
+                    remember_before(entity, path)
                 if entity is None:
                     entity = self._deleted.get(path)
+                    if entity is not None:
+                        remember_before(entity, None)
                 if entity is None:
                     entity = self._new_entity()
-                    implicit_before[entity] = path
+                    remember_before(entity, path)
                 self._deleted[path] = entity
-                touched.add(entity)
+                remember_after(entity, None)
                 resolved.append((change, entity, entity.selected))
                 continue
 
             if action == "A":
                 entity = self._active.get(path)
+                if entity is not None:
+                    remember_before(entity, path)
                 if entity is None:
                     # 同一路径删除后重建仍视为同一逻辑文件，以便计算最终净结果。
-                    entity = self._deleted.pop(path, None) or self._new_entity()
+                    entity = self._deleted.pop(path, None)
+                    if entity is None:
+                        entity = self._new_entity()
+                    remember_before(entity, None)
                 self._active[path] = entity
-                touched.add(entity)
+                remember_after(entity, path)
                 resolved.append((change, entity, entity.selected))
                 continue
 
             if action == "M":
                 entity = self._active.get(path)
+                if entity is not None:
+                    remember_before(entity, path)
                 if entity is None:
                     entity = self._deleted.pop(path, None)
+                    if entity is not None:
+                        remember_before(entity, None)
                 if entity is None:
                     entity = self._new_entity()
-                    implicit_before[entity] = path
+                    remember_before(entity, path)
                 self._active[path] = entity
-                touched.add(entity)
+                remember_after(entity, path)
                 resolved.append((change, entity, entity.selected))
                 continue
 
@@ -262,14 +430,13 @@ class _EndpointPlanner:
         if not selected:
             return resolved
 
-        after = {entity: path for path, entity in self._active.items()}
-        for entity in touched:
+        for entity, new_path in after_paths.items():
             if not entity.selected:
                 entity.selected = True
                 entity.old_version = old_version
-                entity.old_path = before.get(entity, implicit_before.get(entity))
+                entity.old_path = before_paths.get(entity)
             entity.new_version = new_version
-            entity.new_path = after.get(entity)
+            entity.new_path = new_path
             entity.last_selected_step = step
         return resolved
 
@@ -284,8 +451,11 @@ class _EndpointPlanner:
         return self._normalize_path(path) in self._active
 
     def has_deleted_under(self, directory: str) -> bool:
-        prefix = self._normalize_path(directory).rstrip("/") + "/"
-        return any(path.startswith(prefix) for path in self._deleted)
+        if self._deleted_paths_sorted is None:
+            self._deleted_paths_sorted = sorted(self._deleted)
+        return _has_strict_descendant_path(
+            self._deleted_paths_sorted, self._normalize_path(directory)
+        )
 
     @property
     def current_step(self) -> int:
@@ -479,7 +649,7 @@ class _MultiVersionFolderDelegate(BaseVCS):
     ) -> Optional[str]:
         if path is None:
             return None
-        key = os.path.normcase(path.replace("\\", "/")).casefold()
+        key = windows_path_key(path)
         if key in targets:
             raise RuntimeError(
                 "不同文件端点会写入同一 Windows 路径，已中止生成：\n"
@@ -513,21 +683,31 @@ class _MultiVersionFolderDelegate(BaseVCS):
             raise RuntimeError(
                 f"{label}文件端点不是普通文件，已中止生成: {path}@{version}"
             )
-        written = os.path.getsize(target)
-        self._endpoint_written_bytes += written
+        if self.MAX_ENDPOINT_DISK_BYTES is not None:
+            self._endpoint_written_bytes += os.path.getsize(target)
+            if self._endpoint_written_bytes > self.MAX_ENDPOINT_DISK_BYTES:
+                raise RuntimeError(
+                    "多版本端点实际写盘字节数超过安全上限，已中止生成"
+                )
         if (
-            self.MAX_ENDPOINT_DISK_BYTES is not None
-            and self._endpoint_written_bytes > self.MAX_ENDPOINT_DISK_BYTES
+            self.MIN_ENDPOINT_FREE_BYTES > 0
+            and shutil.disk_usage(self._tmp_root).free
+            < self.MIN_ENDPOINT_FREE_BYTES
         ):
-            raise RuntimeError(
-                "多版本端点实际写盘字节数超过安全上限，已中止生成"
-            )
-        if shutil.disk_usage(self._tmp_root).free < self.MIN_ENDPOINT_FREE_BYTES:
             raise RuntimeError(
                 "多版本端点写入后磁盘保留空间不足，已中止生成"
             )
 
     def _reserve_endpoint_budget(self, effective_entities):
+        needs_file_count = self.MAX_ENDPOINT_FILES is not None
+        needs_size_budget = (
+            self.MAX_ENDPOINT_SOURCE_BYTES is not None
+            or self.MAX_ENDPOINT_DISK_BYTES is not None
+            or self.MIN_ENDPOINT_FREE_BYTES > 0
+        )
+        if not needs_file_count and not needs_size_budget:
+            return
+
         endpoints = []
         for entity, old_path, new_path in effective_entities:
             if old_path is not None:
@@ -543,15 +723,24 @@ class _MultiVersionFolderDelegate(BaseVCS):
                 f"多版本端点文件数超过上限: {output_files} > "
                 f"{self.MAX_ENDPOINT_FILES}"
             )
+        if not needs_size_budget:
+            return
+
         source_bytes = 0
         sizes_complete = True
         size_cache = {}
         for version, path in endpoints:
             key = (str(version), path)
             if key not in size_cache:
-                size_cache[key] = self._content_vcs.get_file_size(
-                    version, path
-                )
+                try:
+                    size_cache[key] = self._content_vcs.get_file_size(
+                        version, path
+                    )
+                except (OSError, RuntimeError, ValueError):
+                    # 大小只用于可选的预算预检。SVN 服务端/客户端不支持
+                    # repos-size 时仍应尝试实际 cat；真实读取或写盘失败会在
+                    # endpoint writer 中按正确性边界中止。
+                    size_cache[key] = None
             size = size_cache[key]
             if not isinstance(size, int) or size < 0:
                 sizes_complete = False
@@ -574,7 +763,10 @@ class _MultiVersionFolderDelegate(BaseVCS):
             raise RuntimeError(
                 "多版本端点最坏写盘字节数超过安全上限，已中止生成"
             )
-        if sizes_complete:
+        if sizes_complete and (
+            self.MAX_ENDPOINT_DISK_BYTES is not None
+            or self.MIN_ENDPOINT_FREE_BYTES > 0
+        ):
             free_bytes = shutil.disk_usage(self._tmp_root).free
             required = projected_disk_bytes + self.MIN_ENDPOINT_FREE_BYTES
             if free_bytes < required:
@@ -617,6 +809,11 @@ class _MultiVersionFolderDelegate(BaseVCS):
 
     def get_file_raw_size(self, version: str, file_path: str):
         return self._raw_folder.get_file_size(
+            self._to_folder_ver(version), file_path
+        )
+
+    def get_known_file_raw_size(self, version: str, file_path: str):
+        return self._raw_folder.get_known_file_raw_size(
             self._to_folder_ver(version), file_path
         )
 
@@ -739,19 +936,17 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
 
     def _prepare(self):
         self._content_vcs._snapshot_git_config()
-        history_count_text = self._git(
-            "rev-list", "--first-parent", "--count", "HEAD"
-        )
-        if not history_count_text.isdigit():
-            raise RuntimeError("无法确认 Git 第一父历史长度")
-        if (
-            _EndpointPlanner.MAX_HISTORY_STEPS is not None
-            and int(history_count_text) > _EndpointPlanner.MAX_HISTORY_STEPS
-        ):
-            raise RuntimeError(
-                "Git 第一父历史提交数超过安全上限，已中止生成。"
-                "请缩小仓库历史或改用普通 Git 比对。"
+        if _EndpointPlanner.MAX_HISTORY_STEPS is not None:
+            history_count_text = self._git(
+                "rev-list", "--first-parent", "--count", "HEAD"
             )
+            if not history_count_text.isdigit():
+                raise RuntimeError("无法确认 Git 第一父历史长度")
+            if int(history_count_text) > _EndpointPlanner.MAX_HISTORY_STEPS:
+                raise RuntimeError(
+                    "Git 第一父历史提交数超过安全上限，已中止生成。"
+                    "请缩小仓库历史或改用普通 Git 比对。"
+                )
         history = self._git("rev-list", "--first-parent", "HEAD").splitlines()
         if not history:
             raise RuntimeError("当前 Git 分支没有可用提交")
@@ -773,6 +968,10 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
         selected = set(resolved)
         planner = _EndpointPlanner()
         ambiguous_candidate_sets = []
+        deferred_permissive_sets = []
+        deferred_scoring_sets = []
+        cross_target_events = []
+        delete_intervals = []
         pending_deletes = []
         self._git_rename_candidate_cache = {}
         self._git_pair_candidates = 0
@@ -799,7 +998,7 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
                     elif change.action == "M":
                         targets[change.path] = entity
                 candidates = []
-                for source_path, target_path in ambiguous_path_pairs:
+                for source_path, target_path in ambiguous_path_pairs.explicit_pairs:
                     if source_path in sources and target_path in targets:
                         source_entity, was_selected = sources[source_path]
                         candidates.append((
@@ -809,11 +1008,105 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
                             target_path,
                             targets[target_path],
                         ))
-                if candidates:
-                    self._reserve_stored_ambiguous_candidates(len(candidates))
-                    ambiguous_candidate_sets.append(
-                        (commit, planner.current_step, False, candidates)
+                matrix_candidates = []
+                matrix_candidate_count = 0
+                count_matrix_candidates = (
+                    self.MAX_GIT_STORED_AMBIGUOUS_CANDIDATES is not None
+                )
+                for (
+                    source_paths,
+                    target_paths,
+                    excluded_pairs,
+                ) in ambiguous_path_pairs.cartesian_groups:
+                    resolved_sources = [
+                        (path, *sources[path])
+                        for path in source_paths
+                        if path in sources
+                    ]
+                    resolved_targets = [
+                        (path, targets[path])
+                        for path in target_paths
+                        if path in targets
+                    ]
+                    if resolved_sources and resolved_targets:
+                        matrix_candidates.append((
+                            resolved_sources,
+                            resolved_targets,
+                            excluded_pairs,
+                        ))
+                        if count_matrix_candidates:
+                            matrix_candidate_count += (
+                                len(resolved_sources) * len(resolved_targets)
+                            )
+                scored_candidates = []
+                for (
+                    source_paths,
+                    target_paths,
+                ) in ambiguous_path_pairs.scored_groups:
+                    resolved_sources = [
+                        (path, *sources[path])
+                        for path in source_paths
+                        if path in sources
+                    ]
+                    resolved_targets = [
+                        (path, targets[path])
+                        for path in target_paths
+                        if path in targets
+                    ]
+                    if resolved_sources and resolved_targets:
+                        scored_candidates.append((
+                            resolved_sources,
+                            resolved_targets,
+                        ))
+                permissive_candidates = []
+                for (
+                    source_paths,
+                    target_paths,
+                ) in ambiguous_path_pairs.permissive_groups:
+                    resolved_sources = [
+                        (path, *sources[path])
+                        for path in source_paths
+                        if path in sources
+                    ]
+                    resolved_targets = [
+                        (path, targets[path])
+                        for path in target_paths
+                        if path in targets
+                    ]
+                    if resolved_sources and resolved_targets:
+                        permissive_candidates.append((
+                            resolved_sources,
+                            resolved_targets,
+                        ))
+                if candidates or matrix_candidates:
+                    self._reserve_stored_ambiguous_candidates(
+                        len(candidates) + matrix_candidate_count
                     )
+                    ambiguous_candidate_sets.append(
+                        (
+                            commit,
+                            planner.current_step,
+                            False,
+                            candidates,
+                            matrix_candidates,
+                        )
+                    )
+                if scored_candidates:
+                    deferred_scoring_sets.append((
+                        commit,
+                        parent,
+                        planner.current_step,
+                        False,
+                        scored_candidates,
+                    ))
+                if permissive_candidates:
+                    deferred_permissive_sets.append((
+                        commit,
+                        parent,
+                        planner.current_step,
+                        permissive_candidates,
+                        ambiguous_path_pairs.reliable_renames,
+                    ))
 
             resolved_deletes = []
             resolved_targets = []
@@ -834,41 +1127,43 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
             # 后在另一个提交以相同或高相似内容新增，直接当两个实体会让
             # newVersion 留下旧路径。这里保留竞争候选，只有候选两侧后来都
             # 关联选中变更时才 fail closed，普通无关删除/新增不受影响。
-            self._reserve_git_pair_candidates(
-                len(pending_deletes) * len(resolved_targets),
-                "跨提交删除/新增候选",
-            )
-            for target_path, target_entity in resolved_targets:
-                candidates = []
-                for (
-                    source_path,
-                    source_entity,
-                    source_was_selected,
-                    source_version,
-                ) in pending_deletes:
-                    if self._git_rename_candidate(
-                        source_version, source_path, commit, target_path
-                    ):
-                        candidates.append((
-                            source_path,
-                            source_entity,
-                            source_was_selected,
-                            target_path,
-                            target_entity,
-                        ))
-                if candidates:
-                    self._reserve_stored_ambiguous_candidates(len(candidates))
-                    ambiguous_candidate_sets.append(
-                        (commit, planner.current_step, True, candidates)
-                    )
+            if self.MAX_GIT_RENAME_PAIR_CANDIDATES is not None:
+                self._reserve_git_pair_candidates(
+                    len(pending_deletes) * len(resolved_targets),
+                    "跨提交删除/新增候选",
+                )
+            if pending_deletes and resolved_targets:
+                cross_target_events.append((
+                    commit,
+                    planner.current_step,
+                    tuple(resolved_targets),
+                ))
 
             if resolved_add_paths:
+                for interval in pending_deletes:
+                    if interval["path"] in resolved_add_paths:
+                        interval["end_step"] = planner.current_step
                 pending_deletes = [
                     item
                     for item in pending_deletes
-                    if item[0] not in resolved_add_paths
+                    if item["path"] not in resolved_add_paths
                 ]
-            pending_deletes.extend(resolved_deletes)
+            for (
+                source_path,
+                source_entity,
+                source_was_selected,
+                source_version,
+            ) in resolved_deletes:
+                interval = {
+                    "path": source_path,
+                    "entity": source_entity,
+                    "was_selected": source_was_selected,
+                    "source_version": source_version,
+                    "start_step": planner.current_step,
+                    "end_step": None,
+                }
+                pending_deletes.append(interval)
+                delete_intervals.append(interval)
             if (
                 self.MAX_GIT_PENDING_DELETES is not None
                 and len(pending_deletes) > self.MAX_GIT_PENDING_DELETES
@@ -879,7 +1174,13 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
                 )
 
         suspicious = []
-        for commit, event_step, include_same_step, candidates in ambiguous_candidate_sets:
+        for (
+            commit,
+            event_step,
+            include_same_step,
+            candidates,
+            matrix_candidates,
+        ) in ambiguous_candidate_sets:
             ambiguous_pairs = [
                 (source_path, target_path)
                 for (
@@ -901,14 +1202,165 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
                     and source_entity is not target_entity
                 )
             ]
-            if ambiguous_pairs:
+            matrix_witnesses = []
+            for sources, targets, excluded_pairs in matrix_candidates:
+                eligible_sources = [
+                    (source_path, source_entity)
+                    for source_path, source_entity, was_selected in sources
+                    if was_selected
+                ]
+                eligible_targets = [
+                    (target_path, target_entity)
+                    for target_path, target_entity in targets
+                    if (
+                        target_entity.last_selected_step > event_step
+                        or (
+                            include_same_step
+                            and target_entity.last_selected_step == event_step
+                        )
+                    )
+                ]
+                witness = None
+                for source_path, source_entity in eligible_sources:
+                    for target_path, target_entity in eligible_targets:
+                        if (
+                            source_entity is not target_entity
+                            and (source_path, target_path) not in excluded_pairs
+                        ):
+                            witness = (source_path, target_path)
+                            break
+                    if witness is not None:
+                        break
+                if witness is not None:
+                    matrix_witnesses.append((
+                        witness,
+                        len(eligible_sources),
+                        len(eligible_targets),
+                    ))
+            if ambiguous_pairs or matrix_witnesses:
                 pair_lines = "\n".join(
                     f"  {source_path} -> {target_path}"
                     for source_path, target_path in ambiguous_pairs
                 )
-                suspicious.append(
-                    f"提交 {commit}\n{pair_lines}"
+                matrix_lines = "\n".join(
+                    "  候选矩阵 "
+                    f"{source_count}×{target_count}，示例：{witness[0]} -> {witness[1]}"
+                    for witness, source_count, target_count in matrix_witnesses
                 )
+                suspicious.append(
+                    f"提交 {commit}\n"
+                    + "\n".join(
+                        text for text in (pair_lines, matrix_lines) if text
+                    )
+                )
+
+        # 低阈值整仓 diff 也推迟到文件级端点确定之后；没有相关的不同实体
+        # 时，第二遍 1% diff 的结果不可能影响报告与源码端点，直接跳过。
+        if not suspicious:
+            for (
+                commit,
+                parent,
+                event_step,
+                permissive_groups,
+                reliable_renames,
+            ) in deferred_permissive_sets:
+                witness = self._permissive_rename_witness(
+                    commit,
+                    parent,
+                    event_step,
+                    permissive_groups,
+                    reliable_renames,
+                )
+                if witness is not None:
+                    self._reserve_stored_ambiguous_candidates(1)
+                    suspicious.append(
+                        f"提交 {commit}\n  {witness[0]} -> {witness[1]}"
+                    )
+                    break
+
+        # 隔离 blob 评分同样先按事件时刻的源 selected 状态和目标最后选中步
+        # 过滤；same-entity 组合无需导出 blob 或启动 Git，首个命中即可失败。
+        if not suspicious:
+            for (
+                commit,
+                parent,
+                event_step,
+                include_same_step,
+                scored_groups,
+            ) in deferred_scoring_sets:
+                witness = self._scored_rename_witness(
+                    commit,
+                    parent,
+                    event_step,
+                    scored_groups,
+                    include_same_step=include_same_step,
+                )
+                if witness is not None:
+                    self._reserve_stored_ambiguous_candidates(1)
+                    suspicious.append(
+                        f"提交 {commit}\n  {witness[0]} -> {witness[1]}"
+                    )
+                    break
+
+        # 跨提交候选以删除活动区间和目标事件保存，不在历史遍历期间展开
+        # pending×target。按步数维护活动集合，仅对最终关联选中端点的组合评分。
+        if not suspicious and cross_target_events:
+            intervals = sorted(
+                enumerate(delete_intervals),
+                key=lambda item: item[1]["start_step"],
+            )
+            active_intervals = {}
+            expirations = []
+            interval_index = 0
+            cross_witness = None
+            cross_commit = ""
+            for commit, event_step, targets in cross_target_events:
+                while (
+                    interval_index < len(intervals)
+                    and intervals[interval_index][1]["start_step"] < event_step
+                ):
+                    number, interval = intervals[interval_index]
+                    active_intervals[number] = interval
+                    if interval["end_step"] is not None:
+                        heapq.heappush(
+                            expirations, (interval["end_step"], number)
+                        )
+                    interval_index += 1
+                while expirations and expirations[0][0] < event_step:
+                    _end_step, number = heapq.heappop(expirations)
+                    active_intervals.pop(number, None)
+
+                eligible_targets = [
+                    (target_path, target_entity)
+                    for target_path, target_entity in targets
+                    if target_entity.last_selected_step >= event_step
+                ]
+                if not eligible_targets:
+                    continue
+                for interval in active_intervals.values():
+                    if not interval["was_selected"]:
+                        continue
+                    for target_path, target_entity in eligible_targets:
+                        if interval["entity"] is target_entity:
+                            continue
+                        if self._git_rename_candidate(
+                            interval["source_version"],
+                            interval["path"],
+                            commit,
+                            target_path,
+                        ):
+                            cross_witness = (interval["path"], target_path)
+                            cross_commit = commit
+                            break
+                    if cross_witness is not None:
+                        break
+                if cross_witness is not None:
+                    self._reserve_stored_ambiguous_candidates(1)
+                    suspicious.append(
+                        f"提交 {cross_commit}\n  "
+                        f"{cross_witness[0]} -> {cross_witness[1]}"
+                    )
+                    break
         if suspicious:
             raise RuntimeError(
                 "Git 检测到无法唯一确认的删除/新增/重命名候选，且候选两侧都"
@@ -922,6 +1374,103 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
             self._write_git_endpoint,
             self._write_git_raw_endpoint,
         )
+
+    @staticmethod
+    def _eligible_candidate_groups(groups, event_step: int, include_same_step=False):
+        """线性过滤真正跨越已选端点的 source/target，不展开路径乘积。"""
+        eligible = []
+        for sources, targets in groups:
+            source_map = {
+                source_path: source_entity
+                for source_path, source_entity, was_selected in sources
+                if was_selected
+            }
+            target_map = {
+                target_path: target_entity
+                for target_path, target_entity in targets
+                if (
+                    target_entity.last_selected_step > event_step
+                    or (
+                        include_same_step
+                        and target_entity.last_selected_step == event_step
+                    )
+                )
+            }
+            if source_map and target_map:
+                eligible.append((source_map, target_map))
+        return eligible
+
+    @staticmethod
+    def _has_distinct_entity_pair(groups) -> bool:
+        for sources, targets in groups:
+            source_entities = set(sources.values())
+            target_entities = set(targets.values())
+            if source_entities and target_entities and not (
+                len(source_entities) == 1
+                and len(target_entities) == 1
+                and next(iter(source_entities)) is next(iter(target_entities))
+            ):
+                return True
+        return False
+
+    def _permissive_rename_witness(
+        self,
+        commit: str,
+        parent: str,
+        event_step: int,
+        groups,
+        reliable_renames,
+    ):
+        eligible = self._eligible_candidate_groups(groups, event_step)
+        if not self._has_distinct_entity_pair(eligible):
+            return None
+
+        # 只有此提交中的候选结构最终确实跨越选中端点时，才付出第二遍
+        # 1% rename diff 的成本。其输出只查紧凑路径组，不构造笛卡尔集合。
+        permissive = self._filter_git_history_changes(
+            self._diff_changes(commit, parent, "1%")
+        )
+        for item in permissive:
+            if item.action != "R":
+                continue
+            pair = (item.old_path, item.path)
+            if pair in reliable_renames:
+                continue
+            for sources, targets in eligible:
+                source_entity = sources.get(item.old_path)
+                target_entity = targets.get(item.path)
+                if (
+                    source_entity is not None
+                    and target_entity is not None
+                    and source_entity is not target_entity
+                ):
+                    return pair
+        return None
+
+    def _scored_rename_witness(
+        self,
+        commit: str,
+        parent: str,
+        event_step: int,
+        groups,
+        include_same_step=False,
+    ):
+        eligible = self._eligible_candidate_groups(
+            groups, event_step, include_same_step=include_same_step
+        )
+        for sources, targets in eligible:
+            for source_path, source_entity in sources.items():
+                for target_path, target_entity in targets.items():
+                    if source_entity is target_entity:
+                        continue
+                    if self._git_rename_candidate(
+                        parent,
+                        source_path,
+                        commit,
+                        target_path,
+                    ):
+                        return source_path, target_path
+        return None
 
     def _first_parent(self, commit: str) -> str:
         # rev-list 会把浅克隆边界伪装成根提交；直接读取 commit 对象才能看到
@@ -951,76 +1500,95 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
         reliable = self._filter_git_history_changes(
             self._diff_changes(commit, parent, "50%")
         )
-        permissive = self._filter_git_history_changes(
-            self._diff_changes(commit, parent, "1%")
-        )
-        reliable_renames = {(item.old_path, item.path) for item in reliable if item.action == "R"}
-        low_similarity_pairs = {
-            (item.old_path, item.path)
-            for item in permissive
-            if item.action == "R"
-            and (item.old_path, item.path) not in reliable_renames
-        }
         deletes = [item for item in reliable if item.action == "D"]
         adds = [item for item in reliable if item.action == "A"]
         renames = [item for item in reliable if item.action == "R"]
         modifications = [item for item in reliable if item.action == "M"]
-        pair_count = (
-            len(deletes) * len(adds)
-            + len(deletes) * len(renames)
-            + len(renames) * len(adds)
-            + len(deletes) * len(modifications)
-            + len(renames) * len(modifications)
-            + len(renames) * max(0, len(renames) - 1)
-            + len(low_similarity_pairs)
-        )
-        self._reserve_git_pair_candidates(pair_count, "单提交重命名竞争矩阵")
-        ambiguous_pairs = {
-            (deleted.path, added.path)
-            for deleted in deletes
-            for added in adds
-        } | low_similarity_pairs
-
+        reliable_renames = {
+            (item.old_path, item.path) for item in renames
+        }
+        if self.MAX_GIT_RENAME_PAIR_CANDIDATES is not None:
+            pair_count = (
+                len(deletes) * len(adds)
+                + len(deletes) * len(renames)
+                + len(renames) * len(adds)
+                + len(deletes) * len(modifications)
+                + len(renames) * len(modifications)
+                + len(renames) * max(0, len(renames) - 1)
+            )
+            self._reserve_git_pair_candidates(
+                pair_count, "单提交重命名竞争矩阵"
+            )
         # 低阈值只负责补充“可能是同一身份”的候选，不能在这里全局失败。
         # 下面的规划器会继续解析 source/target 对应的逻辑文件，只有候选身份
         # 真正跨越选中端点时才 fail closed；完全无关的中间文件不得阻断生成。
 
-        # Git 的 rename 是快照相似度推断，不保存真实移动元数据。额外
-        # source/target 若被 Git 自己判为 rename，也可能是全局匹配选错的
-        # 竞争候选。必须复用 Git 原生 score，不能用另一套文本相似算法。
-        for deleted in deletes:
-            for renamed in renames:
-                if self._git_rename_candidate(
-                    parent, deleted.path, commit, renamed.path
-                ):
-                    ambiguous_pairs.add((deleted.path, renamed.path))
-        for renamed in renames:
-            for added in adds:
-                if self._git_rename_candidate(
-                    parent, renamed.old_path, commit, added.path
-                ):
-                    ambiguous_pairs.add((renamed.old_path, added.path))
-        for deleted in deletes:
-            for modified in modifications:
-                if self._git_rename_candidate(
-                    parent, deleted.path, commit, modified.path
-                ):
-                    ambiguous_pairs.add((deleted.path, modified.path))
-        for renamed in renames:
-            for modified in modifications:
-                if self._git_rename_candidate(
-                    parent, renamed.old_path, commit, modified.path
-                ):
-                    ambiguous_pairs.add((renamed.old_path, modified.path))
-        for source in renames:
-            for target in renames:
-                if source is target:
-                    continue
-                # 多个 rename 的匹配是 Git 根据相似度全局分配的；Git 不保存真实
-                # 移动元数据。只要身份需要跨该 commit 延续，就必须把所有交叉
-                # 配对视为候选，避免同内容或高相似文件按 basename 错配。
-                ambiguous_pairs.add((source.old_path, target.path))
-        return reliable, sorted(ambiguous_pairs)
+        # 这些隔离 blob 评分只有在候选两侧最终都关联选中端点时才有意义。
+        # 这里只保存紧凑的路径组，规划完成后再逐对评分并在首个命中时停止。
+        scored_groups = []
+        if deletes and renames:
+            scored_groups.append((
+                [item.path for item in deletes],
+                [item.path for item in renames],
+            ))
+        if renames and adds:
+            scored_groups.append((
+                [item.old_path for item in renames],
+                [item.path for item in adds],
+            ))
+        if deletes and modifications:
+            scored_groups.append((
+                [item.path for item in deletes],
+                [item.path for item in modifications],
+            ))
+        if renames and modifications:
+            scored_groups.append((
+                [item.old_path for item in renames],
+                [item.path for item in modifications],
+            ))
+
+        # 1% diff 相对 50% 唯一可能新增且未被无条件 D×A/R×R 矩阵
+        # 覆盖的结构，是 D→R.new 或 R.old→A。这里只保存路径组；等所有
+        # 文件级端点确定后，若组内确有跨选中端点的不同实体，才运行第二遍
+        # 完整 git diff。这样无关中间提交不会白做一次仓库扫描。
+        permissive_groups = []
+        if deletes and renames:
+            permissive_groups.append((
+                [item.path for item in deletes],
+                [item.path for item in renames],
+            ))
+        if renames and adds:
+            permissive_groups.append((
+                [item.old_path for item in renames],
+                [item.path for item in adds],
+            ))
+
+        explicit_pairs = set()
+        cartesian_groups = []
+        if deletes and adds:
+            cartesian_groups.append((
+                [item.path for item in deletes],
+                [item.path for item in adds],
+                explicit_pairs,
+            ))
+        if len(renames) > 1:
+            # 每个 Git 已选中的 rename 自身不是“交叉竞争”，其余 R×R 组合
+            # 以紧凑矩阵保存，直到最终选中端点判断时才寻找歧义见证。
+            excluded_pairs = explicit_pairs | {
+                (item.old_path, item.path) for item in renames
+            }
+            cartesian_groups.append((
+                [item.old_path for item in renames],
+                [item.path for item in renames],
+                excluded_pairs,
+            ))
+        return reliable, _GitAmbiguousPathCandidates(
+            explicit_pairs,
+            cartesian_groups,
+            scored_groups,
+            permissive_groups,
+            reliable_renames,
+        )
 
     def _filter_git_history_changes(
         self, changes: List[_HistoryChange]
@@ -1045,13 +1613,10 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
         return filtered
 
     def _reserve_git_pair_candidates(self, count: int, label: str):
-        if count <= 0:
+        if count <= 0 or self.MAX_GIT_RENAME_PAIR_CANDIDATES is None:
             return
         self._git_pair_candidates += count
-        if (
-            self.MAX_GIT_RENAME_PAIR_CANDIDATES is not None
-            and self._git_pair_candidates > self.MAX_GIT_RENAME_PAIR_CANDIDATES
-        ):
+        if self._git_pair_candidates > self.MAX_GIT_RENAME_PAIR_CANDIDATES:
             raise RuntimeError(
                 f"Git 多版本{label}过多（累计 {self._git_pair_candidates}），"
                 "无法在资源上限内安全判定文件身份，已中止生成。"
@@ -1059,10 +1624,10 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
             )
 
     def _reserve_stored_ambiguous_candidates(self, count: int):
+        if self.MAX_GIT_STORED_AMBIGUOUS_CANDIDATES is None:
+            return
         self._git_stored_ambiguous_candidates += count
         if (
-            self.MAX_GIT_STORED_AMBIGUOUS_CANDIDATES is not None
-            and
             self._git_stored_ambiguous_candidates
             > self.MAX_GIT_STORED_AMBIGUOUS_CANDIDATES
         ):
@@ -1083,33 +1648,30 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
         cached = self._git_rename_candidate_cache.get(key)
         if cached is not None:
             return cached
-        self._git_scoring_evaluations += 1
-        if (
-            self.MAX_GIT_RENAME_SCORING_EVALUATIONS is not None
-            and
-            self._git_scoring_evaluations
-            > self.MAX_GIT_RENAME_SCORING_EVALUATIONS
-        ):
-            raise RuntimeError(
-                "Git 多版本重命名评分次数超过安全上限，已中止生成。"
-                "请缩小所选版本范围或增加排除规则。"
-            )
-        old_size = self._content_vcs.get_file_size(old_version, old_path)
-        new_size = self._content_vcs.get_file_size(new_version, new_path)
-        if old_size is None or new_size is None:
-            raise RuntimeError(
-                "无法确认 Git 重命名候选 blob 大小："
-                f"{old_path}@{old_version} -> {new_path}@{new_version}"
-            )
-        self._git_scoring_bytes += old_size + new_size
-        if (
-            self.MAX_GIT_RENAME_SCORING_BYTES is not None
-            and self._git_scoring_bytes > self.MAX_GIT_RENAME_SCORING_BYTES
-        ):
-            raise RuntimeError(
-                "Git 多版本重命名评分累计字节数超过安全上限，已中止生成。"
-                "请缩小所选版本范围或增加排除规则。"
-            )
+        if self.MAX_GIT_RENAME_SCORING_EVALUATIONS is not None:
+            self._git_scoring_evaluations += 1
+            if (
+                self._git_scoring_evaluations
+                > self.MAX_GIT_RENAME_SCORING_EVALUATIONS
+            ):
+                raise RuntimeError(
+                    "Git 多版本重命名评分次数超过安全上限，已中止生成。"
+                    "请缩小所选版本范围或增加排除规则。"
+                )
+        if self.MAX_GIT_RENAME_SCORING_BYTES is not None:
+            old_size = self._content_vcs.get_file_size(old_version, old_path)
+            new_size = self._content_vcs.get_file_size(new_version, new_path)
+            if old_size is None or new_size is None:
+                raise RuntimeError(
+                    "无法确认 Git 重命名候选 blob 大小："
+                    f"{old_path}@{old_version} -> {new_path}@{new_version}"
+                )
+            self._git_scoring_bytes += old_size + new_size
+            if self._git_scoring_bytes > self.MAX_GIT_RENAME_SCORING_BYTES:
+                raise RuntimeError(
+                    "Git 多版本重命名评分累计字节数超过安全上限，已中止生成。"
+                    "请缩小所选版本范围或增加排除规则。"
+                )
 
         candidate_root = tempfile.mkdtemp(
             prefix="rename_candidate_", dir=self._tmp_root
@@ -1178,6 +1740,7 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
             fields.pop()
         changes = []
         path_bytes = 0
+        track_path_bytes = _EndpointPlanner.MAX_HISTORY_PATH_BYTES is not None
         index = 0
         while index < len(fields):
             status = fields[index].decode("ascii", errors="replace")
@@ -1189,7 +1752,8 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
                     raise RuntimeError("无法解析 Git 多版本重命名/复制记录")
                 old_path = fields[index].decode("utf-8", errors="surrogateescape")
                 new_path = fields[index + 1].decode("utf-8", errors="surrogateescape")
-                path_bytes += len(fields[index]) + len(fields[index + 1])
+                if track_path_bytes:
+                    path_bytes += len(fields[index]) + len(fields[index + 1])
                 index += 2
                 if status.startswith("R"):
                     changes.append(_HistoryChange("R", new_path, old_path))
@@ -1208,7 +1772,8 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
                 continue
 
             path = fields[index].decode("utf-8", errors="surrogateescape")
-            path_bytes += len(fields[index])
+            if track_path_bytes:
+                path_bytes += len(fields[index])
             index += 1
             if status == "T":
                 # 同一路径的类型变化仍属于同一文件身份。这里只追踪历史，最终
@@ -1523,10 +2088,10 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         return revisions
 
     def _parse_svn_history(self, output: str) -> Dict[int, List[_SVNPathChange]]:
-        payload = output.encode("utf-8", errors="surrogatepass")
         if (
             self.MAX_SVN_COMMAND_OUTPUT_BYTES is not None
-            and len(payload) > self.MAX_SVN_COMMAND_OUTPUT_BYTES
+            and len(output.encode("utf-8", errors="surrogatepass"))
+            > self.MAX_SVN_COMMAND_OUTPUT_BYTES
         ):
             raise RuntimeError("SVN 多版本历史 XML 超过安全上限")
         try:
@@ -1588,34 +2153,28 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         current_prefix = self._project_repo_path.rstrip("/")
         transitions = []
         for revision, entry in entries:
-            entry_count += 1
-            if (
-                self.MAX_SVN_LOG_ENTRIES is not None
-                and entry_count > self.MAX_SVN_LOG_ENTRIES
-            ):
-                raise RuntimeError("SVN 历史 revision 记录数超过安全上限")
+            if self.MAX_SVN_LOG_ENTRIES is not None:
+                entry_count += 1
+                if entry_count > self.MAX_SVN_LOG_ENTRIES:
+                    raise RuntimeError("SVN 历史 revision 记录数超过安全上限")
             root_copy_candidates = []
             entry_nodes = list(entry.findall("./paths/path"))
-            path_record_count += len(entry_nodes)
-            path_bytes += sum(
-                len((node.text or "").encode("utf-8", errors="surrogatepass"))
-                + len(
-                    node.get("copyfrom-path", "").encode(
-                        "utf-8", errors="surrogatepass"
+            if self.MAX_SVN_PATH_RECORDS is not None:
+                path_record_count += len(entry_nodes)
+                if path_record_count > self.MAX_SVN_PATH_RECORDS:
+                    raise RuntimeError("SVN 历史路径记录数超过安全上限")
+            if self.MAX_SVN_PATH_BYTES is not None:
+                path_bytes += sum(
+                    len((node.text or "").encode("utf-8", errors="surrogatepass"))
+                    + len(
+                        node.get("copyfrom-path", "").encode(
+                            "utf-8", errors="surrogatepass"
+                        )
                     )
+                    for node in entry_nodes
                 )
-                for node in entry_nodes
-            )
-            if (
-                self.MAX_SVN_PATH_RECORDS is not None
-                and path_record_count > self.MAX_SVN_PATH_RECORDS
-            ):
-                raise RuntimeError("SVN 历史路径记录数超过安全上限")
-            if (
-                self.MAX_SVN_PATH_BYTES is not None
-                and path_bytes > self.MAX_SVN_PATH_BYTES
-            ):
-                raise RuntimeError("SVN 历史路径文本超过安全上限")
+                if path_bytes > self.MAX_SVN_PATH_BYTES:
+                    raise RuntimeError("SVN 历史路径文本超过安全上限")
             for node in entry_nodes:
                 absolute_path = self._normalize_repo_path((node.text or "").strip())
                 copyfrom_absolute = self._normalize_repo_path(
@@ -1840,20 +2399,17 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                         "SVN 多版本目录启用了 svn:externals，文件级交付无法保真，"
                         f"已中止生成: {item.path}@{revision}"
                     )
-        if selected and any(
-            item.action == "M" or item.props_modified
-            for item in included_directories
-        ):
-            paths = ", ".join(
-                sorted(
-                    item.path or "<项目根>" for item in included_directories
-                    if item.action == "M" or item.props_modified
-                )
-            )
-            raise RuntimeError(
-                "SVN 多版本选中 revision 包含目录属性变化，"
-                f"当前文件级交付无法保真，已中止生成: {paths}"
-            )
+                if selected and (item.action == "M" or item.props_modified):
+                    changed_props = sorted(
+                        name for name in set(old_props) | set(new_props)
+                        if old_props.get(name) != new_props.get(name)
+                    )
+                    if changed_props:
+                        warn(
+                            "SVN 多版本目录属性发生变化，但不影响普通文件内容集合，"
+                            f"继续生成: {item.path or '<项目根>'}@{revision} | "
+                            f"属性: {', '.join(changed_props)}"
+                        )
         # 根历史标记只服务于属性/externals 校验与前缀映射，不能被当成
         # 普通新增目录展开，否则会把整个项目误报为新增。
         directories = [
@@ -1867,16 +2423,9 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                 item.path for item in directories if item.action in ("D", "R")
             }
             required = set(getattr(self, "required_directory_deletions", []))
-            required.update(
-                directory for directory in deleted_directory_paths
-                if any(
-                    new_path.casefold() == directory.casefold()
-                    or directory.casefold().startswith(
-                        new_path.rstrip("/").casefold() + "/"
-                    )
-                    for new_path in added_file_paths
-                )
-            )
+            required.update(windows_directories_replaced_by_files(
+                deleted_directory_paths, added_file_paths
+            ))
             self.required_directory_deletions = sorted(required)
 
         deleted_files = {item.path: item for item in files if item.action == "D"}
@@ -1889,12 +2438,10 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                 node_exists_cache[key] = self._svn_node_exists(path, at_revision)
             return node_exists_cache[key]
 
+        deleted_dir_prefixes = set(deleted_dirs)
+
         def covered_by_deleted_dir(path: str) -> bool:
-            return any(
-                path == directory
-                or path.startswith(directory.rstrip("/") + "/")
-                for directory in deleted_dirs
-            )
+            return _path_is_covered_by_prefix(path, deleted_dir_prefixes)
 
         directory_moves = []
         for item in directories:
@@ -1907,32 +2454,121 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
             if covered_by_deleted_dir(item.copyfrom_path) or source_missing_before_copy:
                 directory_moves.append(item)
 
+        # 祖先目录 move 已把后代自然继承到目标树时，另一次从该后代 source
+        # 复制到外部目录只是普通 copy。只要继承后的自然后缀仍存在，就不能
+        # 让更具体的 copy 抢走祖先 move 的文件身份。
+        move_ancestors_by_source = {}
+        directory_changes_by_path = {}
+        for candidate in directories:
+            directory_changes_by_path.setdefault(
+                candidate.path.rstrip("/"), []
+            ).append(candidate)
+        for move in directory_moves:
+            source_prefix = move.copyfrom_path.rstrip("/")
+            move_ancestors_by_source.setdefault(source_prefix, []).append((
+                len(source_prefix) + 1,
+                source_prefix + "/",
+                move.path.rstrip("/") + "/",
+            ))
+        ordinary_inherited_directory_copy_targets = set()
+        for item in directory_moves:
+            matching_ancestor = _longest_ancestor_candidate(
+                item.copyfrom_path, move_ancestors_by_source
+            )
+            if matching_ancestor is None:
+                continue
+            _, old_prefix, new_prefix = matching_ancestor
+            inherited_target = (
+                new_prefix + item.copyfrom_path[len(old_prefix):]
+            ).rstrip("/")
+            inherited_replaced = any(
+                candidate is not item
+                and candidate.action in ("A", "R")
+                and candidate.copyfrom_path != item.copyfrom_path
+                for candidate in directory_changes_by_path.get(
+                    inherited_target, ()
+                )
+            )
+            if (
+                not inherited_replaced
+                and node_exists(inherited_target, revision)
+            ):
+                ordinary_inherited_directory_copy_targets.add(item.path)
+        if ordinary_inherited_directory_copy_targets:
+            directory_moves = [
+                item for item in directory_moves
+                if item.path not in ordinary_inherited_directory_copy_targets
+            ]
+
+        # 同一个已消失目录可以在一个 revision 中 copy 到多个目标。SVN
+        # 没有元数据能说明哪一个目标才是 rename；把每个 copy 都展开成 R
+        # 会让多个逻辑文件争用同一个 old 端点。此时净结果无需猜测即可表达
+        # 为“删除源目录下文件 + 新增每个目标目录下文件”。
+        moves_by_source = {}
+        for item in directory_moves:
+            moves_by_source.setdefault(item.copyfrom_path.rstrip("/"), []).append(item)
+        replacement_targets_by_source = {}
+        for item in directories:
+            if item.action == "R" and item.copyfrom_path:
+                replacement_targets_by_source.setdefault(
+                    item.copyfrom_path.rstrip("/"), []
+                ).append(item)
+        forked_sources = {
+            source
+            for source, group in moves_by_source.items()
+            if len(group) + len(replacement_targets_by_source.get(source, ())) > 1
+        }
+        # 祖先目录已分叉时，其每个后代文件也已经随祖先 copy 到多个目标；
+        # 后续再以 old/sub 为源 copy 到 extra 不能被猜成唯一 rename。
+        forked_move_sources = {
+            source
+            for source in moves_by_source
+            if _path_is_covered_by_prefix(source, forked_sources)
+        }
+        forked_directory_copy_targets = {
+            item.path
+            for source in forked_move_sources
+            for item in moves_by_source[source]
+        }
+        if forked_directory_copy_targets:
+            directory_moves = [
+                item
+                for item in directory_moves
+                if item.copyfrom_path.rstrip("/") not in forked_move_sources
+            ]
+
         explicit_move_candidates = {}
         explicit_move_contexts = {}
         copy_pair_actions = {}
         inherited_directory_targets = set()
-        ordinary_directory_copy_targets = set()
+        ordinary_directory_copy_targets = (
+            set(forked_directory_copy_targets)
+            | ordinary_inherited_directory_copy_targets
+        )
         file_changes_by_path = {}
         for file_change in files:
             file_changes_by_path.setdefault(file_change.path, []).append(file_change)
+        directory_moves_by_source = {}
+        for directory_move in directory_moves:
+            source_prefix = directory_move.copyfrom_path.rstrip("/")
+            directory_moves_by_source.setdefault(source_prefix, []).append((
+                len(source_prefix) + 1,
+                source_prefix + "/",
+                directory_move.path.rstrip("/") + "/",
+            ))
         for item in files:
             if item.action not in ("A", "R") or not item.copyfrom_path:
                 continue
-            matching_moves = []
-            for directory_move in directory_moves:
-                old_prefix = directory_move.copyfrom_path.rstrip("/") + "/"
-                new_prefix = directory_move.path.rstrip("/") + "/"
-                if item.copyfrom_path.startswith(old_prefix):
-                    matching_moves.append((
-                        len(old_prefix), old_prefix, new_prefix
-                    ))
-            if not matching_moves:
+            matching_move = _longest_ancestor_candidate(
+                item.copyfrom_path, directory_moves_by_source
+            )
+            if matching_move is None:
                 continue
 
             # 嵌套目录在同一 revision 连续移动时，一个子文件 copyfrom 可能
             # 同时落入外层和内层映射。必须用最具体的目录移动解释它，否则
             # 外层已消失的自然后缀会把内层普通 copy 误判成显式改名。
-            _, old_prefix, new_prefix = max(matching_moves)
+            _, old_prefix, new_prefix = matching_move
             suffix = item.copyfrom_path[len(old_prefix):]
             inherited_target = new_prefix + suffix
             if item.path == inherited_target:
@@ -1993,11 +2629,7 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                 continue
             if (
                 item.action == "D"
-                and any(
-                    item.path == prefix
-                    or item.path.startswith(prefix.rstrip("/") + "/")
-                    for prefix in moved_target_prefixes
-                )
+                and _path_is_covered_by_prefix(item.path, moved_target_prefixes)
                 and not node_exists(item.path, revision - 1)
             ):
                 # 同 revision 内由目录 copy 临时产生、随后又被子 move 删除的
@@ -2043,50 +2675,49 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                 if not (item.action == "D" and item.path in consumed_deleted_files)
             ]
 
+        directory_move_sources = {
+            item.copyfrom_path.rstrip("/") for item in directory_moves
+        }
+        directory_move_targets = {
+            item.path.rstrip("/") for item in directory_moves
+        }
+        consumed_old_candidates_sorted = sorted(
+            directory_move_sources | moved_file_sources
+        )
+        consumed_new_candidates_sorted = sorted(
+            directory_move_targets | moved_file_targets
+        )
+        explicit_directory_sources_sorted = sorted(explicit_directory_moves)
+        directory_move_ids = {id(item) for item in directory_moves}
         for item in directories:
             if item.action != "A":
                 continue
-            if item in directory_moves:
-                nested_source_prefixes = [
-                    other.copyfrom_path.rstrip("/")
-                    for other in directory_moves
-                    if other is not item
-                    and other.copyfrom_path.startswith(
-                        item.copyfrom_path.rstrip("/") + "/"
-                    )
-                ]
-                nested_target_prefixes = [
-                    other.path.rstrip("/")
-                    for other in directory_moves
-                    if other is not item
-                    and other.path.startswith(item.path.rstrip("/") + "/")
-                ]
-                consumed_old_prefixes = nested_source_prefixes + [
-                    source
-                    for source in moved_file_sources
-                    if source.startswith(item.copyfrom_path.rstrip("/") + "/")
-                ]
-                consumed_new_prefixes = nested_target_prefixes + [
-                    target
-                    for target in moved_file_targets
-                    if target.startswith(item.path.rstrip("/") + "/")
-                ]
-                explicit = {
-                    old_path: new_path
-                    for old_path, new_path in explicit_directory_moves.items()
-                    if old_path.startswith(item.copyfrom_path.rstrip("/") + "/")
-                    and new_path.startswith(item.path.rstrip("/") + "/")
-                    and not any(
-                        old_path == prefix
-                        or old_path.startswith(prefix.rstrip("/") + "/")
-                        for prefix in consumed_old_prefixes
-                    )
-                    and not any(
-                        new_path == prefix
-                        or new_path.startswith(prefix.rstrip("/") + "/")
-                        for prefix in consumed_new_prefixes
-                    )
-                }
+            if id(item) in directory_move_ids:
+                consumed_old_prefixes = _minimal_strict_descendant_paths(
+                    consumed_old_candidates_sorted, item.copyfrom_path
+                )
+                consumed_new_prefixes = _minimal_strict_descendant_paths(
+                    consumed_new_candidates_sorted, item.path
+                )
+                consumed_old_set = set(consumed_old_prefixes)
+                consumed_new_set = set(consumed_new_prefixes)
+                explicit = {}
+                for old_path in _strict_descendant_paths_excluding(
+                    explicit_directory_sources_sorted,
+                    item.copyfrom_path,
+                    consumed_old_set,
+                ):
+                    new_path = explicit_directory_moves[old_path]
+                    if (
+                        new_path.startswith(item.path.rstrip("/") + "/")
+                        and not _path_is_covered_by_prefix(
+                            old_path, consumed_old_set
+                        )
+                        and not _path_is_covered_by_prefix(
+                            new_path, consumed_new_set
+                        )
+                    ):
+                        explicit[old_path] = new_path
                 changes.extend(self._expand_directory_move(
                     item.copyfrom_path,
                     item.path,
@@ -2117,10 +2748,8 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                 changes.extend(
                     _HistoryChange("D", path)
                     for path in self._list_svn_files(item.path, revision - 1)
-                    if not any(
-                        path == source
-                        or path.startswith(source.rstrip("/") + "/")
-                        for source in moved_source_prefixes
+                    if not _path_is_covered_by_prefix(
+                        path, moved_source_prefixes
                     )
                 )
             elif item.action == "R":
@@ -2155,24 +2784,18 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         old_files = self._directory_suffix_map(old_dir, source_revision)
         new_files = self._directory_suffix_map(new_dir, target_revision)
         if excluded_old_prefixes:
+            excluded_old_prefixes = set(excluded_old_prefixes)
             old_files = {
                 suffix: path
                 for suffix, path in old_files.items()
-                if not any(
-                    path == prefix
-                    or path.startswith(prefix.rstrip("/") + "/")
-                    for prefix in excluded_old_prefixes
-                )
+                if not _path_is_covered_by_prefix(path, excluded_old_prefixes)
             }
         if excluded_new_prefixes:
+            excluded_new_prefixes = set(excluded_new_prefixes)
             new_files = {
                 suffix: path
                 for suffix, path in new_files.items()
-                if not any(
-                    path == prefix
-                    or path.startswith(prefix.rstrip("/") + "/")
-                    for prefix in excluded_new_prefixes
-                )
+                if not _path_is_covered_by_prefix(path, excluded_new_prefixes)
             }
         result = []
         used_old = set()
@@ -2238,32 +2861,28 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
             for _event, entry in iterator:
                 if entry.tag != "entry":
                     continue
-                self._svn_list_entry_count = (
-                    getattr(self, "_svn_list_entry_count", 0) + 1
-                )
-                if (
-                    self.MAX_SVN_LIST_ENTRIES is not None
-                    and self._svn_list_entry_count > self.MAX_SVN_LIST_ENTRIES
-                ):
-                    raise RuntimeError("SVN 递归目录条目数超过安全上限")
+                if self.MAX_SVN_LIST_ENTRIES is not None:
+                    self._svn_list_entry_count = (
+                        getattr(self, "_svn_list_entry_count", 0) + 1
+                    )
+                    if self._svn_list_entry_count > self.MAX_SVN_LIST_ENTRIES:
+                        raise RuntimeError("SVN 递归目录条目数超过安全上限")
                 if entry.get("kind") == "file":
                     name = (
                         (entry.findtext("name") or "")
                         .replace("\\", "/")
                         .strip("/")
                     )
-                    if name:
+                    if name and self.MAX_SVN_PATH_BYTES is not None:
                         self._svn_list_path_bytes = (
                             getattr(self, "_svn_list_path_bytes", 0)
                             + len(name.encode("utf-8", errors="surrogatepass"))
                         )
-                        if (
-                            self.MAX_SVN_PATH_BYTES is not None
-                            and self._svn_list_path_bytes > self.MAX_SVN_PATH_BYTES
-                        ):
+                        if self._svn_list_path_bytes > self.MAX_SVN_PATH_BYTES:
                             raise RuntimeError(
                                 "SVN 递归目录路径文本超过安全上限"
                             )
+                    if name:
                         files.append(
                             f"{relative}/{name}" if relative else name
                         )
@@ -2422,13 +3041,6 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
             name for name in set(old_props) | set(new_props)
             if old_props.get(name) != new_props.get(name)
         }
-        supported = {"svn:eol-style", "svn:executable"}
-        unsupported = sorted(changed - supported)
-        if unsupported:
-            raise RuntimeError(
-                "SVN 多版本文件属性发生变化，但普通文件交付无法保真，已中止生成: "
-                f"{new_path or old_path}\n属性: {', '.join(unsupported)}"
-            )
         details = []
         if "svn:eol-style" in changed:
             details.append(
@@ -2441,6 +3053,14 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                 "SVN 可执行属性："
                 f"{'已设置' if 'svn:executable' in old_props else '未设置'} → "
                 f"{'已设置' if 'svn:executable' in new_props else '未设置'}"
+            )
+        informational = sorted(
+            changed - {"svn:eol-style", "svn:executable", "svn:special", "svn:keywords"}
+        )
+        if informational:
+            details.append(
+                "SVN 其他属性变化（不影响普通文件导出字节）："
+                + ", ".join(informational)
             )
         return {
             "changes": details,

@@ -1229,6 +1229,119 @@ class SVNFileEndpointTests(unittest.TestCase):
         finally:
             vcs.cleanup()
 
+    def test_svn_one_source_directory_copied_to_multiple_targets_degrades_to_delete_adds(self):
+        self.write("old/A.java", "source\n")
+        self.commit("baseline directory fork")
+        run([self.svn, "update"], self.wc)
+        run([self.svn, "copy", "old", "new-one"], self.wc)
+        run([self.svn, "copy", "old", "new-two"], self.wc)
+        run([self.svn, "delete", "old"], self.wc)
+        selected = self.commit("selected directory fork")
+
+        vcs = SVNMultiVersionVCS(
+            self.wc, [f"r{selected}"], svn_path=self.svn
+        )
+        try:
+            files = {item.path: item.change_type for item in vcs.get_changed_files()}
+            self.assertEqual(
+                {
+                    "old/A.java": ChangeType.DELETED,
+                    "new-one/A.java": ChangeType.ADDED,
+                    "new-two/A.java": ChangeType.ADDED,
+                },
+                files,
+            )
+        finally:
+            vcs.cleanup()
+
+    def test_svn_directory_fork_including_replacement_target_does_not_guess_rename(self):
+        self.write("old/A.java", "source\n")
+        self.write("existing/A.java", "old-target\n")
+        self.commit("baseline directory fork with replacement")
+        run([self.svn, "update"], self.wc)
+        run([self.svn, "copy", "old", "new-one"], self.wc)
+        run([self.svn, "delete", "existing"], self.wc)
+        run([self.svn, "copy", "old", "existing"], self.wc)
+        run([self.svn, "delete", "old"], self.wc)
+        selected = self.commit("selected directory fork with replacement")
+
+        vcs = SVNMultiVersionVCS(
+            self.wc, [f"r{selected}"], svn_path=self.svn
+        )
+        try:
+            files = {
+                (item.old_path or "", item.path): item.change_type
+                for item in vcs.get_changed_files()
+            }
+            self.assertEqual(
+                {
+                    ("", "old/A.java"): ChangeType.DELETED,
+                    ("", "new-one/A.java"): ChangeType.ADDED,
+                    ("", "existing/A.java"): ChangeType.MODIFIED,
+                },
+                files,
+            )
+        finally:
+            vcs.cleanup()
+
+    def test_svn_ancestor_directory_fork_prevents_descendant_rename_guess(self):
+        self.write("old/sub/A.java", "source\n")
+        self.commit("baseline ancestor directory fork")
+        run([self.svn, "update"], self.wc)
+        run([self.svn, "copy", "old", "new-one"], self.wc)
+        run([self.svn, "copy", "old", "new-two"], self.wc)
+        run([self.svn, "copy", "old/sub", "extra"], self.wc)
+        run([self.svn, "delete", "old"], self.wc)
+        selected = self.commit("selected ancestor directory fork")
+
+        vcs = SVNMultiVersionVCS(
+            self.wc, [f"r{selected}"], svn_path=self.svn
+        )
+        try:
+            files = {
+                (item.old_path or "", item.path): item.change_type
+                for item in vcs.get_changed_files()
+            }
+            self.assertEqual(
+                {
+                    ("", "old/sub/A.java"): ChangeType.DELETED,
+                    ("", "new-one/sub/A.java"): ChangeType.ADDED,
+                    ("", "new-two/sub/A.java"): ChangeType.ADDED,
+                    ("", "extra/A.java"): ChangeType.ADDED,
+                },
+                files,
+            )
+        finally:
+            vcs.cleanup()
+
+    def test_svn_descendant_directory_copy_keeps_ancestor_move_identity(self):
+        self.write("old/sub/A.java", "source\n")
+        self.commit("baseline descendant directory copy")
+        run([self.svn, "update"], self.wc)
+        run([self.svn, "copy", "old", "new-one"], self.wc)
+        run([self.svn, "copy", "old/sub", "extra"], self.wc)
+        run([self.svn, "delete", "old"], self.wc)
+        selected = self.commit("selected descendant directory copy")
+
+        vcs = SVNMultiVersionVCS(
+            self.wc, [f"r{selected}"], svn_path=self.svn
+        )
+        try:
+            files = {
+                (item.old_path or "", item.path): item.change_type
+                for item in vcs.get_changed_files()
+            }
+            self.assertEqual(
+                {
+                    ("old/sub/A.java", "new-one/sub/A.java"):
+                        ChangeType.RENAMED,
+                    ("", "extra/A.java"): ChangeType.ADDED,
+                },
+                files,
+            )
+        finally:
+            vcs.cleanup()
+
     def test_svn_ordinary_directory_copy_stays_independent_after_child_delete(self):
         self.write("old/A.java", "base-A\n")
         self.write("old/Gone.java", "gone\n")

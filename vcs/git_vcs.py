@@ -386,9 +386,6 @@ class GitVCS(BaseVCS):
 
     def get_file_signature(self, version: str, file_path: str):
         endpoint = self._resolve_version(version)
-        size = self.get_file_size(endpoint, file_path)
-        if size is None:
-            return None
         try:
             object_id = self._run_bytes([
                 "rev-parse", "--verify", f"{endpoint}:{file_path}"
@@ -397,7 +394,9 @@ class GitVCS(BaseVCS):
             return None
         if not re.fullmatch(r"[0-9a-f]{40,64}", object_id):
             return None
-        return size, f"git-object:{object_id}"
+        # Git blob OID 已绑定对象类型、完整长度和完整内容；再执行一次
+        # cat-file -s 不增加签名判定能力，只会让每个重命名候选多一次子进程。
+        return "git-object", object_id
 
     def export_file_to_path(self, version: str, file_path: str, target_path: str):
         endpoint = self._resolve_version(version)
@@ -605,7 +604,7 @@ class GitVCS(BaseVCS):
             core_eol = self._git_config_value("core.eol")
             if core_eol == "crlf":
                 return True
-            if core_eol == "native":
+            if core_eol in ("", "native"):
                 return os.linesep == "\r\n"
         return False
 

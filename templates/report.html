@@ -214,6 +214,9 @@ fileData.push({
     html: document.getElementById("sbs-{{ loop.index }}").innerHTML
 });
 {% endfor %}
+{% if manifest_matches_files | default(false) %}
+var manifestData = fileData;
+{% else %}
 var manifestData = [];
 {% for file in manifest_files %}
 manifestData.push({
@@ -222,6 +225,7 @@ manifestData.push({
     type: {{ file.report_type | tojson }}
 });
 {% endfor %}
+{% endif %}
 var currentDiffAnchors = [];
 var currentDiffGroups = [];
 var currentDiffIndex = -1;

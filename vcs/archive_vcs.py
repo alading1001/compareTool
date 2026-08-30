@@ -2,11 +2,13 @@ import os
 import posixpath
 import shutil
 import stat
+import hashlib
 import bz2
 import gzip
 import zipfile
 import tarfile
 import struct
+from contextlib import ExitStack
 from typing import List
 
 from path_safety import (
@@ -15,11 +17,32 @@ from path_safety import (
     regular_file_handle_identity,
     regular_file_path_identity,
     safe_join,
+    windows_path_key,
 )
 from .base import BaseVCS, ChangedFile, ChangeType
 from .folder_vcs import FolderVCS
 from .temp_storage import create_temp_dir, remove_temp_dir
 from logger import warn
+
+
+class _BorrowedBinaryStream:
+    """让标准库解析器借用源句柄，但不能关闭归档任务持有的底层文件。"""
+
+    def __init__(self, stream):
+        self._stream = stream
+        self.name = getattr(stream, "name", "")
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+    def close(self):
+        pass
 
 
 class ArchiveVCS(BaseVCS):
@@ -29,10 +52,12 @@ class ArchiveVCS(BaseVCS):
     MAX_SINGLE_MEMBER_BYTES = 2 * 1024 * 1024 * 1024
     MAX_TOTAL_UNCOMPRESSED_BYTES = 10 * 1024 * 1024 * 1024
     MAX_COMPRESSION_RATIO = 1000
-    MAX_TAR_METADATA_BYTES = 1024 * 1024
-    MAX_TAR_METADATA_RECORDS = 4096
-    MAX_TAR_PAX_FIELDS = 4096
-    MAX_ZIP_CENTRAL_DIRECTORY_BYTES = 256 * 1024 * 1024
+    # 这些元数据上限是可选的部署策略，不是生成正确报告的默认前提。
+    # 默认不因合法归档的 PAX/GNU 元数据或 ZIP 中央目录较大而拒绝任务。
+    MAX_TAR_METADATA_BYTES = None
+    MAX_TAR_METADATA_RECORDS = None
+    MAX_TAR_PAX_FIELDS = None
+    MAX_ZIP_CENTRAL_DIRECTORY_BYTES = None
     # 源归档本身默认不限大小，能否执行只取决于真实可用磁盘空间。
     # 解压成员、展开体积和压缩比限制仍是压缩包安全边界。
     MAX_ARCHIVE_SOURCE_BYTES = None
@@ -49,67 +74,112 @@ class ArchiveVCS(BaseVCS):
         self.new_archive = new_archive
         self._tmp_old = ""
         self._tmp_new = ""
-        self._tmp_archive_sources = ""
         self._folder = None
         self._old_metadata = {}
         self._new_metadata = {}
+        self._preflighted_sources = set()
         try:
-            self._tmp_archive_sources = create_temp_dir(prefix="cmp_old_archive_")
-            old_capture = self._capture_archive_source(old_archive)
-            new_capture = self._capture_archive_source(new_archive)
-            source_bytes = old_capture["size"] + new_capture["size"]
-            if (
-                self.MAX_ARCHIVE_SOURCE_BYTES is not None
-                and source_bytes > self.MAX_ARCHIVE_SOURCE_BYTES
-            ):
-                raise RuntimeError(
-                    f"压缩包源文件总大小超过上限: {source_bytes} > "
-                    f"{self.MAX_ARCHIVE_SOURCE_BYTES}"
+            with ExitStack() as source_stack:
+                old_source = self._open_archive_source(
+                    source_stack, old_archive
                 )
-            self._ensure_free_space(self._tmp_archive_sources, source_bytes)
-            old_snapshot = self._snapshot_archive(old_capture, "old")
-            new_snapshot = self._snapshot_archive(new_capture, "new")
-            self._tmp_old = create_temp_dir(prefix="cmp_old_")
-            self._tmp_new = create_temp_dir(prefix="cmp_new_")
-            self._extract(old_snapshot, self._tmp_old, self._old_metadata)
-            self._extract(new_snapshot, self._tmp_new, self._new_metadata)
-            self._folder = FolderVCS(self._tmp_old, self._tmp_new, snapshot=False)
-            super().__init__(self._tmp_new)
+                new_source = self._open_archive_source(
+                    source_stack, new_archive
+                )
+                old_capture = self._capture_archive_source(
+                    old_archive, old_source
+                )
+                new_capture = self._capture_archive_source(
+                    new_archive, new_source
+                )
+                if self.MAX_ARCHIVE_SOURCE_BYTES is not None:
+                    source_bytes = old_capture["size"] + new_capture["size"]
+                    if source_bytes > self.MAX_ARCHIVE_SOURCE_BYTES:
+                        raise RuntimeError(
+                            f"压缩包源文件总大小超过上限: {source_bytes} > "
+                            f"{self.MAX_ARCHIVE_SOURCE_BYTES}"
+                        )
+
+                # old/new 两端句柄在成对捕获后一直保持打开。Windows 从内核
+                # 层禁止其它写入/删除；所有预检和实际解压也只借用这些句柄，
+                # 不再按路径重新打开，因而不存在替换再恢复的 ABA 混入窗口。
+                # Windows 的 deny_writes 句柄在整个任务期间不共享写入和
+                # 删除权限，内容已由内核锁定；再对两个大归档前后各做一遍
+                # SHA-256 不会增加正确性，只会额外顺序读取四次。POSIX 的
+                # advisory lock 不能约束不配合的写入方，仍保留摘要复核。
+                if os.name == "nt":
+                    old_capture["digest"] = None
+                    new_capture["digest"] = None
+                else:
+                    old_capture["digest"] = self._hash_archive_source(
+                        old_capture, old_source
+                    )
+                    new_capture["digest"] = self._hash_archive_source(
+                        new_capture, new_source
+                    )
+                old_required = self._preflight_archive_size(old_source)
+                new_required = self._preflight_archive_size(new_source)
+                self._preflighted_sources = {
+                    os.path.normcase(old_capture["path"]),
+                    os.path.normcase(new_capture["path"]),
+                }
+                self._tmp_old = create_temp_dir(
+                    prefix="cmp_old_",
+                    required_free_bytes=old_required + new_required,
+                )
+                self._tmp_new = create_temp_dir(
+                    prefix="cmp_new_",
+                    required_free_bytes=new_required,
+                )
+                self._extract(old_source, self._tmp_old, self._old_metadata)
+                self._extract(new_source, self._tmp_new, self._new_metadata)
+                self._verify_archive_source(old_capture, old_source)
+                self._verify_archive_source(new_capture, new_source)
+                self._folder = FolderVCS(
+                    self._tmp_old, self._tmp_new, snapshot=False
+                )
+                super().__init__(self._tmp_new)
         except Exception:
             self.cleanup()
             raise
 
     # ── 压缩包解压 ──
 
-    @classmethod
-    def _archive_suffix(cls, path: str) -> str:
-        lower = path.lower()
-        for suffix in (
-            ".tar.gz", ".tar.bz2", ".zip", ".jar", ".war", ".ear",
-            ".aar", ".tgz", ".tbz2", ".tar",
-        ):
-            if lower.endswith(suffix):
-                return suffix
-        return os.path.splitext(path)[1]
-
-    def _capture_archive_source(self, source: str) -> dict:
+    @staticmethod
+    def _open_archive_source(stack: ExitStack, source: str):
         source = os.path.abspath(source)
         if is_link_or_junction(source):
             raise RuntimeError(f"不允许将符号链接或联接点作为压缩包源: {source}")
         try:
-            signature = regular_file_path_identity(source)
+            return stack.enter_context(
+                open_regular_file_no_links(source, deny_writes=True)
+            )
+        except (OSError, RuntimeError) as exc:
+            raise RuntimeError(f"无法读取压缩包源: {source}: {exc}") from exc
+
+    def _capture_archive_source(self, source: str, stream=None) -> dict:
+        source = os.path.abspath(source)
+        if stream is None:
+            with ExitStack() as stack:
+                opened = self._open_archive_source(stack, source)
+                return self._capture_archive_source(source, opened)
+        try:
+            signature = regular_file_handle_identity(stream)
+            path_signature = regular_file_path_identity(source)
         except OSError as exc:
             raise RuntimeError(f"无法读取压缩包源: {source}: {exc}") from exc
         except RuntimeError as exc:
             raise RuntimeError(f"压缩包源不是普通文件: {source}") from exc
+        if is_link_or_junction(source) or path_signature != signature:
+            raise RuntimeError(f"压缩包源在成对捕获时发生变化，已中止: {source}")
         return {
             "path": source,
             "signature": signature,
             "size": signature[1],
         }
 
-    def _snapshot_archive(self, capture: dict, label: str) -> str:
-        """按两端复制前共同捕获的身份快照固定归档源。"""
+    def _hash_archive_source(self, capture: dict, stream) -> str:
+        """在稳定普通文件句柄上流式计算源归档摘要。"""
         source = capture["path"]
         expected_signature = capture["signature"]
         try:
@@ -122,24 +192,23 @@ class ArchiveVCS(BaseVCS):
         ):
             raise RuntimeError(f"压缩包源在成对捕获后发生变化，已中止: {source}")
 
-        target = os.path.join(
-            self._tmp_archive_sources,
-            f"{label}{self._archive_suffix(source)}",
-        )
-        copied = 0
-        with open_regular_file_no_links(source) as src, open(target, "xb") as dst:
-            handle_before = regular_file_handle_identity(src)
+        try:
+            handle_before = regular_file_handle_identity(stream)
             if handle_before != expected_signature:
-                raise RuntimeError(f"压缩包源在打开前已发生变化: {source}")
+                raise RuntimeError(f"压缩包源句柄在任务期间发生变化: {source}")
+            stream.seek(0)
+            digest = hashlib.sha256()
+            read_bytes = 0
             while True:
-                chunk = src.read(1024 * 1024)
+                chunk = stream.read(1024 * 1024)
                 if not chunk:
                     break
-                dst.write(chunk)
-                copied += len(chunk)
-            dst.flush()
-            os.fsync(dst.fileno())
-            handle_after = regular_file_handle_identity(src)
+                digest.update(chunk)
+                read_bytes += len(chunk)
+            handle_after = regular_file_handle_identity(stream)
+            stream.seek(0)
+        except OSError as exc:
+            raise RuntimeError(f"无法读取压缩包源: {source}: {exc}") from exc
 
         try:
             path_after = regular_file_path_identity(source)
@@ -148,11 +217,37 @@ class ArchiveVCS(BaseVCS):
         if (
             path_before != path_after
             or handle_before != handle_after
-            or copied != expected_signature[1]
+            or read_bytes != expected_signature[1]
             or is_link_or_junction(source)
         ):
-            raise RuntimeError(f"压缩包源在快照期间发生变化，已中止: {source}")
-        return target
+            raise RuntimeError(f"压缩包源在摘要读取期间发生变化，已中止: {source}")
+        return digest.hexdigest()
+
+    def _verify_archive_source(self, capture: dict, stream):
+        if capture.get("digest") is None:
+            source = capture["path"]
+            try:
+                handle_identity = regular_file_handle_identity(stream)
+                path_identity = regular_file_path_identity(source)
+                stream.seek(0)
+            except OSError as exc:
+                raise RuntimeError(
+                    f"无法复核压缩包源身份: {source}: {exc}"
+                ) from exc
+            if (
+                is_link_or_junction(source)
+                or handle_identity != capture["signature"]
+                or path_identity != capture["signature"]
+            ):
+                raise RuntimeError(
+                    f"压缩包源在任务期间发生变化，已中止: {source}"
+                )
+            return
+        current_digest = self._hash_archive_source(capture, stream)
+        if current_digest != capture["digest"]:
+            raise RuntimeError(
+                f"压缩包源内容在任务期间发生变化，已中止: {capture['path']}"
+            )
 
     def _ensure_free_space(self, path: str, payload_bytes: int):
         free_bytes = shutil.disk_usage(path).free
@@ -171,141 +266,240 @@ class ArchiveVCS(BaseVCS):
     def _is_tar(path: str) -> bool:
         return path.lower().endswith(('.tar', '.tar.gz', '.tgz', '.tar.bz2', '.tbz2'))
 
-    def _extract(self, archive_path: str, dest: str, metadata: dict):
+    @staticmethod
+    def _is_path_source(source) -> bool:
+        return isinstance(source, (str, bytes, os.PathLike))
+
+    @classmethod
+    def _archive_source_name(cls, source) -> str:
+        if cls._is_path_source(source):
+            return os.path.abspath(os.fsdecode(source))
+        return os.path.abspath(getattr(source, "name", ""))
+
+    @staticmethod
+    def _archive_stream_size(stream) -> int:
+        position = stream.tell()
+        stream.seek(0, os.SEEK_END)
+        size = stream.tell()
+        stream.seek(position)
+        return size
+
+    def _extract(self, archive_source, dest: str, metadata: dict):
+        archive_path = self._archive_source_name(archive_source)
         if self._is_zip(archive_path):
-            self._extract_zip(archive_path, dest, metadata)
+            self._extract_zip(archive_source, dest, metadata)
         elif self._is_tar(archive_path):
-            self._extract_tar(archive_path, dest, metadata)
+            self._extract_tar(archive_source, dest, metadata)
         else:
             raise ValueError(
                 f"不支持的压缩格式: {archive_path}"
                 "（支持 .zip / .jar / .war / .ear / .aar / .tar / .tar.gz / .tgz / .tar.bz2 / .tbz2）"
             )
 
-    def _extract_zip(self, path: str, dest: str, metadata: dict = None):
+    def _preflight_archive_size(self, source) -> int:
+        """在选择临时盘前取得本端实际展开字节数。"""
+        path = self._archive_source_name(source)
+        if self._is_zip(path):
+            self._preflight_zip(source)
+            source.seek(0)
+            try:
+                with zipfile.ZipFile(_BorrowedBinaryStream(source), "r") as zf:
+                    members = zf.infolist()
+                    return self._validate_archive_limits(
+                        path,
+                        [
+                            (
+                                info.filename,
+                                info.file_size,
+                                info.compress_size,
+                                info.is_dir(),
+                            )
+                            for info in members
+                        ],
+                    )
+            finally:
+                source.seek(0)
+        if self._is_tar(path):
+            validation_root = os.path.join(
+                os.path.dirname(path), ".comparetool_archive_preflight"
+            )
+            return self._preflight_tar(source, validation_root)
+        raise ValueError(f"不支持的压缩格式: {path}")
+
+    def _extract_zip(self, source, dest: str, metadata: dict = None):
+        if self._is_path_source(source):
+            with open_regular_file_no_links(
+                os.fsdecode(source), deny_writes=True
+            ) as stream:
+                return self._extract_zip(stream, dest, metadata)
+        path = self._archive_source_name(source)
         metadata = metadata if metadata is not None else {}
-        self._preflight_zip(path)
-        with zipfile.ZipFile(path, 'r') as zf:
-            members = zf.infolist()
-            total_size = self._validate_archive_limits(
-                path,
-                [(info.filename, info.file_size, info.compress_size, info.is_dir()) for info in members],
-            )
-            self._ensure_free_space(dest, total_size)
-            decoded_members = [
-                (info, self._fix_zip_filename(info)) for info in members
-            ]
-            self._validate_archive_targets(
-                dest,
-                [(name, info.is_dir()) for info, name in decoded_members],
-            )
-            for info, name in decoded_members:
-                unix_mode = info.external_attr >> 16
-                file_type = stat.S_IFMT(unix_mode)
-                if stat.S_ISLNK(unix_mode):
-                    raise ValueError(f"压缩包包含不安全的符号链接: {name}")
-                if file_type and not (stat.S_ISREG(unix_mode) or stat.S_ISDIR(unix_mode)):
-                    raise ValueError(f"压缩包包含不安全或不支持的特殊文件: {name}")
-            for info, name in decoded_members:
-                if self._is_root_directory(name, info.is_dir()):
-                    continue
-                target = self._safe_extract_target(dest, name)
-                if info.is_dir():
-                    os.makedirs(target, exist_ok=True)
-                else:
-                    os.makedirs(os.path.dirname(target), exist_ok=True)
-                    with zf.open(info) as src, open(target, 'wb') as dst:
-                        shutil.copyfileobj(src, dst)
+        if os.path.normcase(path) not in getattr(
+            self, "_preflighted_sources", set()
+        ):
+            self._preflight_zip(source)
+        source.seek(0)
+        try:
+            with zipfile.ZipFile(_BorrowedBinaryStream(source), 'r') as zf:
+                members = zf.infolist()
+                total_size = self._validate_archive_limits(
+                    path,
+                    [(info.filename, info.file_size, info.compress_size, info.is_dir()) for info in members],
+                )
+                self._ensure_free_space(dest, total_size)
+                decoded_members = [
+                    (info, self._fix_zip_filename(info)) for info in members
+                ]
+                self._validate_archive_targets(
+                    dest,
+                    [(name, info.is_dir()) for info, name in decoded_members],
+                )
+                directory_cache = {}
+                for info, name in decoded_members:
                     unix_mode = info.external_attr >> 16
                     file_type = stat.S_IFMT(unix_mode)
-                    if (
-                        info.create_system == 3
-                        and (file_type == 0 or stat.S_ISREG(unix_mode))
-                    ):
-                        relative = os.path.relpath(target, dest).replace("\\", "/")
-                        metadata[relative] = {
-                            "mode": f"{stat.S_IMODE(unix_mode):04o}",
-                            "executable": bool(unix_mode & 0o111),
-                        }
+                    if stat.S_ISLNK(unix_mode):
+                        raise ValueError(f"压缩包包含不安全的符号链接: {name}")
+                    if file_type and not (stat.S_ISREG(unix_mode) or stat.S_ISDIR(unix_mode)):
+                        raise ValueError(f"压缩包包含不安全或不支持的特殊文件: {name}")
+                for info, name in decoded_members:
+                    if self._is_root_directory(name, info.is_dir()):
+                        continue
+                    target = self._safe_extract_target(dest, name)
+                    if info.is_dir():
+                        self._ensure_archive_directory(
+                            dest, target, directory_cache
+                        )
+                    else:
+                        # 先确认成员流可读，再创建目标。若加密/损坏 ZIP 在
+                        # zf.open() 抛错，不能遗留未关闭的目标句柄和空文件。
+                        with zf.open(info) as src:
+                            target, dst = self._open_archive_member_target(
+                                dest, target, directory_cache
+                            )
+                            with dst:
+                                shutil.copyfileobj(src, dst)
+                        unix_mode = info.external_attr >> 16
+                        file_type = stat.S_IFMT(unix_mode)
+                        if (
+                            info.create_system == 3
+                            and (file_type == 0 or stat.S_ISREG(unix_mode))
+                        ):
+                            relative = os.path.relpath(target, dest).replace("\\", "/")
+                            metadata[relative] = {
+                                "mode": f"{stat.S_IMODE(unix_mode):04o}",
+                                "executable": bool(unix_mode & 0o111),
+                            }
+        finally:
+            source.seek(0)
 
-    def _extract_tar(self, path: str, dest: str, metadata: dict = None):
+    def _extract_tar(self, source, dest: str, metadata: dict = None):
+        if self._is_path_source(source):
+            with open_regular_file_no_links(
+                os.fsdecode(source), deny_writes=True
+            ) as stream:
+                return self._extract_tar(stream, dest, metadata)
+        path = self._archive_source_name(source)
         metadata = metadata if metadata is not None else {}
-        self._preflight_tar(path, dest)
+        if os.path.normcase(path) not in getattr(
+            self, "_preflighted_sources", set()
+        ):
+            self._preflight_tar(source, dest)
         mode = 'r:gz' if path.lower().endswith(('.gz', '.tgz')) else \
                'r:bz2' if path.lower().endswith(('.bz2', '.tbz2')) else 'r'
-        with tarfile.open(path, mode) as tf:
-            members = tf.getmembers()
-            archive_size = max(os.path.getsize(path), 1)
-            total_size = self._validate_archive_limits(
-                path,
-                [(member.name, member.size, archive_size, member.isdir()) for member in members],
-                check_member_ratio=False,
-            )
-            self._ensure_free_space(dest, total_size)
-            self._validate_archive_targets(
-                dest,
-                [(member.name, member.isdir()) for member in members],
-            )
-            for member in members:
-                if self._is_root_directory(member.name, member.isdir()):
-                    continue
-                if not (member.isdir() or member.isfile()):
-                    raise ValueError(
-                        f"压缩包包含不安全或不支持的链接/特殊文件: {member.name}"
-                    )
-            total_size = sum(member.size for member in members if member.isfile())
-            if total_size / archive_size > self.MAX_COMPRESSION_RATIO:
-                raise ValueError(
-                    f"压缩包展开比例过高，已拒绝解压: {path} "
-                    f"({total_size / archive_size:.0f}:1)"
+        archive_size = max(self._archive_stream_size(source), 1)
+        source.seek(0)
+        try:
+            with tarfile.open(
+                fileobj=_BorrowedBinaryStream(source), mode=mode
+            ) as tf:
+                members = tf.getmembers()
+                total_size = self._validate_archive_limits(
+                    path,
+                    [(member.name, member.size, archive_size, member.isdir()) for member in members],
+                    check_member_ratio=False,
                 )
-            for member in members:
-                if self._is_root_directory(member.name, member.isdir()):
-                    continue
-                target = self._safe_extract_target(dest, member.name)
-                if member.isdir():
-                    os.makedirs(target, exist_ok=True)
-                    continue
-                os.makedirs(os.path.dirname(target), exist_ok=True)
-                src = tf.extractfile(member)
-                if src is None:
-                    raise ValueError(f"无法读取压缩包成员: {member.name}")
-                with src, open(target, "wb") as dst:
-                    shutil.copyfileobj(src, dst)
-                relative = os.path.relpath(target, dest).replace("\\", "/")
-                metadata[relative] = {
-                    "mode": f"{stat.S_IMODE(member.mode):04o}",
-                    "executable": bool(member.mode & 0o111),
-                }
+                self._ensure_free_space(dest, total_size)
+                self._validate_archive_targets(
+                    dest,
+                    [(member.name, member.isdir()) for member in members],
+                )
+                directory_cache = {}
+                for member in members:
+                    if self._is_root_directory(member.name, member.isdir()):
+                        continue
+                    if not (member.isdir() or member.isfile()):
+                        raise ValueError(
+                            f"压缩包包含不安全或不支持的链接/特殊文件: {member.name}"
+                        )
+                if total_size / archive_size > self.MAX_COMPRESSION_RATIO:
+                    raise ValueError(
+                        f"压缩包展开比例过高，已拒绝解压: {path} "
+                        f"({total_size / archive_size:.0f}:1)"
+                    )
+                for member in members:
+                    if self._is_root_directory(member.name, member.isdir()):
+                        continue
+                    target = self._safe_extract_target(dest, member.name)
+                    if member.isdir():
+                        self._ensure_archive_directory(
+                            dest, target, directory_cache
+                        )
+                        continue
+                    src = tf.extractfile(member)
+                    if src is None:
+                        raise ValueError(f"无法读取压缩包成员: {member.name}")
+                    target, dst = self._open_archive_member_target(
+                        dest, target, directory_cache
+                    )
+                    with src, dst:
+                        shutil.copyfileobj(src, dst)
+                    relative = os.path.relpath(target, dest).replace("\\", "/")
+                    metadata[relative] = {
+                        "mode": f"{stat.S_IMODE(member.mode):04o}",
+                        "executable": bool(member.mode & 0o111),
+                    }
+        finally:
+            source.seek(0)
 
     @classmethod
-    def _preflight_tar(cls, path: str, dest: str):
+    def _preflight_tar(cls, source, dest: str):
         """在 tarfile 解析 PAX/GNU 扩展前先做有界流式头检查。
 
         tarfile.getmembers() 会先把长文件名/PAX 载荷整体读入内存；这里先从
         原始解压流限制这些隐藏元数据，再允许标准库执行第二遍实际解压。
         """
+        if cls._is_path_source(source):
+            with open_regular_file_no_links(
+                os.fsdecode(source), deny_writes=True
+            ) as opened:
+                return cls._preflight_tar(opened, dest)
+        path = cls._archive_source_name(source)
         lower = path.lower()
-        opener = gzip.open if lower.endswith((".gz", ".tgz")) else (
-            bz2.open if lower.endswith((".bz2", ".tbz2")) else open
-        )
         targets = []
         total_size = 0
-        header_count = 0
-        metadata_size = 0
-        metadata_records = 0
+        metadata_size = 0 if cls.MAX_TAR_METADATA_BYTES is not None else None
+        metadata_records = (
+            0 if cls.MAX_TAR_METADATA_RECORDS is not None else None
+        )
         pending_name = None
         pending_pax = {}
         global_pax = {}
-        archive_size = max(os.path.getsize(path), 1)
-        with opener(path, "rb") as stream:
+        archive_size = max(cls._archive_stream_size(source), 1)
+        source.seek(0)
+        borrowed = _BorrowedBinaryStream(source)
+        stream = (
+            gzip.GzipFile(fileobj=borrowed, mode="rb")
+            if lower.endswith((".gz", ".tgz"))
+            else bz2.BZ2File(borrowed, "rb")
+            if lower.endswith((".bz2", ".tbz2"))
+            else borrowed
+        )
+        with stream:
             while True:
                 header = cls._read_exact(stream, 512, allow_eof=True)
                 if not header or header == b"\0" * 512:
                     break
-                header_count += 1
-                if header_count > cls.MAX_ARCHIVE_MEMBERS * 2 + 1024:
-                    raise ValueError("tar 头记录过多，已拒绝解压")
                 try:
                     member = tarfile.TarInfo.frombuf(
                         header, tarfile.ENCODING, "surrogateescape"
@@ -322,19 +516,24 @@ class ArchiveVCS(BaseVCS):
                     tarfile.XGLTYPE,
                     getattr(tarfile, "SOLARIS_XHDTYPE", b"X"),
                 ):
-                    metadata_records += 1
-                    metadata_size += size
-                    if metadata_records > cls.MAX_TAR_METADATA_RECORDS:
-                        raise ValueError("tar 扩展元数据记录过多，已拒绝解压")
-                    if size > cls.MAX_TAR_METADATA_BYTES:
+                    if metadata_records is not None:
+                        metadata_records += 1
+                        if metadata_records > cls.MAX_TAR_METADATA_RECORDS:
+                            raise ValueError("tar 扩展元数据记录过多，已拒绝解压")
+                    if (
+                        cls.MAX_TAR_METADATA_BYTES is not None
+                        and size > cls.MAX_TAR_METADATA_BYTES
+                    ):
                         raise ValueError(
                             f"tar 扩展元数据过大，已拒绝解压: {member.name} ({size} 字节)"
                         )
-                    if metadata_size > cls.MAX_TAR_METADATA_BYTES:
-                        raise ValueError(
-                            "tar 扩展元数据累计过大，已拒绝解压: "
-                            f"{metadata_size} > {cls.MAX_TAR_METADATA_BYTES} 字节"
-                        )
+                    if metadata_size is not None:
+                        metadata_size += size
+                        if metadata_size > cls.MAX_TAR_METADATA_BYTES:
+                            raise ValueError(
+                                "tar 扩展元数据累计过大，已拒绝解压: "
+                                f"{metadata_size} > {cls.MAX_TAR_METADATA_BYTES} 字节"
+                            )
                     payload = cls._read_exact(stream, size)
                     cls._skip_tar_padding(stream, size)
                     if member.type == tarfile.GNUTYPE_LONGNAME:
@@ -350,7 +549,11 @@ class ArchiveVCS(BaseVCS):
                             global_pax.update(parsed)
                         else:
                             pending_pax.update(parsed)
-                        if len(global_pax) + len(pending_pax) > cls.MAX_TAR_PAX_FIELDS:
+                        if (
+                            cls.MAX_TAR_PAX_FIELDS is not None
+                            and len(global_pax) + len(pending_pax)
+                            > cls.MAX_TAR_PAX_FIELDS
+                        ):
                             raise ValueError("tar PAX 字段过多，已拒绝解压")
                     continue
 
@@ -387,7 +590,9 @@ class ArchiveVCS(BaseVCS):
                     raise ValueError("压缩包成员过多，已拒绝解压")
                 cls._discard_exact(stream, size)
                 cls._skip_tar_padding(stream, size)
+        source.seek(0)
         cls._validate_archive_targets(dest, targets)
+        return total_size
 
     @staticmethod
     def _read_exact(stream, size: int, allow_eof: bool = False) -> bytes:
@@ -423,13 +628,20 @@ class ArchiveVCS(BaseVCS):
             remaining -= len(chunk)
 
     @classmethod
-    def _preflight_zip(cls, path: str):
+    def _preflight_zip(cls, source):
         """在 ZipFile 构造前有界检查 EOCD/ZIP64 和实际中央目录记录。"""
-        archive_size = os.path.getsize(path)
+        if cls._is_path_source(source):
+            with open_regular_file_no_links(
+                os.fsdecode(source), deny_writes=True
+            ) as opened:
+                return cls._preflight_zip(opened)
+        path = cls._archive_source_name(source)
+        archive_size = cls._archive_stream_size(source)
         if archive_size < 22:
             raise ValueError(f"ZIP 文件过短或已损坏: {path}")
         tail_size = min(archive_size, 22 + 0xFFFF)
-        with open(path, "rb") as stream:
+        stream = source
+        try:
             stream.seek(archive_size - tail_size)
             tail = stream.read(tail_size)
             eocd = cls._find_zip_eocd(tail, archive_size - tail_size, archive_size)
@@ -474,6 +686,8 @@ class ArchiveVCS(BaseVCS):
                 raise ValueError(
                     "ZIP 中央目录成员数与 EOCD 不一致，已拒绝解压"
                 )
+        finally:
+            source.seek(0)
 
     @classmethod
     def _find_zip_eocd(cls, tail: bytes, tail_offset: int, archive_size: int):
@@ -541,7 +755,10 @@ class ArchiveVCS(BaseVCS):
                 f"压缩包成员过多，已拒绝解压: "
                 f"{entries} > {cls.MAX_ARCHIVE_MEMBERS}"
             )
-        if central_size > cls.MAX_ZIP_CENTRAL_DIRECTORY_BYTES:
+        if (
+            cls.MAX_ZIP_CENTRAL_DIRECTORY_BYTES is not None
+            and central_size > cls.MAX_ZIP_CENTRAL_DIRECTORY_BYTES
+        ):
             raise ValueError(
                 "ZIP 中央目录过大，已拒绝解压: "
                 f"{central_size} > {cls.MAX_ZIP_CENTRAL_DIRECTORY_BYTES} 字节"
@@ -613,9 +830,108 @@ class ArchiveVCS(BaseVCS):
         """解析压缩包成员路径，并保证最终目标仍位于临时解压目录内。"""
         name = (member_name or "").replace("\\", "/")
         try:
-            return safe_join(dest, name, label="压缩包成员路径")
+            return safe_join(
+                dest,
+                name,
+                label="压缩包成员路径",
+            )
         except ValueError as exc:
             raise ValueError(f"压缩包包含不安全路径: {member_name}（{exc}）") from exc
+
+    @classmethod
+    def _ensure_archive_directory(
+        cls, dest: str, directory: str, directory_cache=None
+    ) -> str:
+        """逐级创建目录，区分合法的 ``~1`` 名称和真实 NTFS 别名碰撞。"""
+        root = os.path.abspath(dest)
+        directory = os.path.abspath(directory)
+        try:
+            inside = os.path.normcase(os.path.commonpath([root, directory])) == (
+                os.path.normcase(root)
+            )
+        except ValueError:
+            inside = False
+        if not inside:
+            raise ValueError(f"压缩包成员目录越出解压根: {directory}")
+        if is_link_or_junction(root):
+            raise ValueError(f"压缩包解压根是符号链接或联接点: {root}")
+
+        relative = os.path.relpath(directory, root)
+        if relative == ".":
+            return root
+
+        cache = directory_cache if directory_cache is not None else {}
+        current = root
+        for component in relative.split(os.sep):
+            component_key = windows_path_key(component)
+            current_key = os.path.abspath(current)
+            known = cache.get(current_key)
+            if known is None:
+                known = {}
+                with os.scandir(current) as entries:
+                    for entry in entries:
+                        entry_key = windows_path_key(entry.name)
+                        if entry_key in known:
+                            raise ValueError(
+                                "压缩包成员目录存在 Windows 名称碰撞: "
+                                f"{entry.path}"
+                            )
+                        known[entry_key] = entry.path
+                cache[current_key] = known
+
+            desired = os.path.join(current, component)
+            existing = known.get(component_key)
+            if existing is not None:
+                if is_link_or_junction(existing) or not os.path.isdir(existing):
+                    raise ValueError(
+                        f"压缩包成员目录与现有文件或链接冲突: {desired}"
+                    )
+                current = existing
+                continue
+
+            # NTFS 的 8.3 别名可能让一个未被 scandir 列出的拼写解析到
+            # 已有长名称。只拒绝这种真实碰撞，不拒绝独立存在的 ``ABC~1``。
+            if os.path.lexists(desired):
+                raise ValueError(
+                    f"压缩包成员目录与现有 Windows 别名冲突: {desired}"
+                )
+            try:
+                os.mkdir(desired)
+            except FileExistsError as exc:
+                raise ValueError(
+                    f"压缩包成员目录发生 Windows 名称碰撞: {desired}"
+                ) from exc
+            if is_link_or_junction(desired) or not os.path.isdir(desired):
+                raise ValueError(f"压缩包成员目录创建后身份异常: {desired}")
+            known[component_key] = desired
+            current = desired
+        return current
+
+    @classmethod
+    def _open_archive_member_target(
+        cls, dest: str, target: str, directory_cache=None
+    ):
+        """排他创建成员文件，避免重复项或 NTFS 短别名覆盖已有内容。"""
+        cache = directory_cache if directory_cache is not None else {}
+        parent = cls._ensure_archive_directory(
+            dest, os.path.dirname(target), cache
+        )
+        actual_target = os.path.join(parent, os.path.basename(target))
+        parent_key = os.path.abspath(parent)
+        known = cache.setdefault(parent_key, {})
+        name_key = windows_path_key(os.path.basename(target))
+        if name_key in known:
+            raise ValueError(
+                f"压缩包成员与现有 Windows 路径或短名称别名冲突: {target}"
+            )
+        try:
+            stream = open(actual_target, "xb")
+        except FileExistsError as exc:
+            raise ValueError(
+                f"压缩包成员与现有 Windows 路径或短名称别名冲突: {target}"
+            ) from exc
+        known[name_key] = actual_target
+        return actual_target, stream
 
     @staticmethod
     def _is_root_directory(member_name: str, is_dir: bool) -> bool:
@@ -631,7 +947,7 @@ class ArchiveVCS(BaseVCS):
                 continue
             target = cls._safe_extract_target(dest, name)
             relative = os.path.relpath(target, os.path.abspath(dest)).replace("\\", "/")
-            parts = tuple(part.casefold() for part in relative.split("/"))
+            parts = tuple(windows_path_key(part) for part in relative.split("/"))
             normalized_name = relative.replace("\\", "/")
             previous = targets.get(parts)
             if previous is not None:
@@ -744,6 +1060,11 @@ class ArchiveVCS(BaseVCS):
     def get_file_size(self, version: str, file_path: str):
         return self._folder.get_file_size(self._to_folder_ver(version), file_path)
 
+    def get_known_file_raw_size(self, version: str, file_path: str):
+        return self._folder.get_known_file_raw_size(
+            self._to_folder_ver(version), file_path
+        )
+
     def get_file_signature(self, version: str, file_path: str):
         return self._folder.get_file_signature(
             self._to_folder_ver(version), file_path
@@ -786,7 +1107,6 @@ class ArchiveVCS(BaseVCS):
         for d in (
             getattr(self, "_tmp_old", ""),
             getattr(self, "_tmp_new", ""),
-            getattr(self, "_tmp_archive_sources", ""),
         ):
             if os.path.isdir(d):
                 try:

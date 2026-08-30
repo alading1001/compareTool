@@ -493,15 +493,20 @@ class VCSParsingTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "无法读取 SVN 文件属性"):
                 vcs._get_eol_style("r12", "demo.txt")
 
-    def test_svn_unsupported_property_change_fails_closed(self):
+    def test_svn_informational_property_change_is_reported(self):
         vcs = SVNVCS.__new__(SVNVCS)
         vcs._get_properties = mock.Mock(side_effect=[
             {"custom:deployment": "old"},
             {"custom:deployment": "new"},
         ])
 
-        with self.assertRaisesRegex(RuntimeError, "custom:deployment"):
-            vcs._compare_endpoint_metadata("1", "demo.txt", "2", "demo.txt")
+        metadata = vcs._compare_endpoint_metadata(
+            "1", "demo.txt", "2", "demo.txt"
+        )
+
+        self.assertIn(
+            "custom:deployment", "\n".join(metadata["metadata_changes"])
+        )
 
 
 class ReportAndTaskSafetyTests(unittest.TestCase):

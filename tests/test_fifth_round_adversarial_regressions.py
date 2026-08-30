@@ -44,6 +44,9 @@ class SizedBytesVCS(BaseVCS):
         data = self.old_data if version == "old" else self.new_data
         return None if data is None else len(data)
 
+    def get_known_file_raw_size(self, version, file_path):
+        return self.get_file_size(version, file_path)
+
     def get_file_content_raw_bytes(self, version, file_path):
         return self.old_data if version == "old" else self.new_data
 
@@ -308,7 +311,7 @@ class SnapshotAndTransactionTests(unittest.TestCase):
             try:
                 usage = type("Usage", (), {"free": 0})()
                 with mock.patch("vcs.folder_vcs.shutil.disk_usage", return_value=usage):
-                    with self.assertRaisesRegex(RuntimeError, "磁盘空间不足"):
+                    with self.assertRaisesRegex(RuntimeError, "可用空间不足"):
                         vcs.get_changed_files("old", "new")
             finally:
                 vcs.cleanup()

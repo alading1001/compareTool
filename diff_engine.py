@@ -3,8 +3,14 @@ import hashlib
 import html
 import json
 import os
+import re
+from bisect import bisect_left
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional
+from path_safety import (
+    windows_directories_replaced_by_files,
+    windows_path_key,
+)
 from vcs.base import BaseVCS, ChangedFile, ChangeType
 
 
@@ -92,6 +98,8 @@ class DiffResult:
 
     @property
     def report_files(self) -> List[FileDiff]:
+        if not any(item.report_detail_omitted for item in self.files):
+            return self.files
         return [item for item in self.files if not item.report_detail_omitted]
 
     @property
@@ -100,7 +108,7 @@ class DiffResult:
             self.MAX_REPORT_MANIFEST_FILES is None
             and self.MAX_REPORT_MANIFEST_PATH_BYTES is None
         ):
-            return list(self.files)
+            return self.files
         selected = []
         json_bytes = 0
         for item in self.files:
@@ -135,7 +143,13 @@ class DiffResult:
         report_omitted_files = sum(
             1 for f in self.files if f.report_detail_omitted
         )
-        manifest_listed_files = len(self.report_manifest_files)
+        if (
+            self.MAX_REPORT_MANIFEST_FILES is None
+            and self.MAX_REPORT_MANIFEST_PATH_BYTES is None
+        ):
+            manifest_listed_files = len(self.files)
+        else:
+            manifest_listed_files = len(self.report_manifest_files)
         return {
             "total_files": len(self.files),
             "added_files": added,
@@ -180,6 +194,17 @@ class DiffEngine:
     MAX_REPORT_HTML_BYTES = None
     MAX_RENAME_SIGNATURE_BYTES = None
 
+    # 终端日志、构建输出和源码字符串中常见的 ANSI 转义序列仍是文本。
+    # 在统计其它控制字符前先移除这些完整序列，避免彩色日志被误判为二进制。
+    _ANSI_ESCAPE_RE = re.compile(
+        r"\x1b(?:"
+        r"\[[0-?]*[ -/]*[@-~]"                 # CSI
+        r"|\][^\x1b\x07]*(?:\x07|\x1b\\)"  # OSC
+        r"|[PX^_][\s\S]*?\x1b\\"             # DCS/SOS/PM/APC
+        r"|[@-_]"                                # 两字节 ESC 序列
+        r")"
+    )
+
     def __init__(
         self,
         vcs,
@@ -188,9 +213,26 @@ class DiffEngine:
     ):
         self.vcs = vcs
         self.show_full_context = show_full_context
-        self._owns_report_budget = report_budget is None
-        self._report_budget = report_budget if report_budget is not None else {}
-        self._initialize_report_budget(reset=self._owns_report_budget)
+        self._report_limits_enabled = self.report_limits_enabled()
+        self._owns_report_budget = (
+            self._report_limits_enabled and report_budget is None
+        )
+        self._report_budget = (
+            report_budget if report_budget is not None else {}
+        ) if self._report_limits_enabled else None
+        if self._report_limits_enabled:
+            self._initialize_report_budget(reset=self._owns_report_budget)
+
+    @classmethod
+    def report_limits_enabled(cls) -> bool:
+        return any(limit is not None for limit in (
+            cls.MAX_REPORT_TEXT_BYTES,
+            cls.MAX_REPORT_TEXT_LINES,
+            cls.MAX_REPORT_RENDER_ROWS,
+            cls.MAX_REPORT_DETAIL_FILES,
+            cls.MAX_REPORT_PATH_BYTES,
+            cls.MAX_REPORT_HTML_BYTES,
+        ))
 
     def _initialize_report_budget(self, reset: bool = False):
         for key in (
@@ -227,7 +269,10 @@ class DiffEngine:
         )
 
         for cf in changed_files:
-            entry_reason = self._reserve_report_entry(cf)
+            entry_reason = (
+                self._reserve_report_entry(cf)
+                if self._report_limits_enabled else ""
+            )
             if entry_reason:
                 file_diff = FileDiff(
                     file_path=cf.path,
@@ -243,7 +288,8 @@ class DiffEngine:
                 )
             else:
                 file_diff = self._diff_file(old_version, new_version, cf)
-                self._finalize_report_entry(file_diff)
+                if self._report_limits_enabled:
+                    self._finalize_report_entry(file_diff)
             result.files.append(file_diff)
 
         return result
@@ -272,21 +318,24 @@ class DiffEngine:
             return file_diff
 
         endpoint_sizes = []
+        size_getter = (
+            self._get_file_raw_size
+            if self.MAX_TEXT_DIFF_BYTES is not None
+            else self._get_known_file_raw_size
+        )
         if cf.change_type != ChangeType.ADDED:
-            endpoint_sizes.append(self._get_file_raw_size(old_version, old_path))
+            endpoint_sizes.append(size_getter(old_version, old_path))
         if cf.change_type != ChangeType.DELETED:
-            endpoint_sizes.append(self._get_file_raw_size(new_version, cf.path))
-        known_sizes = [size for size in endpoint_sizes if size is not None]
-        if (
-            self.MAX_TEXT_DIFF_BYTES is not None
-            and any(size > self.MAX_TEXT_DIFF_BYTES for size in known_sizes)
-        ):
-            file_diff.side_by_side_html = self._large_file_placeholder_from_size(
-                cf, max(known_sizes)
-            )
-            file_diff.line_counts_complete = False
-            self._prepend_metadata(file_diff)
-            return file_diff
+            endpoint_sizes.append(size_getter(new_version, cf.path))
+        if self.MAX_TEXT_DIFF_BYTES is not None:
+            known_sizes = [size for size in endpoint_sizes if size is not None]
+            if any(size > self.MAX_TEXT_DIFF_BYTES for size in known_sizes):
+                file_diff.side_by_side_html = self._large_file_placeholder_from_size(
+                    cf, max(known_sizes)
+                )
+                file_diff.line_counts_complete = False
+                self._prepend_metadata(file_diff)
+                return file_diff
 
         if cf.change_type != ChangeType.ADDED:
             old_raw = self._get_raw_bytes(old_version, old_path)
@@ -315,15 +364,49 @@ class DiffEngine:
             file_diff.line_counts_complete = False
             self._prepend_metadata(file_diff)
             return file_diff
-        if any(self._content_is_binary(data) for data in raw_values):
+        # 每个端点只严格解码一次。后续二进制判定、纯格式变化、行数和
+        # HTML 都复用同一结果，避免大文本被重复完整解码，也避免回头向
+        # VCS 再读一遍同一端点。
+        old_strict_decoded = (
+            self._decode_text_strict(old_raw) if old_raw is not None else None
+        )
+        new_strict_decoded = (
+            self._decode_text_strict(new_raw) if new_raw is not None else None
+        )
+        decoded_values = [
+            (raw, decoded)
+            for raw, decoded in (
+                (old_raw, old_strict_decoded),
+                (new_raw, new_strict_decoded),
+            )
+            if raw is not None
+        ]
+        if any(
+            self._decoded_content_is_binary(decoded, raw)
+            for raw, decoded in decoded_values
+        ):
             file_diff.side_by_side_html = self._binary_placeholder(cf)
             file_diff.line_counts_complete = False
             self._prepend_metadata(file_diff)
             return file_diff
-        complexity_reason = next((
-            reason for data in raw_values
-            if (reason := self._text_diff_complexity_reason(data))
-        ), "")
+        # 8 月 27 日前，未知编码但不像二进制的内容仍会以 UTF-8 replacement
+        # fallback 生成逐行明细。未知编码不能等价成“二进制”；直接复用已经
+        # 读取的原始字节做兼容显示，既不漏报告，也不再次读取可变端点。
+        old_decoded = old_strict_decoded or (
+            self._decode_text_fallback(old_raw) if old_raw is not None else None
+        )
+        new_decoded = new_strict_decoded or (
+            self._decode_text_fallback(new_raw) if new_raw is not None else None
+        )
+        complexity_reason = ""
+        if (
+            self.MAX_TEXT_DIFF_LINES is not None
+            or self.MAX_TEXT_DIFF_LINE_BYTES is not None
+        ):
+            complexity_reason = next((
+                reason for data in raw_values
+                if (reason := self._text_diff_complexity_reason(data))
+            ), "")
         if complexity_reason:
             file_diff.side_by_side_html = self._complexity_placeholder(
                 cf, complexity_reason
@@ -335,28 +418,26 @@ class DiffEngine:
         # 纯重命名或纯格式变化只需要线性检查和小型说明卡片，不应被为
         # SequenceMatcher/HtmlDiff 设置的乘积及渲染预算降级成普通修改。
         if cf.change_type in (ChangeType.MODIFIED, ChangeType.RENAMED):
-            early_old_decoded = self._decode_text_strict(old_raw)
-            early_new_decoded = self._decode_text_strict(new_raw)
-            if early_old_decoded is not None and early_new_decoded is not None:
+            if old_strict_decoded is not None and new_strict_decoded is not None:
                 if cf.change_type == ChangeType.RENAMED and old_raw == new_raw:
                     file_diff.side_by_side_html = self._rename_only_placeholder(
                         old_path, cf.path
                     )
                     self._prepend_metadata(file_diff)
                     return file_diff
-                early_format_details = self._format_only_details(
-                    early_old_decoded, early_new_decoded, old_raw, new_raw
+                format_details = self._format_only_details(
+                    old_strict_decoded, new_strict_decoded, old_raw, new_raw
                 )
-                if early_format_details is not None:
+                if format_details is not None:
                     file_diff.format_only = True
-                    file_diff.format_details = early_format_details
+                    file_diff.format_details = format_details
                     if cf.change_type == ChangeType.RENAMED:
                         file_diff.side_by_side_html = self._rename_format_placeholder(
-                            old_path, cf.path, early_format_details
+                            old_path, cf.path, format_details
                         )
                     else:
                         file_diff.side_by_side_html = self._format_only_placeholder(
-                            cf.path, early_format_details
+                            cf.path, format_details
                         )
                     self._prepend_metadata(file_diff)
                     return file_diff
@@ -366,8 +447,14 @@ class DiffEngine:
             self.MAX_REPORT_TEXT_LINES,
             self.MAX_REPORT_RENDER_ROWS,
         )):
-            old_line_count = self._line_count_for_budget(old_raw)
-            new_line_count = self._line_count_for_budget(new_raw)
+            old_line_count = (
+                len(old_decoded.text.splitlines())
+                if old_decoded is not None else 0
+            )
+            new_line_count = (
+                len(new_decoded.text.splitlines())
+                if new_decoded is not None else 0
+            )
             budget_reason = self._reserve_report_budget(
                 raw_values, old_line_count, new_line_count
             )
@@ -381,22 +468,14 @@ class DiffEngine:
 
         if cf.change_type == ChangeType.ADDED:
             file_diff.old_content = ""
-            decoded = self._decode_text_strict(new_raw)
-            file_diff.new_content = (
-                decoded.text if decoded is not None
-                else self.vcs.get_file_content(new_version, cf.path)
-            )
+            file_diff.new_content = new_decoded.text
             file_diff.deleted_lines = 0
             file_diff.added_lines = len(file_diff.new_content.splitlines()) if file_diff.new_content else 0
             file_diff.side_by_side_html = self._side_by_side_empty_vs_new(
                 file_diff.new_content, cf.path)
 
         elif cf.change_type == ChangeType.DELETED:
-            decoded = self._decode_text_strict(old_raw)
-            file_diff.old_content = (
-                decoded.text if decoded is not None
-                else self.vcs.get_file_content(old_version, cf.path)
-            )
+            file_diff.old_content = old_decoded.text
             file_diff.new_content = ""
             file_diff.deleted_lines = len(file_diff.old_content.splitlines()) if file_diff.old_content else 0
             file_diff.added_lines = 0
@@ -404,19 +483,8 @@ class DiffEngine:
                 file_diff.old_content, cf.path)
 
         elif cf.change_type == ChangeType.RENAMED:
-            old_decoded = self._decode_text_strict(old_raw)
-            new_decoded = self._decode_text_strict(new_raw)
-            if old_decoded is not None and new_decoded is not None:
-                file_diff.old_content = old_decoded.text
-                file_diff.new_content = new_decoded.text
-                format_details = self._format_only_details(
-                    old_decoded, new_decoded, old_raw, new_raw)
-                if format_details is not None:
-                    file_diff.format_only = True
-                    file_diff.format_details = format_details
-            else:
-                file_diff.old_content = self.vcs.get_file_content(old_version, old_path)
-                file_diff.new_content = self.vcs.get_file_content(new_version, cf.path)
+            file_diff.old_content = old_decoded.text
+            file_diff.new_content = new_decoded.text
 
             old_lines = file_diff.old_content.splitlines()
             new_lines = file_diff.new_content.splitlines()
@@ -427,30 +495,13 @@ class DiffEngine:
                 file_diff.added_lines = 0
                 file_diff.deleted_lines = 0
                 file_diff.side_by_side_html = self._rename_only_placeholder(old_path, cf.path)
-            elif file_diff.format_only:
-                file_diff.added_lines = 0
-                file_diff.deleted_lines = 0
-                file_diff.side_by_side_html = self._rename_format_placeholder(
-                    old_path, cf.path, file_diff.format_details)
             else:
                 file_diff.side_by_side_html = self._side_by_side_html(
                     old_lines, new_lines, cf.path, old_path=old_path)
 
         else:
-            old_decoded = self._decode_text_strict(old_raw)
-            new_decoded = self._decode_text_strict(new_raw)
-
-            if old_decoded is not None and new_decoded is not None:
-                file_diff.old_content = old_decoded.text
-                file_diff.new_content = new_decoded.text
-                format_details = self._format_only_details(old_decoded, new_decoded, old_raw, new_raw)
-                if format_details is not None:
-                    file_diff.format_only = True
-                    file_diff.format_details = format_details
-            else:
-                # 无法可靠解码时维持普通修改，绝不猜测成“仅格式变化”。
-                file_diff.old_content = self.vcs.get_file_content(old_version, cf.path)
-                file_diff.new_content = self.vcs.get_file_content(new_version, cf.path)
+            file_diff.old_content = old_decoded.text
+            file_diff.new_content = new_decoded.text
 
             old_lines = file_diff.old_content.splitlines()
             new_lines = file_diff.new_content.splitlines()
@@ -458,14 +509,8 @@ class DiffEngine:
             file_diff.added_lines, file_diff.deleted_lines = self._count_line_changes(
                 old_lines, new_lines)
 
-            if file_diff.format_only:
-                file_diff.added_lines = 0
-                file_diff.deleted_lines = 0
-                file_diff.side_by_side_html = self._format_only_placeholder(
-                    cf.path, file_diff.format_details)
-            else:
-                file_diff.side_by_side_html = self._side_by_side_html(
-                    old_lines, new_lines, cf.path)
+            file_diff.side_by_side_html = self._side_by_side_html(
+                old_lines, new_lines, cf.path)
 
         self._prepend_metadata(file_diff)
         return file_diff
@@ -474,31 +519,38 @@ class DiffEngine:
     def _content_is_binary(data: bytes) -> bool:
         if data is None:
             return False
-        if data.startswith((
-            b"\xef\xbb\xbf",
-            b"\xff\xfe",
-            b"\xfe\xff",
-            b"\xff\xfe\x00\x00",
-            b"\x00\x00\xfe\xff",
-        )):
-            return DiffEngine._decode_text_strict(data) is None
-        sample = data[:8192]
-        if b"\x00" in data:
+        return DiffEngine._decoded_content_is_binary(
+            DiffEngine._decode_text_strict(data), data
+        )
+
+    @staticmethod
+    def _decoded_content_is_binary(
+        decoded: Optional[_DecodedText], raw: Optional[bytes] = None
+    ) -> bool:
+        # 严格解码成功就是文本。退格、响铃等 C0 字符在终端日志里有正常
+        # 语义，不能因出现三次就把 8 月 27 日前可展示的明细降成二进制占位。
+        if decoded is not None:
+            return "\x00" in decoded.text
+        if raw is None or b"\x00" in raw:
             return True
-        decoded = None
-        for encoding in ("utf-8", "gb18030"):
-            try:
-                decoded = sample.decode(encoding)
-                break
-            except UnicodeDecodeError:
-                continue
-        if decoded is None:
-            return True
+        # 单字节映射只用于未知编码的控制字符密度判断，不声称识别出了编码。
+        text = raw.decode("latin-1")
+
+        # 必须对完整字节严格解码。按固定字节数截断样本会把恰好跨过采样
+        # 边界的 UTF-8/GB18030 多字节字符误判成不可解码的二进制。
+        text = DiffEngine._ANSI_ESCAPE_RE.sub("", text)
         control_count = sum(
-            1 for char in decoded
+            1 for char in text
             if ord(char) < 32 and char not in "\t\n\r\f"
         )
-        return control_count > max(2, len(decoded) // 100)
+        return control_count > max(2, len(text) // 100)
+
+    @staticmethod
+    def _decode_text_fallback(data: bytes) -> _DecodedText:
+        return _DecodedText(
+            data.decode("utf-8", errors="replace"),
+            "未知编码（兼容显示）",
+        )
 
     def _text_diff_complexity_reason(self, data: bytes) -> str:
         if (
@@ -537,16 +589,9 @@ class DiffEngine:
             for item in changed_files
             if item.change_type in (ChangeType.ADDED, ChangeType.RENAMED)
         ]
-        new_path_keys = {path.rstrip("/").casefold() for path in new_file_paths}
-        required = set()
-        for directory in declared_directories:
-            parts = directory.replace("\\", "/").strip("/").split("/")
-            prefix = []
-            for part in parts:
-                prefix.append(part)
-                if "/".join(prefix).casefold() in new_path_keys:
-                    required.add(directory)
-                    break
+        required = set(windows_directories_replaced_by_files(
+            declared_directories, new_file_paths
+        ))
 
         trie = {"children": {}, "descendant": ""}
         for old_path in old_removed_paths:
@@ -554,7 +599,7 @@ class DiffEngine:
             old_parts = old_path.strip("/").split("/")
             for index, part in enumerate(old_parts):
                 node = node["children"].setdefault(
-                    part.casefold(), {"children": {}, "descendant": ""}
+                    windows_path_key(part), {"children": {}, "descendant": ""}
                 )
                 if index < len(old_parts) - 1 and not node["descendant"]:
                     node["descendant"] = old_path
@@ -562,7 +607,7 @@ class DiffEngine:
             parts = new_path.strip("/").split("/")
             node = trie
             for part in parts:
-                node = node["children"].get(part.casefold())
+                node = node["children"].get(windows_path_key(part))
                 if node is None:
                     break
             if node is not None and node["descendant"]:
@@ -638,18 +683,18 @@ class DiffEngine:
             return None
         return size if isinstance(size, int) and size >= 0 else None
 
-    def _has_reliable_file_size(self) -> bool:
-        method = getattr(type(self.vcs), "get_file_size", None)
-        return method is not None and method is not BaseVCS.get_file_size
-
-    @classmethod
-    def _line_count_for_budget(cls, data: Optional[bytes]) -> int:
-        if data is None:
-            return 0
-        decoded = cls._decode_text_strict(data)
-        if decoded is not None:
-            return len(decoded.text.splitlines())
-        return len(data.splitlines())
+    def _get_known_file_raw_size(
+        self, version: str, file_path: str
+    ) -> Optional[int]:
+        """只读取端点快照已经掌握的大小，不触发 VCS/网络预查询。"""
+        getter = getattr(self.vcs, "get_known_file_raw_size", None)
+        if getter is None:
+            return None
+        try:
+            size = getter(version, file_path)
+        except (OSError, RuntimeError, ValueError):
+            return None
+        return size if isinstance(size, int) and size >= 0 else None
 
     def _reserve_report_budget(
         self,
@@ -657,6 +702,12 @@ class DiffEngine:
         old_line_count: int,
         new_line_count: int,
     ) -> str:
+        if (
+            self.MAX_REPORT_TEXT_BYTES is None
+            and self.MAX_REPORT_TEXT_LINES is None
+            and self.MAX_REPORT_RENDER_ROWS is None
+        ):
+            return ""
         text_bytes = sum(len(data) for data in raw_values)
         text_lines = old_line_count + new_line_count
         render_rows = max(old_line_count, new_line_count)
@@ -868,6 +919,83 @@ class DiffEngine:
                     return None
 
         if b"\x00" in data:
+            if len(data) >= 8 and len(data) % 4 == 0:
+                units = len(data) // 4
+                zero_columns = [
+                    data[offset::4].count(0) for offset in range(4)
+                ]
+                utf32_candidates = []
+                if sum(
+                    count * 4 >= units * 3
+                    for count in zero_columns[1:]
+                ) >= 2:
+                    utf32_candidates.append((
+                        "utf-32-le", "UTF-32 LE（无 BOM）"
+                    ))
+                if sum(
+                    count * 4 >= units * 3
+                    for count in zero_columns[:3]
+                ) >= 2:
+                    utf32_candidates.append((
+                        "utf-32-be", "UTF-32 BE（无 BOM）"
+                    ))
+                for codec, label in utf32_candidates:
+                    try:
+                        text = data.decode(codec)
+                    except UnicodeDecodeError:
+                        continue
+                    if "\x00" not in text:
+                        return _DecodedText(text, label)
+            # 一些编译器/旧编辑器会写无 BOM 的 UTF-16。中文等非 ASCII 文本
+            # 只有换行等少数字符带 NUL，不能用“某一列至少 60% 为 NUL”作为
+            # 前提。两种端序都严格解码，再用完整文本的可打印性、真实换行和
+            # NUL 所在字节位选择；这样既保留中文源码，也不会只凭偶数长度把
+            # 任意二进制放行。
+            if len(data) >= 4 and len(data) % 2 == 0:
+                pairs = len(data) // 2
+                even_nuls = data[0::2].count(0)
+                odd_nuls = data[1::2].count(0)
+                decoded_candidates = []
+                for codec, label, byte_evidence in (
+                    (
+                        "utf-16-le",
+                        "UTF-16 LE（无 BOM）",
+                        odd_nuls - even_nuls,
+                    ),
+                    (
+                        "utf-16-be",
+                        "UTF-16 BE（无 BOM）",
+                        even_nuls - odd_nuls,
+                    ),
+                ):
+                    try:
+                        text = data.decode(codec)
+                    except UnicodeDecodeError:
+                        continue
+                    if "\x00" in text:
+                        continue
+                    printable = sum(
+                        char.isprintable() or char in "\t\n\r\f"
+                        for char in text
+                    )
+                    if printable * 10 < len(text) * 9:
+                        continue
+                    separators = sum(text.count(char) for char in "\t\n\r")
+                    strong_byte_evidence = (
+                        max(even_nuls, odd_nuls) * 5 >= pairs * 3
+                        and min(even_nuls, odd_nuls) * 10 <= pairs
+                    )
+                    if not separators and not strong_byte_evidence:
+                        continue
+                    decoded_candidates.append((
+                        separators * 16 + byte_evidence,
+                        codec,
+                        label,
+                        text,
+                    ))
+                if decoded_candidates:
+                    _score, _codec, label, text = max(decoded_candidates)
+                    return _DecodedText(text, label)
             return None
 
         try:
@@ -948,15 +1076,78 @@ class DiffEngine:
 
     @staticmethod
     def _count_line_changes(old_lines: List[str], new_lines: List[str]):
-        added = 0
-        deleted = 0
-        for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(
-            None, old_lines, new_lines, autojunk=True).get_opcodes():
-            if tag in ("replace", "delete"):
-                deleted += i2 - i1
-            if tag in ("replace", "insert"):
-                added += j2 - j1
-        return added, deleted
+        lcs = DiffEngine._lcs_length(old_lines, new_lines)
+        return len(new_lines) - lcs, len(old_lines) - lcs
+
+    @staticmethod
+    def _lcs_length(old_lines: List[str], new_lines: List[str]) -> int:
+        """精确 LCS；稀疏匹配避免全矩阵，密集重复行使用位集。"""
+        old_start = new_start = 0
+        old_end = len(old_lines)
+        new_end = len(new_lines)
+        while (
+            old_start < old_end
+            and new_start < new_end
+            and old_lines[old_start] == new_lines[new_start]
+        ):
+            old_start += 1
+            new_start += 1
+        common = old_start
+        while (
+            old_end > old_start
+            and new_end > new_start
+            and old_lines[old_end - 1] == new_lines[new_end - 1]
+        ):
+            old_end -= 1
+            new_end -= 1
+            common += 1
+
+        old_length = old_end - old_start
+        new_length = new_end - new_start
+        if not old_length or not new_length:
+            return common
+
+        positions = {}
+        for index in range(new_start, new_end):
+            positions.setdefault(new_lines[index], []).append(index - new_start)
+        matching_pairs = sum(
+            len(positions.get(old_lines[index], ()))
+            for index in range(old_start, old_end)
+        )
+        if not matching_pairs:
+            return common
+
+        # Hunt-Szymanski 对源码常见的稀疏相等行只访问真实匹配，不构造
+        # old×new 矩阵。重复行使匹配密集时切换到精确位集 LCS。
+        sparse_threshold = max(
+            1_000_000, 16 * (old_length + new_length)
+        )
+        if matching_pairs <= sparse_threshold:
+            tails = []
+            for index in range(old_start, old_end):
+                for new_index in reversed(positions.get(old_lines[index], ())):
+                    slot = bisect_left(tails, new_index)
+                    if slot == len(tails):
+                        tails.append(new_index)
+                    else:
+                        tails[slot] = new_index
+            return common + len(tails)
+
+        masks = {}
+        old_values = {old_lines[index] for index in range(old_start, old_end)}
+        for value, indexes in positions.items():
+            if value not in old_values:
+                continue
+            mask = 0
+            for index in indexes:
+                mask |= 1 << index
+            masks[value] = mask
+        state = 0
+        for index in range(old_start, old_end):
+            matches = masks.get(old_lines[index], 0)
+            combined = matches | state
+            state = combined & ~(combined - ((state << 1) | 1))
+        return common + state.bit_count()
 
     def _binary_placeholder(self, cf: ChangedFile) -> str:
         """二进制文件：占位提示"""

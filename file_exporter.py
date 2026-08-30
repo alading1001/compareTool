@@ -7,6 +7,7 @@ import secrets
 import shutil
 import stat
 import tempfile
+import time
 import uuid
 from contextlib import contextmanager
 from diff_engine import DiffResult
@@ -18,6 +19,7 @@ from path_safety import (
     regular_file_handle_identity,
     regular_file_path_identity,
     safe_join,
+    windows_path_key,
 )
 from stage_ownership import (
     is_owned,
@@ -216,7 +218,7 @@ class FileExporter:
             seen = {}
             for rel_path in paths:
                 target = self._safe_join(base_dir, rel_path)
-                key = os.path.normcase(target).casefold()
+                key = windows_path_key(target)
                 if key in seen:
                     raise RuntimeError(
                         f"{label}导出存在 Windows 路径冲突，无法同时保存: "
@@ -318,7 +320,7 @@ class FileExporter:
 
     @staticmethod
     def _target_state_key(path: str) -> str:
-        return os.path.normcase(os.path.abspath(path)).casefold()
+        return windows_path_key(os.path.abspath(path))
 
     @classmethod
     def _validate_trusted_paths(cls, trusted_root: str, paths, label: str):
@@ -896,9 +898,9 @@ class FileExporter:
             "输出事务路径",
         )
         # 所有暂存物和新事务日志都位于可信输出根，因此锁也提升到该根。
-        # 不同 batch/run 的提交会短暂串行，但不会让一个子目录 junction
-        # 把日志或 stage 引到根外。
-        with cls._transaction_lock(anchor, trusted_root=anchor):
+        # 同根的不同 batch/run 可以短暂串行，但锁竞争只是等待条件，不能
+        # 让两个互不覆盖的正常交付任务在全部内容生成后突然失败。
+        with cls._transaction_lock_wait(anchor, trusted_root=anchor):
             return cls._replace_outputs_locked(
                 pairs,
                 expected_target_states=expected_target_states,
@@ -924,7 +926,7 @@ class FileExporter:
             for stage, target in pairs:
                 stage = os.path.abspath(stage)
                 target = os.path.abspath(target)
-                key = os.path.normcase(target).casefold()
+                key = windows_path_key(target)
                 if key in target_keys:
                     raise RuntimeError(f"事务中存在重复输出目标: {target}")
                 if not os.path.lexists(stage):
@@ -974,6 +976,7 @@ class FileExporter:
                 acquire_locks=False,
                 trusted_root=trusted_root,
             )
+            verified_target_identities = {}
             if expected_target_states is not None:
                 for _stage, target in normalized_pairs:
                     key = cls._target_state_key(target)
@@ -987,10 +990,15 @@ class FileExporter:
                             "输出目标在本次生成期间已被其它任务或用户修改，"
                             f"为避免覆盖较新结果，已中止提交: {target}"
                         )
+                    verified_target_identities[key] = current
 
             for stage, target in normalized_pairs:
                 backup = f"{target}.comparetool_backup_{token}"
-                had_target = os.path.lexists(target)
+                key = cls._target_state_key(target)
+                target_identity = verified_target_identities.get(key)
+                if target_identity is None:
+                    target_identity = cls._tree_identity(target)
+                had_target = target_identity.get("kind") != "missing"
                 cls._validate_trusted_paths(
                     trusted_root, [backup], "输出备份路径"
                 )
@@ -1001,7 +1009,7 @@ class FileExporter:
                     "had_target": had_target,
                     "installed": False,
                     "stage_identity": cls._tree_identity(stage),
-                    "target_identity": cls._tree_identity(target),
+                    "target_identity": target_identity,
                     "_token": token,
                 })
 
@@ -1133,6 +1141,20 @@ class FileExporter:
                 for state in states
             ],
         }
+        key_path = os.path.realpath(cls._transaction_key_path())
+        for state in states:
+            target = os.path.realpath(state["target"])
+            overlaps_key = os.path.normcase(target) == os.path.normcase(key_path)
+            if not overlaps_key and os.path.isdir(state["stage"]):
+                try:
+                    overlaps_key = (
+                        os.path.normcase(os.path.commonpath([target, key_path]))
+                        == os.path.normcase(target)
+                    )
+                except ValueError:
+                    overlaps_key = False
+            if overlaps_key:
+                raise RuntimeError("正式输出目标不能覆盖输出事务签名私钥")
         key = cls._load_transaction_key(root, create=True)
         payload = cls._signed_payload(payload, key)
         try:
@@ -1162,8 +1184,7 @@ class FileExporter:
             return ""
         if any(os.path.normcase(root) == os.path.normcase(os.path.abspath(path)) for path in targets):
             root = os.path.dirname(root)
-        drive, tail = os.path.splitdrive(os.path.abspath(root))
-        if not root or (drive and tail in ("\\", "/")):
+        if not root:
             return ""
         return os.path.abspath(root)
 
@@ -1221,18 +1242,12 @@ class FileExporter:
 
     @classmethod
     def _load_transaction_key(cls, transaction_root: str, create: bool) -> bytes:
-        root = os.path.abspath(transaction_root)
         key_path = cls._transaction_key_path()
-        root_real = os.path.realpath(root)
-        key_real = os.path.realpath(key_path)
-        try:
-            inside = os.path.commonpath([root, key_path]) == root
-            real_inside = os.path.commonpath([root_real, key_real]) == root_real
-        except ValueError:
-            inside = False
-            real_inside = False
-        if inside or real_inside:
-            raise RuntimeError("输出事务签名私钥不能位于输出目录内")
+        # 私钥是每用户固定配置，不是本次事务的 target/stage/journal。
+        # 当用户把输出根选为用户目录甚至盘符根时，任何本机文件式密钥都
+        # 可能在这个广义共同祖先之下；仅凭祖先关系拒绝会让旧版正常任务
+        # 无法生成。真正需要坚持的是：密钥本身是非链接普通文件、权限和
+        # 长度有效，并且正式输出目标绝不能指向它（后者由目标隔离校验）。
 
         if create:
             parent = os.path.dirname(key_path) or "."
@@ -1341,6 +1356,22 @@ class FileExporter:
         ):
             raise RuntimeError(f"输出事务 {decision} 决策标记签名无效")
         return True
+
+    @classmethod
+    @contextmanager
+    def _transaction_lock_wait(cls, directory: str, trusted_root: str = ""):
+        """等待同一可信输出根的短暂提交锁，不把正常并发误判成失败。"""
+        while True:
+            entered = False
+            try:
+                with cls._transaction_lock(directory, trusted_root=trusted_root):
+                    entered = True
+                    yield
+                    return
+            except RuntimeError as exc:
+                if entered or "正在被另一个 CompareTool 实例使用" not in str(exc):
+                    raise
+                time.sleep(0.1)
 
     @classmethod
     @contextmanager
@@ -1522,6 +1553,17 @@ class FileExporter:
                 ):
                     continue
                 journal_path = os.path.join(directory, name)
+                if cls._is_recognizable_unsigned_v1_journal(
+                    journal_path, directory
+                ):
+                    # 早期版本的日志没有所有权标记和 HMAC，不能再把其中的
+                    # 路径当作删除/恢复授权。但它本身也不应永久阻断用户在
+                    # 同一输出目录生成一套新的完整结果；保留现场，只跳过。
+                    warn(
+                        "检测到旧版无签名输出事务日志，无法安全自动恢复，"
+                        f"已原样保留并跳过: {journal_path}"
+                    )
+                    continue
                 try:
                     cls._recover_transaction_journal(
                         journal_path, directory, trusted_root=anchor
@@ -1557,9 +1599,105 @@ class FileExporter:
                     pattern.fullmatch(entry.name)
                     for pattern in cls._ORPHAN_STAGE_PATTERNS
                 )
-                if (is_journal or is_stage) and is_owned(entry.path):
+                is_owned_candidate = (
+                    (is_journal or is_stage) and is_owned(entry.path)
+                )
+                is_legacy_journal = (
+                    is_journal
+                    and cls._is_recognizable_unsigned_v1_journal(
+                        entry.path, directory
+                    )
+                )
+                if is_owned_candidate or is_legacy_journal:
                     return True
         return False
+
+    @classmethod
+    def _is_recognizable_unsigned_v1_journal(
+        cls, journal_path: str, root: str
+    ) -> bool:
+        """只识别旧版精确结构；识别成功也绝不授权任何文件操作。"""
+        if is_owned(journal_path) or is_link_or_junction(journal_path):
+            return False
+        try:
+            file_stat = os.lstat(journal_path)
+            if (
+                not stat.S_ISREG(file_stat.st_mode)
+                or file_stat.st_size > cls.MAX_TRANSACTION_JOURNAL_BYTES
+            ):
+                return False
+            with open(journal_path, encoding="utf-8") as stream:
+                raw_payload = stream.read(cls.MAX_TRANSACTION_JOURNAL_BYTES + 1)
+            payload = json.loads(raw_payload)
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            return False
+
+        if (
+            not isinstance(payload, dict)
+            or set(payload) != {"version", "token", "states"}
+            or type(payload.get("version")) is not int
+            or payload.get("version") != 1
+            or not isinstance(payload.get("states"), list)
+            or not payload["states"]
+            or len(payload["states"]) > cls.MAX_TRANSACTION_STATES
+        ):
+            return False
+
+        token = payload.get("token")
+        expected_name = f"{cls.TRANSACTION_PREFIX}{token}{cls.TRANSACTION_SUFFIX}"
+        if (
+            not isinstance(token, str)
+            or not re.fullmatch(r"[0-9a-f]{32}", token)
+            or os.path.basename(journal_path) != expected_name
+        ):
+            return False
+
+        root = os.path.abspath(root)
+        for raw in payload["states"]:
+            if (
+                not isinstance(raw, dict)
+                or set(raw) != {
+                    "stage", "target", "backup", "had_target"
+                }
+                or not all(
+                    isinstance(raw.get(field), str) and raw.get(field)
+                    for field in ("stage", "target", "backup")
+                )
+                or type(raw.get("had_target")) is not bool
+            ):
+                return False
+            stage = os.path.abspath(raw["stage"])
+            target = os.path.abspath(raw["target"])
+            backup = os.path.abspath(raw["backup"])
+            try:
+                inside = os.path.commonpath(
+                    [root, stage, target, backup]
+                ) == root
+            except ValueError:
+                inside = False
+            stage_name = os.path.basename(stage)
+            stage_parent_name = os.path.basename(os.path.dirname(stage))
+            valid_stage_layout = (
+                os.path.dirname(stage) == os.path.dirname(target)
+                and stage_name.startswith((
+                    ".comparetool_stage_",
+                    ".comparetool_report_",
+                    ".comparetool_delivery_",
+                ))
+            ) or (
+                stage_parent_name.startswith(".comparetool_stage_")
+                and windows_path_key(stage_name)
+                == windows_path_key(os.path.basename(target))
+            )
+            if (
+                not inside
+                or not valid_stage_layout
+                or backup != os.path.abspath(
+                    f"{target}.comparetool_backup_{token}"
+                )
+            ):
+                return False
+        return True
 
     @classmethod
     def _cleanup_orphan_stages(cls, directory: str, protected=None):
@@ -1679,8 +1817,8 @@ class FileExporter:
                 stage_parent_name.startswith(".comparetool_stage_") and
                 os.path.normcase(os.path.dirname(os.path.dirname(stage))) ==
                 os.path.normcase(root) and
-                os.path.normcase(stage_name).casefold() ==
-                os.path.normcase(os.path.basename(target)).casefold()
+                windows_path_key(stage_name) ==
+                windows_path_key(os.path.basename(target))
             )
             has_link = any(
                 os.path.lexists(path) and is_link_or_junction(path)

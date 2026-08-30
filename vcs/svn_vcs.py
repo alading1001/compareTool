@@ -7,6 +7,7 @@ from typing import List
 from urllib.parse import quote, unquote, urlsplit
 from xml.etree import ElementTree
 
+from path_safety import windows_directories_replaced_by_files
 from .base import BaseVCS, ChangedFile, ChangeType
 from .temp_storage import open_temp_file
 from logger import info, warn, error, cmd as log_cmd
@@ -219,26 +220,34 @@ class SVNVCS(BaseVCS):
                 if path.strip() and self._is_excluded_tree(path):
                     continue
                 item = node.get("item", "")
-                if path.strip():
+                props_modified = node.get("props") == "modified"
+                if props_modified or item in (
+                    "added", "deleted", "replaced", "modified"
+                ):
                     rel_dir = path
                     old_props = (
                         self._get_properties(old_rev, rel_dir)
-                        if item in ("deleted", "replaced", "modified") else {}
+                        if item != "added" else {}
                     )
                     new_props = (
                         self._get_properties(new_rev, rel_dir)
-                        if item in ("added", "replaced", "modified") else {}
+                        if item != "deleted" else {}
                     )
                     if "svn:externals" in old_props or "svn:externals" in new_props:
                         raise RuntimeError(
                             "SVN 目录启用了 svn:externals，文件级交付无法保真，"
-                            f"已中止生成: {rel_dir}"
+                            f"已中止生成: {rel_dir or '<项目根>'}"
                         )
-                if node.get("props") == "modified":
-                    raise RuntimeError(
-                        "SVN 目录属性发生变化，当前文件级交付无法保真，已中止生成: "
-                        + path
+                    changed_props = sorted(
+                        name for name in set(old_props) | set(new_props)
+                        if old_props.get(name) != new_props.get(name)
                     )
+                    if changed_props:
+                        warn(
+                            "SVN 目录属性发生变化，但不影响普通文件内容集合，"
+                            f"继续生成: {rel_dir or '<项目根>'} | "
+                            f"属性: {', '.join(changed_props)}"
+                        )
                 if item in ("deleted", "replaced") and path.strip():
                     rel_dir = path
                     if item == "replaced" and self._get_node_kind(old_rev, rel_dir) == "file":
@@ -290,15 +299,8 @@ class SVNVCS(BaseVCS):
                 ))
             elif item not in ("none", "normal"):
                 raise RuntimeError(f"暂不支持的 SVN 变更类型 {item}: {path}")
-        self.required_directory_deletions = sorted(
-            directory for directory in deleted_directories
-            if any(
-                new_path.casefold() == directory.casefold()
-                or directory.casefold().startswith(
-                    new_path.rstrip("/").casefold() + "/"
-                )
-                for new_path in new_file_paths
-            )
+        self.required_directory_deletions = windows_directories_replaced_by_files(
+            deleted_directories, new_file_paths
         )
         return files
 
@@ -308,13 +310,26 @@ class SVNVCS(BaseVCS):
         if not value:
             return ""
         if urlsplit(value).scheme:
+            value_url = urlsplit(value)
+            value_path = unquote(value_url.path)
+            candidates = []
             for base in (self._project_url_at(old_rev), self._project_url_at(new_rev)):
-                prefix = base.rstrip("/")
-                if value.casefold() == prefix.casefold():
-                    return ""
-                marker = prefix + "/"
-                if value[:len(marker)].casefold() == marker.casefold():
-                    return unquote(value[len(marker):]).replace("\\", "/").strip("/")
+                base_url = urlsplit(base)
+                if (
+                    value_url.scheme.casefold() != base_url.scheme.casefold()
+                    or value_url.netloc.casefold() != base_url.netloc.casefold()
+                ):
+                    continue
+                base_path = unquote(base_url.path).rstrip("/")
+                if value_path == base_path:
+                    candidates.append((len(base_path), ""))
+                    continue
+                marker = base_path + "/"
+                if value_path.startswith(marker):
+                    candidates.append((len(base_path), value_path[len(marker):]))
+            if candidates:
+                _length, relative = max(candidates, key=lambda item: item[0])
+                return relative.replace("\\", "/").strip("/")
             raise RuntimeError(f"SVN 变更摘要包含项目根之外的 URL，已中止生成: {value}")
 
         normalized = value.replace("\\", "/")
@@ -464,15 +479,19 @@ class SVNVCS(BaseVCS):
                 timeout=self.COMMAND_TIMEOUT,
             )
         except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
-            raise RuntimeError(
-                f"无法确认 SVN 文件大小，已中止生成: {file_path}@{rev}\n{exc}"
-            ) from exc
+            warn(
+                f"无法确认 SVN 文件大小，将在实际读取时校验: "
+                f"{file_path}@{rev} | {exc}"
+            )
+            return None
         value = _decode_bytes(result.stdout).strip() if result.returncode == 0 else ""
         if not value.isdigit():
-            raise RuntimeError(
-                f"无法确认 SVN 文件大小，已中止生成: {file_path}@{rev}\n"
-                + _decode_bytes(result.stderr or result.stdout)
+            warn(
+                f"无法确认 SVN 文件大小，将在实际读取时校验: "
+                f"{file_path}@{rev} | "
+                + _decode_bytes(result.stderr or result.stdout).strip()
             )
+            return None
         return int(value)
 
     def get_file_signature(self, version: str, file_path: str):
@@ -629,13 +648,6 @@ class SVNVCS(BaseVCS):
             name for name in set(old_props) | set(new_props)
             if old_props.get(name) != new_props.get(name)
         }
-        supported = {"svn:eol-style", "svn:executable"}
-        unsupported = sorted(changed - supported)
-        if unsupported:
-            raise RuntimeError(
-                "SVN 文件属性发生变化，但普通文件交付无法保真，已中止生成: "
-                f"{new_path or old_path}\n属性: {', '.join(unsupported)}"
-            )
         details = []
         if "svn:eol-style" in changed:
             details.append(
@@ -648,6 +660,14 @@ class SVNVCS(BaseVCS):
                 "SVN 可执行属性："
                 f"{'已设置' if 'svn:executable' in old_props else '未设置'} → "
                 f"{'已设置' if 'svn:executable' in new_props else '未设置'}"
+            )
+        informational = sorted(
+            changed - {"svn:eol-style", "svn:executable", "svn:special", "svn:keywords"}
+        )
+        if informational:
+            details.append(
+                "SVN 其他属性变化（不影响普通文件导出字节）："
+                + ", ".join(informational)
             )
         return {
             "metadata_changes": details,

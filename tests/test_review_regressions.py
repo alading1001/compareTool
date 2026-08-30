@@ -534,6 +534,117 @@ class ExportTransactionRegressionTests(unittest.TestCase):
                     self.assertEqual("must survive", stream.read())
                 self.assertTrue(os.path.isfile(journal))
 
+    def test_unsigned_v1_journal_is_preserved_but_does_not_block_new_output(self):
+        with project_temp_dir() as root:
+            token = "1" * 32
+            legacy_stage = os.path.join(root, ".comparetool_stage_legacy01")
+            legacy_target = os.path.join(root, "report.html")
+            legacy_backup = f"{legacy_target}.comparetool_backup_{token}"
+            write_text(legacy_stage, "legacy staged")
+            write_text(legacy_target, "legacy target")
+            write_text(legacy_backup, "legacy backup")
+            journal = os.path.join(
+                root,
+                f"{FileExporter.TRANSACTION_PREFIX}{token}"
+                f"{FileExporter.TRANSACTION_SUFFIX}",
+            )
+            write_text(journal, json.dumps({
+                "version": 1,
+                "token": token,
+                "states": [{
+                    "stage": legacy_stage,
+                    "target": legacy_target,
+                    "backup": legacy_backup,
+                    "had_target": True,
+                }],
+            }))
+
+            new_stage = os.path.join(root, ".comparetool_report_newstage1.html")
+            write_text(new_stage, "new complete report")
+            with mock.patch("file_exporter.warn") as warning:
+                FileExporter._replace_outputs([(new_stage, legacy_target)])
+
+            with open(legacy_target, encoding="utf-8") as stream:
+                self.assertEqual("new complete report", stream.read())
+            with open(legacy_stage, encoding="utf-8") as stream:
+                self.assertEqual("legacy staged", stream.read())
+            with open(legacy_backup, encoding="utf-8") as stream:
+                self.assertEqual("legacy backup", stream.read())
+            self.assertTrue(os.path.isfile(journal))
+            self.assertTrue(any(
+                "旧版无签名" in str(call.args[0])
+                for call in warning.call_args_list
+            ))
+
+    def test_malformed_v1_journal_still_blocks_new_output(self):
+        with project_temp_dir() as root:
+            token = "2" * 32
+            target = os.path.join(root, "report.html")
+            stage = os.path.join(root, ".comparetool_report_newstage2.html")
+            write_text(target, "must survive")
+            write_text(stage, "must not install")
+            journal = os.path.join(
+                root,
+                f"{FileExporter.TRANSACTION_PREFIX}{token}"
+                f"{FileExporter.TRANSACTION_SUFFIX}",
+            )
+            write_text(journal, json.dumps({
+                "version": 1,
+                "token": token,
+                "states": [{
+                    "stage": os.path.join(root, ".comparetool_stage_old0001"),
+                    "target": target,
+                    "backup": f"{target}.comparetool_backup_{token}",
+                    "had_target": "yes",
+                }],
+            }))
+
+            with self.assertRaisesRegex(RuntimeError, "无法自动恢复"):
+                FileExporter._replace_outputs([(stage, target)])
+
+            with open(target, encoding="utf-8") as stream:
+                self.assertEqual("must survive", stream.read())
+            with open(stage, encoding="utf-8") as stream:
+                self.assertEqual("must not install", stream.read())
+            self.assertTrue(os.path.isfile(journal))
+
+    def test_signed_current_journal_without_owner_still_blocks_new_output(self):
+        with project_temp_dir() as root:
+            current_token = "3" * 32
+            current_stage = os.path.join(
+                root, ".comparetool_report_current01.html"
+            )
+            current_target = os.path.join(root, "current.html")
+            write_text(current_stage, "current staged")
+            write_text(current_target, "current target")
+            current_state = {
+                "stage": current_stage,
+                "target": current_target,
+                "backup": (
+                    f"{current_target}.comparetool_backup_{current_token}"
+                ),
+                "had_target": True,
+                "stage_identity": FileExporter._tree_identity(current_stage),
+                "target_identity": FileExporter._tree_identity(current_target),
+            }
+            journal = FileExporter._create_transaction_journal(
+                [current_state], current_token, root=root
+            )
+            remove_ownership_marker(journal)
+
+            new_target = os.path.join(root, "new.html")
+            new_stage = os.path.join(root, ".comparetool_report_newstage3.html")
+            write_text(new_target, "must survive")
+            write_text(new_stage, "must not install")
+            with self.assertRaisesRegex(RuntimeError, "无法自动恢复"):
+                FileExporter._replace_outputs([(new_stage, new_target)])
+
+            with open(new_target, encoding="utf-8") as stream:
+                self.assertEqual("must survive", stream.read())
+            with open(new_stage, encoding="utf-8") as stream:
+                self.assertEqual("must not install", stream.read())
+            self.assertTrue(os.path.isfile(journal))
+
     def test_forged_rollback_marker_cannot_override_signed_journal(self):
         with project_temp_dir() as root:
             output = os.path.join(root, "output")
@@ -677,6 +788,30 @@ class VCSRegressionTests(unittest.TestCase):
 
         vcs._get_checkout_attributes.return_value = {"text": "set", "eol": "crlf"}
         self.assertTrue(vcs._checkout_uses_crlf("v", "windows.txt", b"a\nb\n"))
+
+    def test_git_unset_core_eol_uses_platform_native_for_marked_text(self):
+        vcs = GitVCS.__new__(GitVCS)
+        vcs._git_config_value = mock.Mock(return_value="")
+
+        with mock.patch.object(os, "linesep", "\r\n"):
+            for text_attr in ("set", "auto"):
+                with self.subTest(text_attr=text_attr):
+                    vcs._get_checkout_attributes = mock.Mock(return_value={
+                        "text": text_attr,
+                        "eol": "unspecified",
+                    })
+                    self.assertTrue(
+                        vcs._checkout_uses_crlf("v", "windows.txt", b"a\nb\n")
+                    )
+
+        with mock.patch.object(os, "linesep", "\n"):
+            vcs._get_checkout_attributes = mock.Mock(return_value={
+                "text": "set",
+                "eol": "unspecified",
+            })
+            self.assertFalse(
+                vcs._checkout_uses_crlf("v", "unix.txt", b"a\nb\n")
+            )
 
     def test_svn_explicit_eol_styles_are_applied(self):
         vcs = SVNVCS.__new__(SVNVCS)

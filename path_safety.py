@@ -17,6 +17,39 @@ WINDOWS_SHORT_ALIAS_RE = re.compile(
     r"^[^ .]{1,6}~[0-9]+(?:\.[^ .]{0,3})?$",
     re.IGNORECASE,
 )
+WINDOWS_REPARSE_NAME_SURROGATE = 0x20000000
+
+
+def windows_path_key(value: str) -> str:
+    """返回 Windows 路径等价键，不做会扩展字符的 Unicode casefold。"""
+    return ntpath.normcase(os.fspath(value))
+
+
+def windows_directories_replaced_by_files(directories, file_paths):
+    """近线性找出被同名文件替换的旧目录前缀，并保留旧端拼写。"""
+    file_keys = {
+        windows_path_key(normalized)
+        for path in file_paths
+        if (normalized := path.replace("\\", "/").strip("/"))
+    }
+    replaced = set()
+    for directory in directories:
+        normalized = directory.replace("\\", "/").strip("/")
+        if not normalized:
+            continue
+        prefix = []
+        for part in normalized.split("/"):
+            prefix.append(part)
+            old_prefix = "/".join(prefix)
+            if windows_path_key(old_prefix) in file_keys:
+                replaced.add(old_prefix)
+                break
+    return sorted(replaced)
+
+
+def is_name_surrogate_reparse_tag(tag: int) -> bool:
+    """Windows name-surrogate tag 会把路径解析到另一个命名空间对象。"""
+    return bool(int(tag or 0) & WINDOWS_REPARSE_NAME_SURROGATE)
 
 
 def sanitize_windows_component(value: str) -> str:
@@ -29,12 +62,13 @@ def sanitize_windows_component(value: str) -> str:
     if not cleaned or not cleaned.strip("._"):
         return ""
     stem = cleaned.split(".", 1)[0].upper()
-    if stem in WINDOWS_RESERVED_NAMES or WINDOWS_SHORT_ALIAS_RE.fullmatch(cleaned):
+    if stem in WINDOWS_RESERVED_NAMES:
         cleaned = "_" + cleaned
     return cleaned
 
 
-def split_safe_relative_path(path: str, label: str = "路径"):
+def split_safe_relative_path(
+        path: str, label: str = "路径", *, reject_short_alias: bool = False):
     """解析可安全落到 Windows 文件系统的相对路径。"""
     raw = (path or "").replace("\\", "/")
     drive, _ = ntpath.splitdrive(raw)
@@ -57,15 +91,19 @@ def split_safe_relative_path(path: str, label: str = "路径"):
         stem = part.split(".", 1)[0].upper()
         if stem in WINDOWS_RESERVED_NAMES:
             raise ValueError(f"{label}包含 Windows 保留名称: {path}")
-        if WINDOWS_SHORT_ALIAS_RE.fullmatch(part):
+        if reject_short_alias and WINDOWS_SHORT_ALIAS_RE.fullmatch(part):
             raise ValueError(
                 f"{label}疑似 Windows 8.3 短名称，可能覆盖同目录长文件名: {path}"
             )
     return parts
 
 
-def safe_join(base_dir: str, rel_path: str, label: str = "路径") -> str:
-    parts = split_safe_relative_path(rel_path, label=label)
+def safe_join(
+        base_dir: str, rel_path: str, label: str = "路径", *,
+        reject_short_alias: bool = False) -> str:
+    parts = split_safe_relative_path(
+        rel_path, label=label, reject_short_alias=reject_short_alias
+    )
     root = os.path.abspath(base_dir)
     target = os.path.abspath(os.path.join(root, *parts))
     try:
@@ -90,10 +128,7 @@ def is_link_or_junction(path: str) -> bool:
     except OSError:
         return False
     reparse_tag = getattr(metadata, "st_reparse_tag", 0)
-    return reparse_tag in {
-        getattr(stat, "IO_REPARSE_TAG_SYMLINK", 0xA000000C),
-        getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", 0xA0000003),
-    }
+    return is_name_surrogate_reparse_tag(reparse_tag)
 
 
 def ensure_no_link_components(root: str, path: str, label: str = "路径") -> None:
@@ -136,6 +171,15 @@ def regular_file_handle_identity(stream) -> tuple:
         import msvcrt
         from ctypes import wintypes
 
+        stream_path = getattr(stream, "name", "")
+        if isinstance(stream_path, (str, bytes, os.PathLike)):
+            path_metadata = os.lstat(stream_path)
+            path_reparse_tag = int(
+                getattr(path_metadata, "st_reparse_tag", 0) or 0
+            )
+            if is_name_surrogate_reparse_tag(path_reparse_tag):
+                raise RuntimeError("不允许打开路径重定向重解析点")
+
         class BY_HANDLE_FILE_INFORMATION(ctypes.Structure):
             _fields_ = [
                 ("dwFileAttributes", wintypes.DWORD),
@@ -158,7 +202,33 @@ def regular_file_handle_identity(stream) -> tuple:
         if not get_info(handle, ctypes.byref(info)):
             raise ctypes.WinError()
         if info.dwFileAttributes & 0x400:  # FILE_ATTRIBUTE_REPARSE_POINT
-            raise RuntimeError("已打开对象是重解析点")
+            reparse_tag = int(getattr(metadata, "st_reparse_tag", 0) or 0)
+            if not reparse_tag:
+                class FILE_ATTRIBUTE_TAG_INFO(ctypes.Structure):
+                    _fields_ = [
+                        ("FileAttributes", wintypes.DWORD),
+                        ("ReparseTag", wintypes.DWORD),
+                    ]
+
+                tag_info = FILE_ATTRIBUTE_TAG_INFO()
+                get_info_ex = ctypes.windll.kernel32.GetFileInformationByHandleEx
+                get_info_ex.argtypes = [
+                    wintypes.HANDLE,
+                    ctypes.c_int,
+                    wintypes.LPVOID,
+                    wintypes.DWORD,
+                ]
+                get_info_ex.restype = wintypes.BOOL
+                if not get_info_ex(
+                    handle,
+                    9,  # FileAttributeTagInfo
+                    ctypes.byref(tag_info),
+                    ctypes.sizeof(tag_info),
+                ):
+                    raise ctypes.WinError()
+                reparse_tag = int(tag_info.ReparseTag)
+            if is_name_surrogate_reparse_tag(reparse_tag):
+                raise RuntimeError("已打开对象是路径重定向重解析点")
         stable_id = (
             "windows",
             int(info.dwVolumeSerialNumber),
@@ -190,8 +260,13 @@ class _NamedBinaryReader:
 
 
 @contextmanager
-def open_regular_file_no_links(path: str):
-    """不跟随最终重解析点地打开普通文件，并返回可读取的二进制流。"""
+def open_regular_file_no_links(path: str, *, deny_writes: bool = False):
+    """不跟随最终重解析点地打开普通文件，并返回可读取的二进制流。
+
+    ``deny_writes`` 用于必须在整个任务期间保持同一内容的输入文件。Windows
+    只共享读取权限，从内核层拒绝其它句柄写入或删除；POSIX 使用共享 advisory
+    lock，并仍由调用方在结束时复核身份与内容摘要。
+    """
     path = os.path.abspath(path)
     if os.name == "nt":
         import ctypes
@@ -209,13 +284,27 @@ def open_regular_file_no_links(path: str):
             wintypes.HANDLE,
         ]
         create_file.restype = wintypes.HANDLE
+        path_metadata = os.lstat(path)
+        path_reparse_tag = int(
+            getattr(path_metadata, "st_reparse_tag", 0) or 0
+        )
+        if is_name_surrogate_reparse_tag(path_reparse_tag):
+            raise RuntimeError("不允许打开路径重定向重解析点")
+        share_mode = 0x00000001 if deny_writes else (
+            0x00000001 | 0x00000002 | 0x00000004
+        )
+        open_flags = 0x08000000  # SEQUENTIAL_SCAN
+        if not path_reparse_tag:
+            # 普通文件以 OPEN_REPARSE_POINT 打开，若检查到打开之间被替换成
+            # symlink/junction，句柄层会看到 name-surrogate tag 并拒绝。
+            open_flags |= 0x200000
         handle = create_file(
             path,
             0x80000000,  # GENERIC_READ
-            0x00000001 | 0x00000002 | 0x00000004,  # SHARE R/W/DELETE
+            share_mode,
             None,
             3,  # OPEN_EXISTING
-            0x200000 | 0x08000000,  # OPEN_REPARSE_POINT | SEQUENTIAL_SCAN
+            open_flags,
             None,
         )
         invalid_handle = ctypes.c_void_p(-1).value
@@ -232,11 +321,20 @@ def open_regular_file_no_links(path: str):
         flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
         flags |= getattr(os, "O_NOFOLLOW", 0)
         fd = os.open(path, flags)
+        if deny_writes:
+            try:
+                import fcntl
+                fcntl.flock(fd, fcntl.LOCK_SH)
+            except BaseException:
+                os.close(fd)
+                raise
 
     raw_stream = os.fdopen(fd, "rb", closefd=True)
     stream = _NamedBinaryReader(raw_stream, path)
     try:
         regular_file_handle_identity(stream)
+        if is_link_or_junction(path):
+            raise RuntimeError("已打开文件路径被替换成符号链接或联接点")
         yield stream
     finally:
         raw_stream.close()

@@ -21,6 +21,62 @@ def workspace_temp():
 
 
 class TempStorageTests(unittest.TestCase):
+    def test_insufficient_default_root_falls_back_to_next_drive(self):
+        with workspace_temp() as root:
+            low = os.path.join(root, "low")
+            enough = os.path.join(root, "enough")
+            real_usage = shutil.disk_usage(root)
+
+            def disk_usage(path):
+                path = os.path.abspath(path)
+                free = 0 if os.path.commonpath([path, low]) == low else 4096
+                return real_usage._replace(free=free)
+
+            with mock.patch.dict(os.environ, {TEMP_DIR_ENV: ""}), mock.patch(
+                "vcs.temp_storage.candidate_temp_roots",
+                return_value=[low, enough],
+            ), mock.patch(
+                "vcs.temp_storage.shutil.disk_usage", side_effect=disk_usage
+            ):
+                created = create_temp_dir(
+                    "space_", required_free_bytes=1024
+                )
+
+            self.assertEqual(
+                os.path.normcase(os.path.abspath(enough)),
+                os.path.normcase(os.path.dirname(created)),
+            )
+
+    def test_archive_chooses_root_with_actual_expansion_space(self):
+        with workspace_temp() as root:
+            low = os.path.join(root, "low")
+            enough = os.path.join(root, "enough")
+            old_zip = os.path.join(root, "old.zip")
+            new_zip = os.path.join(root, "new.zip")
+            for path, content in ((old_zip, "old"), (new_zip, "new")):
+                with zipfile.ZipFile(path, "w") as archive:
+                    archive.writestr("a.txt", content)
+            real_usage = shutil.disk_usage(root)
+
+            def disk_usage(path):
+                path = os.path.abspath(path)
+                free = 1 if os.path.commonpath([path, low]) == low else 4096
+                return real_usage._replace(free=free)
+
+            with mock.patch.dict(os.environ, {TEMP_DIR_ENV: ""}), mock.patch(
+                "vcs.temp_storage.candidate_temp_roots",
+                return_value=[low, enough],
+            ), mock.patch(
+                "vcs.temp_storage.shutil.disk_usage", side_effect=disk_usage
+            ):
+                vcs = ArchiveVCS(old_zip, new_zip)
+            try:
+                expected = os.path.normcase(os.path.abspath(enough))
+                self.assertEqual(expected, os.path.normcase(os.path.dirname(vcs._tmp_old)))
+                self.assertEqual(expected, os.path.normcase(os.path.dirname(vcs._tmp_new)))
+            finally:
+                vcs.cleanup()
+
     def test_environment_override_controls_created_temp_directory(self):
         with workspace_temp() as root:
             configured = os.path.join(root, "configured")
