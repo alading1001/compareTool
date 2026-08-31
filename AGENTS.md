@@ -25,7 +25,7 @@ build.bat
 main.py                  # tkinter GUI 入口，线程管理，配置持久化，UI 防抖
 ├── vcs/
 │   ├── base.py          # BaseVCS 抽象类 + ChangedFile/ChangeType + glob 排除匹配
-│   ├── git_vcs.py       # GitVCS：git diff --name-status / git show / git log
+│   ├── git_vcs.py       # GitVCS：git diff --raw -z --find-renames / git show / git log
 │   ├── svn_vcs.py       # SVNVCS：svn diff --summarize / svn cat (URL+@peg) / svn log
 │   ├── folder_vcs.py    # FolderVCS：先快照两个端点，再用分块字节读取判断差异
 │   ├── archive_vcs.py   # ArchiveVCS：解压 zip/tar 到临时目录，委托 FolderVCS 比对
@@ -83,7 +83,7 @@ Git/SVN/Git多版本/SVN多版本的版本列表只搜索当前已经展示的�
 
 ### 重命名处理
 
-`ChangeType.RENAMED` 中 `file_path` 表示新路径，`old_path` 表示旧路径。`GitVCS` 使用 `git diff --name-status --find-renames` 获取 Git 明确识别的重命名。普通 SVN、文件夹和压缩包可由 `DiffEngine._merge_exact_renames()` 把内容字节完全一致且唯一匹配的 `DELETED + ADDED` 合并成 `RENAMED`。Git多版本/SVN多版本由端点规划器沿历史追踪文件身份，禁止再对最终删除/新增做内容二次配对。重命名只发生编码/BOM/换行变化时要显示明确说明；排除规则只命中新旧一侧时必须转换为删除或新增。普通 Git 比对遇到 `T` 类型变化必须中止；Git 多版本历史中的 `T` 只用于延续同路径身份，若任一最终选中端点不是普通文件仍必须中止。报告模板必须把 `R` 纳入汇总卡片、文件树标签、过滤器和纯文本变更清单。
+`ChangeType.RENAMED` 中 `file_path` 表示新路径，`old_path` 表示旧路径。`GitVCS` 使用 `git diff --raw -z --find-renames` 获取 Git 明确识别的重命名和类型变化。普通 SVN、文件夹和压缩包可由 `DiffEngine._merge_exact_renames()` 把内容字节完全一致且唯一匹配的 `DELETED + ADDED` 合并成 `RENAMED`。Git多版本/SVN多版本由端点规划器沿历史追踪文件身份，禁止再对最终删除/新增做内容二次配对。重命名只发生编码/BOM/换行变化时要显示明确说明；排除规则只命中新旧一侧时必须转换为删除或新增。普通 Git 比对遇到 `T` 类型变化必须中止；Git 多版本历史中的 `T` 只用于延续同路径身份，若任一最终选中端点不是普通文件仍必须中止。报告模板必须把 `R` 纳入汇总卡片、文件树标签、过滤器和纯文本变更清单。
 
 ### Git/SVN 多版本文件端点
 

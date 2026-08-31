@@ -138,4 +138,4 @@ newVersion/<new_path> = new_f 的完整文件内容
 14. 单/多项目四类产物事务回滚、强退孤儿暂存清理和多项目旧目录移除；
 15. 多版本界面与单项目报告使用“选中版本 / 生成结果”，不得伪装成统一“旧版本 / 新版本”。
 
-主要回归用例位于 `tests/test_multi_version_file_endpoints.py`、`tests/test_review_regressions.py`、`tests/test_adversarial_regressions.py` 和 `tests/test_terminal_round_adversarial_regressions.py`。
+主要回归用例位于 `tests/test_multi_version_file_endpoints.py`、`tests/test_review_regressions.py`、`tests/test_adversarial_regressions.py`、`tests/test_terminal_round_adversarial_regressions.py`，以及五个 `tests/test_*_compatibility_after_aug27.py` 兼容性套件。
