@@ -115,6 +115,73 @@ def safe_join(
     return target
 
 
+def ensure_tree_directory(root: str, directory: str, cache=None, label="输出") -> str:
+    """在专用暂存树逐级创建目录，拒绝真实短别名而非所有带 ~ 的名字。"""
+    root = os.path.abspath(root)
+    directory = os.path.abspath(directory)
+    ensure_no_link_components(root, directory, label=f"{label}目录")
+    relative = os.path.relpath(directory, root)
+    if relative == ".":
+        return root
+    cache = cache if cache is not None else {}
+    current = root
+    for component in relative.split(os.sep):
+        known = _tree_directory_entries(current, cache, label)
+        key = windows_path_key(component)
+        desired = os.path.join(current, component)
+        existing = known.get(key)
+        if existing is not None:
+            if is_link_or_junction(existing) or not os.path.isdir(existing):
+                raise ValueError(f"{label}目录与现有文件或链接冲突: {desired}")
+            current = existing
+            continue
+        if os.path.lexists(desired):
+            raise ValueError(f"{label}目录与现有 Windows 别名冲突: {desired}")
+        try:
+            os.mkdir(desired)
+        except FileExistsError as exc:
+            raise ValueError(f"{label}目录发生 Windows 名称碰撞: {desired}") from exc
+        if is_link_or_junction(desired) or not os.path.isdir(desired):
+            raise ValueError(f"{label}目录创建后身份异常: {desired}")
+        known[key] = desired
+        current = desired
+    ensure_no_link_components(root, current, label=f"{label}目录")
+    return current
+
+
+def _tree_directory_entries(directory: str, cache: dict, label: str) -> dict:
+    key = os.path.abspath(directory)
+    if key not in cache:
+        known = {}
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                name_key = windows_path_key(entry.name)
+                if name_key in known:
+                    raise ValueError(f"{label}目录存在 Windows 名称碰撞: {entry.path}")
+                known[name_key] = entry.path
+        cache[key] = known
+    return cache[key]
+
+
+def open_new_tree_file(root: str, target: str, cache=None, label="输出"):
+    """排他创建新文件；调用方持有返回句柄，或关闭后交给路径型 writer。"""
+    cache = cache if cache is not None else {}
+    parent = ensure_tree_directory(root, os.path.dirname(target), cache, label)
+    target = os.path.join(parent, os.path.basename(target))
+    known = _tree_directory_entries(parent, cache, label)
+    key = windows_path_key(os.path.basename(target))
+    if key in known:
+        raise ValueError(f"{label}文件与现有 Windows 路径或短名称别名冲突: {target}")
+    try:
+        stream = open(target, "xb")
+    except FileExistsError as exc:
+        raise ValueError(
+            f"{label}文件与现有 Windows 路径或短名称别名冲突: {target}"
+        ) from exc
+    known[key] = target
+    return target, stream
+
+
 def is_link_or_junction(path: str) -> bool:
     if os.path.islink(path):
         return True

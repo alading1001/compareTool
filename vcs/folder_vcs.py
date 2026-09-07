@@ -8,6 +8,7 @@ from typing import List
 from path_safety import (
     is_link_or_junction,
     open_regular_file_no_links,
+    open_new_tree_file,
     regular_file_handle_identity,
     regular_file_path_identity,
     safe_join,
@@ -387,20 +388,24 @@ class FolderVCS(BaseVCS):
             ),
         )
         self._owned_temp_dirs.append(target)
+        directory_entries = {}
         for rel_path in sorted(selected_files):
             source_path = self._resolve_file_path(source, rel_path)
             target_path = self._resolve_file_path(target, rel_path)
-            os.makedirs(os.path.dirname(target_path), exist_ok=True)
             expected_signature = initial_file_signatures[rel_path]
             try:
-                with open_regular_file_no_links(source_path) as src, open(target_path, "wb") as dst:
+                with open_regular_file_no_links(source_path) as src:
                     opened_signature = regular_file_handle_identity(src)
                     if opened_signature != expected_signature:
                         raise RuntimeError(
                             f"比对源文件在快照复制前发生变化: {source_path}"
                         )
-                    shutil.copyfileobj(src, dst, length=1024 * 1024)
-                    copied_size = dst.tell()
+                    target_path, dst = open_new_tree_file(
+                        target, target_path, directory_entries, "文件夹快照"
+                    )
+                    with dst:
+                        shutil.copyfileobj(src, dst, length=1024 * 1024)
+                        copied_size = dst.tell()
                     closed_signature = regular_file_handle_identity(src)
             except OSError as exc:
                 raise RuntimeError(f"复制比对源文件失败: {source_path}: {exc}") from exc

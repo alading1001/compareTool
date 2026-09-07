@@ -12,6 +12,7 @@ from path_safety import (
     windows_path_key,
 )
 from vcs.base import BaseVCS, ChangedFile, ChangeType
+from stable_diff import make_table as make_stable_diff_table
 
 
 @dataclass
@@ -35,6 +36,7 @@ class FileDiff:
     new_mode: str = ""
     line_counts_complete: bool = True
     report_detail_omitted: bool = False
+    display_notes: List[str] = field(default_factory=list)
 
     @property
     def total_changes(self) -> int:
@@ -389,15 +391,26 @@ class DiffEngine:
             file_diff.line_counts_complete = False
             self._prepend_metadata(file_diff)
             return file_diff
-        # 8 月 27 日前，未知编码但不像二进制的内容仍会以 UTF-8 replacement
-        # fallback 生成逐行明细。未知编码不能等价成“二进制”；直接复用已经
-        # 读取的原始字节做兼容显示，既不漏报告，也不再次读取可变端点。
+        # 未知编码继续保留全部逐行明细；用 surrogateescape 保留每个未知
+        # 字节的身份，完成匹配后再显示可见标记，不能用 U+FFFD 合并差异。
         old_decoded = old_strict_decoded or (
             self._decode_text_fallback(old_raw) if old_raw is not None else None
         )
         new_decoded = new_strict_decoded or (
             self._decode_text_fallback(new_raw) if new_raw is not None else None
         )
+        unknown_sides = [
+            label for label, raw, decoded in (
+                ("旧版本", old_raw, old_strict_decoded),
+                ("新版本", new_raw, new_strict_decoded),
+            ) if raw is not None and decoded is None
+        ]
+        if unknown_sides:
+            file_diff.display_notes.append(
+                "、".join(unknown_sides)
+                + "编码未识别：无法按 UTF-8 解码的字节显示为带底色的"
+                " ⟦0xXX⟧ 标记；差异统计保留这些字节，导出仍使用原始字节。"
+            )
         complexity_reason = ""
         if (
             self.MAX_TEXT_DIFF_LINES is not None
@@ -548,8 +561,8 @@ class DiffEngine:
     @staticmethod
     def _decode_text_fallback(data: bytes) -> _DecodedText:
         return _DecodedText(
-            data.decode("utf-8", errors="replace"),
-            "未知编码（兼容显示）",
+            data.decode("utf-8", errors="surrogateescape"),
+            "未知编码（无损字节显示）",
         )
 
     def _text_diff_complexity_reason(self, data: bytes) -> str:
@@ -742,17 +755,18 @@ class DiffEngine:
         return ""
 
     def _prepend_metadata(self, file_diff: FileDiff):
-        if not file_diff.metadata_changes:
+        if not file_diff.metadata_changes and not file_diff.display_notes:
             return
         details = "".join(
             f'<div style="margin-top:5px;">{html.escape(item)}</div>'
-            for item in file_diff.metadata_changes
+            for item in file_diff.metadata_changes + file_diff.display_notes
         )
+        title = "文件说明" if file_diff.display_notes else "文件元数据变化"
         banner = (
             '<div style="padding:12px 16px;margin-bottom:12px;'
             'background:#fff7e6;border:1px solid #f0b44d;border-radius:4px;'
             'color:#6b4b16;">'
-            '<b>文件元数据变化</b>'
+            f'<b>{title}</b>'
             f'{details}</div>'
         )
         file_diff.side_by_side_html = banner + file_diff.side_by_side_html
@@ -1230,19 +1244,33 @@ class DiffEngine:
         old_desc = old_path or path
         escaped_old_desc = html.escape(old_desc)
         escaped_path = html.escape(path)
-        table = hd.make_table(
-            old_lines, new_lines,
+        options = dict(
             fromdesc=f'旧版本: {escaped_old_desc}',
             todesc=f'新版本: {escaped_path}',
             context=not self.show_full_context,
             numlines=3,
         )
+        try:
+            table = hd.make_table(old_lines, new_lines, **options)
+        except RecursionError:
+            # HtmlDiff 的相似行配对递归会在正常的批量替换上耗尽调用栈。
+            # 仅切换对齐方式；全部输入行和行内差异仍保留，不增加规模上限。
+            table = make_stable_diff_table(old_lines, new_lines, **options)
         return self._show_special_separators(table)
 
     @staticmethod
     def _show_special_separators(table: str) -> str:
         # 在 HtmlDiff 完成真实字符匹配后才添加可见标记，避免把原文中的
         # 字面标记（例如“⟦U+2028⟧”）和真正的 U+2028 误判为相同内容。
+        table = re.sub(
+            r"[\udc80-\udcff]",
+            lambda match: (
+                '<span class="unknown-byte" style="background:#fff3cd" '
+                'title="编码未识别：此标记代表原始字节，不是原文中的字面文本">'
+                f'⟦0x{ord(match.group()) - 0xDC00:02X}⟧</span>'
+            ),
+            table,
+        )
         return re.sub(
             r"[\v\f\x1c-\x1e\x85\u2028\u2029]",
             lambda match: (

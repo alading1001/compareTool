@@ -16,6 +16,7 @@ from path_safety import (
     ensure_no_link_components,
     is_link_or_junction,
     open_regular_file_no_links,
+    open_new_tree_file,
     regular_file_handle_identity,
     regular_file_path_identity,
     safe_join,
@@ -51,6 +52,7 @@ class FileExporter:
     def __init__(self, diff_result: DiffResult, vcs):
         self.diff_result = diff_result
         self.vcs = vcs
+        self._directory_entries = {}
 
     def export(
         self,
@@ -174,7 +176,15 @@ class FileExporter:
 
     def _write_file(self, base_dir: str, rel_path: str, version: str, text_content: str):
         file_path = self._safe_join(base_dir, rel_path)
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        try:
+            file_path, reserved = open_new_tree_file(
+                base_dir, file_path, self._directory_entries, "导出"
+            )
+        except ValueError as exc:
+            raise RuntimeError(str(exc)) from exc
+        # 在调用允许覆盖目标的旧接口之前，先以独占方式占有这个新路径。
+        # 若路径其实是已有长名的 8.3 别名，绝不能进入 writer 或异常删除分支。
+        reserved.close()
 
         # 正式 VCS 使用流式接口，避免大文件在内存中形成完整 bytes 副本。
         stream_export = getattr(self.vcs, "export_file_to_path", None)

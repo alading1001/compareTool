@@ -13,6 +13,7 @@ from urllib.parse import quote, unquote
 from xml.etree import ElementTree
 
 from path_safety import (
+    open_new_tree_file,
     safe_join,
     windows_directories_replaced_by_files,
     windows_path_key,
@@ -501,6 +502,7 @@ class _MultiVersionFolderDelegate(BaseVCS):
         self._folder: Optional[FolderVCS] = None
         self._raw_folder: Optional[FolderVCS] = None
         self._planned_files: List[ChangedFile] = []
+        self._directory_entries = {}
         super().__init__(self._new_dir)
         if exclude_patterns:
             super().set_exclude_patterns(exclude_patterns)
@@ -641,8 +643,8 @@ class _MultiVersionFolderDelegate(BaseVCS):
             self, old_version, old_path, new_version, new_path) -> dict:
         return {}
 
-    @staticmethod
     def _reserve_endpoint_target(
+        self,
         base_dir: str,
         path: Optional[str],
         targets: Dict[str, str],
@@ -660,7 +662,13 @@ class _MultiVersionFolderDelegate(BaseVCS):
             target = safe_join(base_dir, path, label="多版本端点路径")
         except ValueError as exc:
             raise RuntimeError(str(exc)) from exc
-        os.makedirs(os.path.dirname(target), exist_ok=True)
+        try:
+            target, reserved = open_new_tree_file(
+                base_dir, target, self._directory_entries, "多版本端点"
+            )
+            reserved.close()
+        except ValueError as exc:
+            raise RuntimeError(str(exc)) from exc
         return target
 
     def _write_endpoint_file(
