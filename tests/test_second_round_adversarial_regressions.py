@@ -519,6 +519,8 @@ class DiffFidelityTests(unittest.TestCase):
 class VCSHardeningTests(unittest.TestCase):
     def test_git_diff_and_later_reads_share_pinned_commit_ids(self):
         vcs = GitVCS.__new__(GitVCS)
+        vcs._repository_root = "."
+        vcs._project_prefix = ""
         vcs.exclude_patterns = []
         vcs._version_pins = {}
         calls = []
@@ -538,15 +540,22 @@ class VCSHardeningTests(unittest.TestCase):
 
     def test_git_export_rejects_active_smudge_or_encoding_attributes(self):
         vcs = GitVCS.__new__(GitVCS)
+        vcs._repository_root = "."
+        vcs._project_prefix = ""
         vcs.get_file_content_raw_bytes = mock.Mock(return_value=b"pointer\n")
         vcs._get_checkout_attributes = mock.Mock(return_value={
             "filter": "lfs", "working-tree-encoding": "utf-16",
+        })
+        vcs._read_filter_checkout_config = mock.Mock(return_value={
+            "smudge": b"git-lfs smudge", "process": b"", "required": True,
         })
         with self.assertRaisesRegex(RuntimeError, "filter=lfs"):
             vcs.get_file_content_bytes("v", "large.bin")
 
     def test_git_config_errors_other_than_unset_fail_closed(self):
         vcs = GitVCS.__new__(GitVCS)
+        vcs._repository_root = "."
+        vcs._project_prefix = ""
         vcs._git = "git"
         vcs.project_path = "."
         failed = subprocess.CompletedProcess([], 128, stdout="", stderr="bad config")
@@ -556,7 +565,10 @@ class VCSHardeningTests(unittest.TestCase):
 
     def test_git_checkout_policy_batches_paths_and_rejects_changed_snapshot(self):
         vcs = GitVCS.__new__(GitVCS)
+        vcs._repository_root = "."
+        vcs._project_prefix = ""
         vcs._git = "git"
+        vcs._checkout_snapshot = mock.Mock()
         vcs._version_pins = {}
         vcs._config_cache = {"core.autocrlf": "true", "core.eol": ""}
         vcs._read_git_config_value = mock.Mock(

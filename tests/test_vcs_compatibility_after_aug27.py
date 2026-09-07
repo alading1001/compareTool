@@ -227,6 +227,8 @@ class DisabledBudgetCompatibilityTests(unittest.TestCase):
 class GitRenameCompatibilityTests(unittest.TestCase):
     def test_git_object_signature_does_not_repeat_size_query(self):
         vcs = GitVCS.__new__(GitVCS)
+        vcs._repository_root = "."
+        vcs._project_prefix = ""
         vcs._resolve_version = mock.Mock(return_value="a" * 40)
         vcs.get_file_size = mock.Mock(
             side_effect=AssertionError("blob OID already binds the full content")

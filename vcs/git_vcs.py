@@ -5,6 +5,7 @@ import shutil
 from typing import List
 
 from .base import BaseVCS, ChangedFile, ChangeType
+from .git_checkout import GitCheckoutSnapshot
 from logger import info, warn
 
 
@@ -63,6 +64,51 @@ class GitVCS(BaseVCS):
         super().__init__(project_path)
         self._git = self._find_git()
         self._version_pins = {}
+        self._checkout_snapshot = None
+
+    def _git_cwd(self):
+        if not hasattr(self, "_repository_root"):
+            result = subprocess.run(
+                [self._git, "rev-parse", "--show-toplevel", "--show-prefix"],
+                cwd=self.project_path, capture_output=True,
+                timeout=self.COMMAND_TIMEOUT,
+            )
+            if result.returncode:
+                bare = subprocess.run(
+                    [self._git, "rev-parse", "--is-bare-repository", "--absolute-git-dir"],
+                    cwd=self.project_path, capture_output=True, timeout=self.COMMAND_TIMEOUT,
+                )
+                lines = bare.stdout.decode("utf-8", "surrogateescape").splitlines()
+                if bare.returncode == 0 and len(lines) == 2 and lines[0] == "true":
+                    self._repository_root, self._project_prefix = lines[1], ""
+                    return self._repository_root
+                raise RuntimeError("无法确定 Git 项目范围：\n" + result.stderr.decode("utf-8", "replace"))
+            lines = result.stdout.decode("utf-8", "surrogateescape").splitlines()
+            self._repository_root = lines[0]
+            self._project_prefix = lines[1] if len(lines) > 1 else ""
+        return self._repository_root
+
+    def _repo_path(self, project_path):
+        self._git_cwd()
+        return self._project_prefix + project_path.replace("\\", "/")
+
+    def _relative_project_path(self, repository_path):
+        self._git_cwd()
+        if not repository_path.startswith(self._project_prefix):
+            return None
+        return repository_path[len(self._project_prefix):]
+
+    def cleanup(self):
+        snapshot = getattr(self, "_checkout_snapshot", None)
+        if snapshot is not None:
+            snapshot.cleanup()
+            self._checkout_snapshot = None
+
+    def __del__(self):
+        try:
+            self.cleanup()
+        except Exception:
+            pass
 
     @staticmethod
     def _find_git() -> str:
@@ -115,7 +161,7 @@ class GitVCS(BaseVCS):
         try:
             result = subprocess.run(
                 [self._git] + args,
-                cwd=self.project_path,
+                cwd=self._git_cwd(),
                 capture_output=True, text=True,
                 encoding="utf-8", errors="replace"
             )
@@ -129,7 +175,7 @@ class GitVCS(BaseVCS):
         try:
             result = subprocess.run(
                 [self._git] + args,
-                cwd=self.project_path,
+                cwd=self._git_cwd(),
                 capture_output=True,
                 timeout=self.COMMAND_TIMEOUT,
             )
@@ -180,6 +226,19 @@ class GitVCS(BaseVCS):
                 path = fields[index].decode("utf-8", errors="surrogateescape")
                 old_path = ""
                 index += 1
+
+            # cwd 不会限制 Git diff 的范围；这里统一改为项目相对路径。
+            path = self._relative_project_path(path)
+            if code in ("R", "C"):
+                old_path = self._relative_project_path(old_path)
+                if code == "R" and path is None and old_path is not None:
+                    code, path, old_path, new_mode = "D", old_path, "", "000000"
+                elif path is None:
+                    continue
+                elif old_path is None:
+                    code, old_path, old_mode = "A", "", "000000"
+            elif path is None:
+                continue
 
             old_excluded = False
             new_excluded = False
@@ -326,8 +385,8 @@ class GitVCS(BaseVCS):
     def get_file_content(self, version: str, file_path: str) -> str:
         try:
             result = subprocess.run(
-                [self._git, "show", f"{self._resolve_version(version)}:{file_path}"],
-                cwd=self.project_path,
+                [self._git, "show", f"{self._resolve_version(version)}:{self._repo_path(file_path)}"],
+                cwd=self._git_cwd(),
                 capture_output=True,
                 timeout=self.COMMAND_TIMEOUT
             )
@@ -344,28 +403,26 @@ class GitVCS(BaseVCS):
             return ""
 
     def get_file_content_bytes(self, version: str, file_path: str) -> bytes:
-        data = self.get_file_content_raw_bytes(version, file_path)
+        endpoint = self._resolve_version(version)
         attrs = self._get_checkout_attributes(version, file_path)
-        unsupported = []
-        for name in ("filter", "working-tree-encoding", "ident", "crlf"):
-            value = attrs.get(name, "unspecified")
-            if value not in ("unspecified", "unset"):
-                unsupported.append(f"{name}={value}")
-        if unsupported:
-            raise RuntimeError(
-                "Git 文件启用了当前无法可靠复现的检出属性，已中止导出: "
-                f"{file_path}\n属性: {', '.join(unsupported)}"
-            )
-        if data is not None and self._checkout_uses_crlf(version, file_path, data):
-            data = self._apply_crlf(data)
+        self._validate_checkout_attributes(file_path, attrs)
+        self._ensure_checkout_snapshot([(endpoint, file_path)])
+        mode = self._checkout_snapshot.conversion_mode(
+            endpoint, self._repo_path(file_path), self._filter_config_cache
+        )
+        data = self.get_file_content_raw_bytes(version, file_path)
+        if data is not None and (mode == "text" or (
+            mode == "auto" and GitCheckoutSnapshot.auto_text_uses_crlf([data])
+        )):
+            return self._apply_crlf(data)
         return data
 
     def get_file_content_raw_bytes(self, version: str, file_path: str) -> bytes:
         """读取 Git 对象中的原始字节，不应用工作副本换行符转换。"""
         try:
             result = subprocess.run(
-                [self._git, "show", f"{self._resolve_version(version)}:{file_path}"],
-                cwd=self.project_path,
+                [self._git, "show", f"{self._resolve_version(version)}:{self._repo_path(file_path)}"],
+                cwd=self._git_cwd(),
                 capture_output=True,
                 timeout=self.COMMAND_TIMEOUT
             )
@@ -378,7 +435,7 @@ class GitVCS(BaseVCS):
     def get_file_size(self, version: str, file_path: str):
         endpoint = self._resolve_version(version)
         try:
-            output = self._run_bytes(["cat-file", "-s", f"{endpoint}:{file_path}"])
+            output = self._run_bytes(["cat-file", "-s", f"{endpoint}:{self._repo_path(file_path)}"])
             value = output.decode("ascii", errors="strict").strip()
         except (RuntimeError, UnicodeDecodeError):
             return None
@@ -388,7 +445,7 @@ class GitVCS(BaseVCS):
         endpoint = self._resolve_version(version)
         try:
             object_id = self._run_bytes([
-                "rev-parse", "--verify", f"{endpoint}:{file_path}"
+                "rev-parse", "--verify", f"{endpoint}:{self._repo_path(file_path)}"
             ]).decode("ascii", errors="strict").strip().lower()
         except (RuntimeError, UnicodeDecodeError):
             return None
@@ -402,11 +459,18 @@ class GitVCS(BaseVCS):
         endpoint = self._resolve_version(version)
         attrs = self._get_checkout_attributes(endpoint, file_path)
         self._validate_checkout_attributes(file_path, attrs)
+        self._ensure_checkout_snapshot([(endpoint, file_path)])
+        mode = self._checkout_snapshot.conversion_mode(
+            endpoint, self._repo_path(file_path), self._filter_config_cache
+        )
         self.export_raw_file_to_path(endpoint, file_path, target_path)
-        if (
-            not self._file_contains_null(target_path)
-            and self._checkout_uses_crlf(endpoint, file_path, b"text")
-        ):
+        convert = mode == "text"
+        if mode == "auto":
+            with open(target_path, "rb") as source:
+                convert = GitCheckoutSnapshot.auto_text_uses_crlf(
+                    iter(lambda: source.read(1024 * 1024), b"")
+                )
+        if convert:
             self._rewrite_file_lf_to_crlf(target_path)
 
     def export_raw_file_to_path(self, version: str, file_path: str, target_path: str):
@@ -414,8 +478,8 @@ class GitVCS(BaseVCS):
         try:
             with open(target_path, "wb") as target:
                 result = subprocess.run(
-                    [self._git, "show", f"{endpoint}:{file_path}"],
-                    cwd=self.project_path,
+                    [self._git, "show", f"{endpoint}:{self._repo_path(file_path)}"],
+                    cwd=self._git_cwd(),
                     stdout=target,
                     stderr=subprocess.PIPE,
                     timeout=self.COMMAND_TIMEOUT,
@@ -427,10 +491,6 @@ class GitVCS(BaseVCS):
                 f"无法流式导出 Git 文件: {file_path}\n"
                 + result.stderr.decode("utf-8", errors="replace")
             )
-
-    def _autocrlf_effective(self) -> bool:
-        """检查 core.autocrlf 是否为 true（缓存结果）"""
-        return self._git_config_value("core.autocrlf") == "true"
 
     def _git_config_value(self, name: str) -> str:
         cache = getattr(self, "_config_cache", None)
@@ -447,7 +507,7 @@ class GitVCS(BaseVCS):
         try:
             r = subprocess.run(
                 [self._git, "config", "--get", name],
-                cwd=self.project_path,
+                cwd=self._git_cwd(),
                 capture_output=True, text=True, timeout=self.COMMAND_TIMEOUT
             )
         except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
@@ -471,8 +531,17 @@ class GitVCS(BaseVCS):
         for index in range(0, len(parts) - 2, 3):
             path = parts[index].decode("utf-8", errors="surrogateescape")
             name = parts[index + 1].decode("utf-8", errors="replace")
-            value = parts[index + 2].decode("utf-8", errors="replace")
-            records.setdefault(path, {})[name] = value.lower()
+            try:
+                value = parts[index + 2].decode(
+                    "utf-8", errors="strict" if name == "filter" else "replace"
+                )
+            except UnicodeDecodeError as exc:
+                raise RuntimeError(
+                    f"无法准确解析 Git filter 名称，已中止导出: {path}"
+                ) from exc
+            # filter 名对应大小写敏感的 Git 配置子节，不能转成小写后查询
+            # 另一个驱动，否则会把真正启用的转换误当成未配置。
+            records.setdefault(path, {})[name] = value if name == "filter" else value.lower()
         return records
 
     def _get_checkout_attributes(self, version: str, file_path: str) -> dict:
@@ -497,13 +566,13 @@ class GitVCS(BaseVCS):
         if not paths:
             return {}
         stdin_payload = b"\x00".join(
-            path.encode("utf-8", errors="surrogateescape") for path in paths
+            self._repo_path(path).encode("utf-8", errors="surrogateescape") for path in paths
         ) + b"\x00"
         result = subprocess.run(
             [self._git, "check-attr", "-z", f"--source={endpoint}",
              "text", "eol", "filter", "working-tree-encoding", "ident", "crlf",
              "--stdin"],
-            cwd=self.project_path,
+            cwd=self._git_cwd(),
             input=stdin_payload,
             capture_output=True,
             timeout=self.COMMAND_TIMEOUT,
@@ -514,6 +583,8 @@ class GitVCS(BaseVCS):
                 f"无法批量读取 Git 属性，已中止导出\n{stderr.strip()}"
             )
         records = self._parse_check_attr_records(result.stdout)
+        records = {path: records[self._repo_path(path)] for path in paths
+                   if self._repo_path(path) in records}
         missing = [path for path in paths if path not in records]
         if missing:
             preview = ", ".join(missing[:3])
@@ -522,12 +593,60 @@ class GitVCS(BaseVCS):
             )
         return {path: records[path] for path in paths}
 
-    @staticmethod
-    def _validate_checkout_attributes(file_path: str, attrs: dict):
+    def _read_filter_checkout_config(self, driver: str) -> dict:
+        """只读取检出方向的有效配置，不执行仓库指定的转换程序。"""
+        config = {}
+        for setting in ("smudge", "process", "required"):
+            name = f"filter.{driver}.{setting}"
+            args = [self._git, "config", "-z"]
+            if setting == "required":
+                args.append("--bool")
+            args.extend(["--get", name])
+            try:
+                result = subprocess.run(
+                    args, cwd=self._git_cwd(), capture_output=True,
+                    timeout=self.COMMAND_TIMEOUT,
+                )
+            except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
+                raise RuntimeError(f"无法读取 Git filter 配置 {name}: {exc}") from exc
+            if result.returncode == 1:
+                value = b""
+            elif result.returncode == 0 and result.stdout.endswith(b"\x00"):
+                # 保留命令的空格和大小写；空字符串才表示未配置程序。
+                value = result.stdout[:-1]
+            else:
+                raise RuntimeError(
+                    f"读取 Git filter 配置失败，已中止导出: {name}\n"
+                    + result.stderr.decode("utf-8", errors="replace")
+                )
+            config[setting] = value == b"true" if setting == "required" else value
+        return config
+
+    def _filter_is_passthrough(self, driver: str) -> bool:
+        cache = getattr(self, "_filter_config_cache", None)
+        if cache is None:
+            self._filter_config_cache = {}
+            cache = self._filter_config_cache
+        if driver not in cache:
+            first = self._read_filter_checkout_config(driver)
+            if first != self._read_filter_checkout_config(driver):
+                raise RuntimeError("Git filter 配置在任务快照期间发生变化，已中止生成")
+            cache[driver] = first
+        config = cache[driver]
+        # clean 只作用于入库方向；没有检出程序且不要求转换时，Git 保留原文。
+        return not (config["smudge"] or config["process"] or config["required"])
+
+    def _validate_checkout_attributes(self, file_path: str, attrs: dict):
         unsupported = []
         for name in ("filter", "working-tree-encoding", "ident", "crlf"):
             value = attrs.get(name, "unspecified")
+            if name == "filter" and value in ("unspecified", "unset", "set"):
+                # CLI 输出不能区分状态与同名字面值，交给隔离的 Git 判断。
+                self._filter_is_passthrough(value)
+                continue
             if value not in ("unspecified", "unset"):
+                if name == "filter" and self._filter_is_passthrough(value):
+                    continue
                 unsupported.append(f"{name}={value}")
         if unsupported:
             raise RuntimeError(
@@ -558,17 +677,39 @@ class GitVCS(BaseVCS):
                     snapshot[(endpoint, path)] = attrs
             return snapshot
 
+        if getattr(self, "_checkout_snapshot", None) is None:
+            self._checkout_snapshot = GitCheckoutSnapshot(self, first_config)
+        self._checkout_snapshot.verify_source(self)
         first_attrs = read_all()
+        drivers = sorted({
+            attrs["filter"] for attrs in first_attrs.values()
+            if "filter" in attrs
+        })
+        first_filters = {
+            driver: self._read_filter_checkout_config(driver) for driver in drivers
+        }
         second_config = {
             name: self._read_git_config_value(name) for name in config_names
         }
         second_attrs = read_all()
-        if first_config != second_config or first_attrs != second_attrs:
+        second_filters = {
+            driver: self._read_filter_checkout_config(driver) for driver in drivers
+        }
+        if (
+            first_config != second_config or first_attrs != second_attrs
+            or first_filters != second_filters
+        ):
             raise RuntimeError(
                 "Git 检出配置或属性在任务快照期间发生变化，已中止生成"
             )
+        self._checkout_snapshot.verify_source(self)
         self._config_cache = first_config
         self._attribute_cache = first_attrs
+        self._filter_config_cache = first_filters
+
+    def _ensure_checkout_snapshot(self, endpoints):
+        if getattr(self, "_checkout_snapshot", None) is None:
+            self._snapshot_checkout_policy(endpoints)
 
     def _snapshot_git_config(self):
         if not hasattr(self, "_git"):
@@ -579,34 +720,6 @@ class GitVCS(BaseVCS):
         if first != second:
             raise RuntimeError("Git 检出配置在任务快照期间发生变化，已中止生成")
         self._config_cache = first
-
-    def _checkout_uses_crlf(self, version: str, file_path: str, data: bytes) -> bool:
-        if not self._is_text_bytes(data):
-            return False
-
-        attrs = self._get_checkout_attributes(version, file_path)
-        text_attr = attrs.get("text", "unspecified")
-        eol_attr = attrs.get("eol", "unspecified")
-        if text_attr == "unset":
-            return False
-        if eol_attr == "lf":
-            return False
-        if eol_attr == "crlf":
-            return True
-
-        autocrlf = self._git_config_value("core.autocrlf")
-        if autocrlf == "true":
-            return True
-        if autocrlf == "input":
-            return False
-
-        if text_attr in ("set", "auto"):
-            core_eol = self._git_config_value("core.eol")
-            if core_eol == "crlf":
-                return True
-            if core_eol in ("", "native"):
-                return os.linesep == "\r\n"
-        return False
 
     def get_file_content_working(self, file_path: str) -> str:
         full_path = os.path.join(self.project_path, file_path)

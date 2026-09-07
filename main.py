@@ -1942,7 +1942,7 @@ class CompareToolApp:
                 exclude_patterns=exclude_patterns,
             ), True
         if vcs_type == "git":
-            return GitVCS(task["project_path"]), False
+            return GitVCS(task["project_path"]), True
         if vcs_type == "svn":
             return SVNVCS(task["project_path"]), False
         raise RuntimeError(f"不支持的多项目任务类型: {vcs_type}")
@@ -2288,6 +2288,7 @@ class CompareToolApp:
                 cleanup_vcs = vcs
             elif vcs_type == "git":
                 vcs = GitVCS(project_path)
+                cleanup_vcs = vcs
             elif vcs_type == "svn":
                 vcs = SVNVCS(project_path)
             else:

@@ -26,6 +26,7 @@ main.py                  # tkinter GUI 入口，线程管理，配置持久化�
 ├── vcs/
 │   ├── base.py          # BaseVCS 抽象类 + ChangedFile/ChangeType + glob 排除匹配
 │   ├── git_vcs.py       # GitVCS：git diff --raw -z --find-renames / git show / git log
+│   ├── git_checkout.py  # 隔离 Git 属性/配置快照、微小检出探针和流式文本判定
 │   ├── svn_vcs.py       # SVNVCS：svn diff --summarize / svn cat (URL+@peg) / svn log
 │   ├── folder_vcs.py    # FolderVCS：先快照两个端点，再用分块字节读取判断差异
 │   ├── archive_vcs.py   # ArchiveVCS：解压 zip/tar 到临时目录，委托 FolderVCS 比对
@@ -87,6 +88,8 @@ Git/SVN/Git多版本/SVN多版本的版本列表只搜索当前已经展示的�
 
 ### Git/SVN 多版本文件端点
 
+Git 普通/多版本均以用户选择的目录作为项目范围，允许仓库根、子目录和裸仓库。Git 命令在仓库根执行；报告、排除规则、身份规划和导出使用项目相对路径，读取对象和属性时映射回仓库相对路径。跨项目边界的 rename 在历史竞争前降级为本项目一侧的新增或删除，不得混入兄弟项目，也不得重复添加所选子目录前缀。裸仓库以仓库根作为范围，输出仍须位于仓库元数据之外。
+
 Git多版本/SVN多版本使用“文件级首尾端点”语义：选中版本只决定候选文件集合及每个文件的首次/末次选中变更；old 取该文件首次选中变更之前的真实状态，new 取末次选中变更之后的真实状态，只比较最终净结果。不同文件允许来自不同 commit/revision；报告和 oldVersion/newVersion 使用同一端点；newVersion 导出完整文件，但不是某个单一版本的完整项目快照。
 
 - `GitMultiVersionVCS` 只接受当前分支第一父历史的选中提交，合并提交相对第一父提交计算；浅克隆缺少父对象时失败。历史按正常阈值追踪重命名；只有紧凑候选组中的不同逻辑实体实际跨越选中端点时，才运行低阈值第二遍 diff 或隔离 source/target blob 的 Git 原生 rename score，首个命中即 fail closed，不为无关历史提前展开或评分 `D/R × A/R/M` 笛卡尔积。跨提交待定删除也只保存活动区间和目标事件，最终按时序过滤后评分。候选身份跨选中端点且不唯一时仍必须中止。
@@ -135,7 +138,7 @@ Git/SVN 可执行文件路径均自动探测：先查 `shutil.which`，再查 Wi
 
 用户的完整性原则是：对抗性审查不得让旧版本能生成的正常输入因“可能很慢/可能很大”而被拒绝、跳过明细或截断清单。正常文本默认不设单文件字节、行数、最长行、明细数、路径字节、文本字节、预计渲染行数和 HTML 字节上限，也不得使用新旧行数乘积、最长行字符乘积或组合工作量提前跳过。目录替换推断必须使用前缀树或等价的线性/近线性算法，不能枚举全部新旧路径笛卡尔积。读取返回 `None`、已知 raw 大小与实际读取长度不符、或源端点在任务期间变化时必须中止，因为继续会得到错误结果。Jinja2 必须流式写报告，不能先在内存中生成完整 HTML。纯格式变化和纯重命名仍须保留 F/R 语义。
 
-报告补充合同：manifest 必须完整列出变更，不因预计体积截断；最终报告必须边渲染边流式写入同目录临时文件，成功后再原子替换，默认不设 HTML 体积上限。默认详情完整时 manifest 直接复用 `fileData`，不得把同一完整路径清单再次序列化；只有显式受限策略让二者不同时才生成独立清单。多项目展示路径在浏览器端拼接，不重复保存 `displayPath`。末尾换行格式净差异只允许在 CR/LF 规范化后两端恰好相差一个末尾 `\n` 时成立，不能用 `splitlines()` 把 FF、VT、NEL、U+2028/U+2029 当换行吞掉。
+报告补充合同：manifest 必须完整列出变更，不因预计体积截断；最终报告必须边渲染边流式写入同目录临时文件，成功后再原子替换，默认不设 HTML 体积上限。默认详情完整时 manifest 直接复用 `fileData`，不得把同一完整路径清单再次序列化；只有显式受限策略让二者不同时才生成独立清单。多项目展示路径在浏览器端拼接，不重复保存 `displayPath`。末尾换行格式净差异只允许在 CR/LF 规范化后两端恰好相差一个末尾 `\n` 时成立。差异拆行与统计也只识别 CR/LF，不能用 `splitlines()` 把 FF、VT、NEL、U+2028/U+2029 等分隔符吞掉；特殊分隔符参与真实字符匹配后才在 HTML 中显示为 `⟦U+XXXX⟧`，不改变导出字节，也不能与原文中的字面标记混淆。
 
 ### 二进制文件处理
 
@@ -159,13 +162,13 @@ Git/SVN 可执行文件路径均自动探测：先查 `shutil.which`，再查 Wi
 
 Windows 上 `core.autocrlf=true`（Git）或 `svn:eol-style=native`（SVN）会导致仓库存储 LF、工作副本为 CRLF。`git show` / `svn cat` 返回仓库原始字节（LF），若直接导出会与工作副本文件字节级不一致。
 
-- **Git**：先对固定 commit 批量执行 `git check-attr -z --source=<version> ... --stdin`，并在任务快照前后复核有效属性与 `core.autocrlf/core.eol`；`.gitattributes` 中 `-text` / `eol=lf` / `eol=crlf` 优先，未指定时再按固定配置处理。属性无法可靠读取或快照期间变化时中止生成。
-- `text` / `text=auto` 文件在 `core.autocrlf` 和 `core.eol` 都未设置时，`core.eol` 的默认值仍是平台 `native`；Windows 导出必须转为 CRLF，不能把“未设置”误当成“不转换”。
+- **Git**：对固定 commit 批量查询属性，并复核 `core.autocrlf/core.eol`、filter 配置及系统/全局/info 属性文件摘要。`GitCheckoutSnapshot` 创建同对象格式的专用临时裸仓库，只读共享源对象，固定外部属性副本并隔离 Git 配置；使用 `GIT_ATTR_SOURCE` 与两个微小 blob 探针由原生 Git 判定属性的真实状态和换行模式。不能把 `cat-file --filters` 直接用于真实大文件；内容仍由 `git show` 流式落盘并分块转换，避免 Git 子进程为大文件创建完整转换副本。结束时清理普通/多版本的检出快照。
+- 原生策略判定为自动 CRLF 时，按 Git `convert.c` 的完整字节统计处理：已有 CR/CRLF、NUL 或非文本控制字节密度过高时保留原文，不能只按“无 NUL”转换；显式强制文本则按原生结果处理含 NUL 文件。默认 EOL 仍是平台 native，`core.autocrlf` 优先级由原生 Git 决定。
 - **SVN**：`SVNVCS._get_eol_style()` 对每个文件按所选 revision 执行 `svn propget svn:eol-style`，完整支持 `native` / `LF` / `CR` / `CRLF`。
 - **文件夹**：直接从磁盘读取，不存在换行符差异
 - **公共逻辑**：`BaseVCS._is_text_bytes()` 判断文本文件（不含 `\x00`），`BaseVCS._apply_crlf()` 用正则 `(?<!\r)\n` → `\r\n` 转换，避免重复转换已有的 CRLF
 
-普通 Git/SVN 生成开始时必须把用户填写的可变版本标识固定为完整 commit OID/数字 revision，后续差异、内容、属性和导出均复用同一端点，报告仍显示用户原始输入。Git 文件若启用 `filter`、`working-tree-encoding`、`ident` 或旧 `crlf` 属性，应因无法可靠复现 checkout 字节而中止；SVN 文件启用 `svn:keywords`、变化目录启用 `svn:externals` 时同样中止。
+普通 Git/SVN 生成开始时必须把用户填写的可变版本标识固定为完整 commit OID/数字 revision，后续差异、内容、属性和导出均复用同一端点，报告仍显示用户原始输入。Git filter 名保留大小写，按驱动成组固定并复核 `smudge`、`process` 和 `required` 配置；没有检出程序且未要求强制转换的 filter（包括仅配置 clean）允许按普通文件导出。实际启用检出转换或要求强制转换的 filter，以及启用的 `working-tree-encoding`、`ident` 或旧 `crlf` 属性，仍因无法可靠复现 checkout 字节而中止。`check-attr` 输出中的 `set`/`unset`/`unspecified` 可能是同名字面 filter 驱动，必须由隔离 Git 区分；只复制“必需但无程序”的拒绝策略，不复制或执行 smudge/process，真正的 `-filter`/`!filter` 等状态仍可正常导出。普通 SVN 和 SVN 多版本均允许空值或仅含 ASCII 空白的 `svn:keywords`；`svn:externals` 的空白和整行注释不视为有效定义，其它定义及非空 keywords 仍须中止。
 
 ### 编码
 
@@ -175,7 +178,7 @@ Windows 上 `core.autocrlf=true`（Git）或 `svn:eol-style=native`（SVN）会�
 
 ### Shell 依赖
 
-所有 VCS 操作通过 `subprocess` 调用 `git` / `svn` 命令行，`cwd=self.project_path`。
+所有 VCS 操作通过 `subprocess` 调用 `git` / `svn` 命令行。SVN 使用项目目录；Git 仓库命令使用固定仓库根，并显式映射项目相对路径。隔离检出探针只读取固定端点属性，不执行用户配置中的外部转换程序。
 
 ### 配置持久化
 

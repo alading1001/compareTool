@@ -383,6 +383,8 @@ class ExportIntegrityTests(unittest.TestCase):
 class VCSParsingTests(unittest.TestCase):
     def test_git_mode_only_change_is_preserved_as_metadata(self):
         vcs = GitVCS.__new__(GitVCS)
+        vcs._repository_root = "."
+        vcs._project_prefix = ""
         vcs.exclude_patterns = []
         vcs._version_pins = {"old": "a" * 40, "new": "b" * 40}
         vcs._run_bytes = lambda args: (
@@ -399,6 +401,8 @@ class VCSParsingTests(unittest.TestCase):
 
     def test_git_type_change_fails_closed(self):
         vcs = GitVCS.__new__(GitVCS)
+        vcs._repository_root = "."
+        vcs._project_prefix = ""
         vcs.exclude_patterns = []
         vcs._version_pins = {"old": "a" * 40, "new": "b" * 40}
         vcs._run_bytes = lambda args: (
@@ -410,6 +414,8 @@ class VCSParsingTests(unittest.TestCase):
 
     def test_unknown_git_change_type_fails_instead_of_being_omitted(self):
         vcs = GitVCS.__new__(GitVCS)
+        vcs._repository_root = "."
+        vcs._project_prefix = ""
         vcs.exclude_patterns = []
         vcs._version_pins = {"old": "a" * 40, "new": "b" * 40}
         vcs._run_bytes = lambda args: (

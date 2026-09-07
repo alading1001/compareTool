@@ -20,7 +20,7 @@ from path_safety import (
 from .base import BaseVCS, ChangedFile, ChangeType
 from .folder_vcs import FolderVCS
 from .git_vcs import GitVCS, GIT_NOT_FOUND_MESSAGE
-from .svn_vcs import SVNVCS, SVN_NOT_FOUND_MESSAGE
+from .svn_vcs import SVNVCS, SVN_NOT_FOUND_MESSAGE, svn_keywords_enabled, svn_externals_enabled
 from .temp_storage import create_temp_dir, remove_temp_dir
 from logger import warn
 
@@ -840,6 +840,9 @@ class _MultiVersionFolderDelegate(BaseVCS):
         return True
 
     def cleanup(self):
+        content_vcs = getattr(self, "_content_vcs", None)
+        if content_vcs is not None and hasattr(content_vcs, "cleanup"):
+            content_vcs.cleanup()
         _remove_tree(self._tmp_root)
 
     def __del__(self):
@@ -900,7 +903,7 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
         return stdout
 
     def _git_bytes(self, *args: str) -> bytes:
-        return self._run([self._git_exe] + list(args), self.source_project_path)
+        return self._run([self._git_exe, "--literal-pathspecs"] + list(args), self._content_vcs._git_cwd())
 
     def _git(self, *args: str) -> str:
         return self._git_bytes(*args).decode("utf-8", errors="replace").strip()
@@ -1726,7 +1729,21 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
                 "diff-tree", "--root", "--no-commit-id", "--name-status", "-z",
                 "-r", f"--find-renames={threshold}", commit, "--",
             )
-        return self._parse_git_changes(self._git_bytes(*args))
+        changes = self._parse_git_changes(self._git_bytes(*args))
+        scoped = []
+        for item in changes:
+            path = self._content_vcs._relative_project_path(item.path)
+            if item.action == "R":
+                old_path = self._content_vcs._relative_project_path(item.old_path)
+                if old_path is not None and path is not None:
+                    scoped.append(_HistoryChange("R", path, old_path))
+                elif old_path is not None:
+                    scoped.append(_HistoryChange("D", old_path))
+                elif path is not None:
+                    scoped.append(_HistoryChange("A", path))
+            elif path is not None:
+                scoped.append(_HistoryChange(item.action, path))
+        return scoped
 
     @classmethod
     def _parse_git_changes(cls, data: bytes) -> List[_HistoryChange]:
@@ -1808,7 +1825,7 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
         cache_key = (str(version), path)
         if cache_key in self._git_mode_cache:
             return self._git_mode_cache[cache_key]
-        mode_line = self._git_bytes("ls-tree", "-z", version, "--", path)
+        mode_line = self._git_bytes("ls-tree", "-z", version, "--", self._content_vcs._repo_path(path))
         if not mode_line:
             return ""
         header = mode_line.split(b"\t", 1)[0].decode("ascii", errors="replace")
@@ -2394,7 +2411,7 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                     self._get_svn_properties(str(revision), new_path)
                     if new_path is not None else {}
                 )
-                if "svn:externals" in old_props or "svn:externals" in new_props:
+                if svn_externals_enabled(old_props) or svn_externals_enabled(new_props):
                     raise RuntimeError(
                         "SVN 多版本目录启用了 svn:externals，文件级交付无法保真，"
                         f"已中止生成: {item.path}@{revision}"
@@ -3020,7 +3037,7 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                 f"SVN 多版本端点是 svn:special（符号链接等特殊节点），"
                 f"已中止生成: {path}@{version}"
             )
-        if "svn:keywords" in properties:
+        if svn_keywords_enabled(properties):
             raise RuntimeError(
                 "SVN 多版本端点启用了 svn:keywords，svn cat 不能可靠复现"
                 f"工作副本展开字节，已中止生成: {path}@{version}"

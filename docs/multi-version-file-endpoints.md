@@ -139,3 +139,7 @@ newVersion/<new_path> = new_f 的完整文件内容
 15. 多版本界面与单项目报告使用“选中版本 / 生成结果”，不得伪装成统一“旧版本 / 新版本”。
 
 主要回归用例位于 `tests/test_multi_version_file_endpoints.py`、`tests/test_review_regressions.py`、`tests/test_adversarial_regressions.py`、`tests/test_terminal_round_adversarial_regressions.py`，以及五个 `tests/test_*_compatibility_after_aug27.py` 兼容性套件。
+
+## Git 子项目范围
+
+用户选择仓库子目录时，只规划这个子项目中的文件，排除规则和交付路径均相对于所选目录。对象、属性和文件 mode 查询会映射回仓库根相对路径。每个历史步先应用项目边界，再参与身份竞争：移出记作删除，移入记作新增，内部重命名继续追踪。禁止将同一仓库的兄弟项目变更装入当前项目的源码包。裸仓库保留根范围导出支持。

@@ -448,11 +448,11 @@ class DiffEngine:
             self.MAX_REPORT_RENDER_ROWS,
         )):
             old_line_count = (
-                len(old_decoded.text.splitlines())
+                len(self._split_diff_lines(old_decoded.text))
                 if old_decoded is not None else 0
             )
             new_line_count = (
-                len(new_decoded.text.splitlines())
+                len(self._split_diff_lines(new_decoded.text))
                 if new_decoded is not None else 0
             )
             budget_reason = self._reserve_report_budget(
@@ -470,14 +470,14 @@ class DiffEngine:
             file_diff.old_content = ""
             file_diff.new_content = new_decoded.text
             file_diff.deleted_lines = 0
-            file_diff.added_lines = len(file_diff.new_content.splitlines()) if file_diff.new_content else 0
+            file_diff.added_lines = len(self._split_diff_lines(file_diff.new_content))
             file_diff.side_by_side_html = self._side_by_side_empty_vs_new(
                 file_diff.new_content, cf.path)
 
         elif cf.change_type == ChangeType.DELETED:
             file_diff.old_content = old_decoded.text
             file_diff.new_content = ""
-            file_diff.deleted_lines = len(file_diff.old_content.splitlines()) if file_diff.old_content else 0
+            file_diff.deleted_lines = len(self._split_diff_lines(file_diff.old_content))
             file_diff.added_lines = 0
             file_diff.side_by_side_html = self._side_by_side_old_vs_empty(
                 file_diff.old_content, cf.path)
@@ -486,8 +486,8 @@ class DiffEngine:
             file_diff.old_content = old_decoded.text
             file_diff.new_content = new_decoded.text
 
-            old_lines = file_diff.old_content.splitlines()
-            new_lines = file_diff.new_content.splitlines()
+            old_lines = self._split_diff_lines(file_diff.old_content)
+            new_lines = self._split_diff_lines(file_diff.new_content)
             file_diff.added_lines, file_diff.deleted_lines = self._count_line_changes(
                 old_lines, new_lines)
 
@@ -503,8 +503,8 @@ class DiffEngine:
             file_diff.old_content = old_decoded.text
             file_diff.new_content = new_decoded.text
 
-            old_lines = file_diff.old_content.splitlines()
-            new_lines = file_diff.new_content.splitlines()
+            old_lines = self._split_diff_lines(file_diff.old_content)
+            new_lines = self._split_diff_lines(file_diff.new_content)
 
             file_diff.added_lines, file_diff.deleted_lines = self._count_line_changes(
                 old_lines, new_lines)
@@ -558,7 +558,9 @@ class DiffEngine:
             and self.MAX_TEXT_DIFF_LINE_BYTES is None
         ):
             return ""
-        lines = data.splitlines()
+        lines = re.split(rb"\r\n?|\n", data) if data else []
+        if lines and lines[-1] == b"":
+            lines.pop()
         if (
             self.MAX_TEXT_DIFF_LINES is not None
             and len(lines) > self.MAX_TEXT_DIFF_LINES
@@ -1026,6 +1028,16 @@ class DiffEngine:
     def _normalize_line_endings(text: str) -> str:
         return text.replace("\r\n", "\n").replace("\r", "\n")
 
+    @staticmethod
+    def _split_diff_lines(text: str) -> List[str]:
+        """仅按 CR/LF 拆行，保留其它分隔符参与差异计算。"""
+        if not text:
+            return []
+        lines = re.split(r"\r\n?|\n", text)
+        if lines[-1] == "":
+            lines.pop()
+        return lines
+
     def _format_only_details(
         self,
         old: _DecodedText,
@@ -1218,42 +1230,48 @@ class DiffEngine:
         old_desc = old_path or path
         escaped_old_desc = html.escape(old_desc)
         escaped_path = html.escape(path)
-        if self.show_full_context:
-            return hd.make_table(
-                old_lines, new_lines,
-                fromdesc=f'旧版本: {escaped_old_desc}',
-                todesc=f'新版本: {escaped_path}',
-                context=False
-            )
-        else:
-            return hd.make_table(
-                old_lines, new_lines,
-                fromdesc=f'旧版本: {escaped_old_desc}',
-                todesc=f'新版本: {escaped_path}',
-                context=True,
-                numlines=3
-            )
+        table = hd.make_table(
+            old_lines, new_lines,
+            fromdesc=f'旧版本: {escaped_old_desc}',
+            todesc=f'新版本: {escaped_path}',
+            context=not self.show_full_context,
+            numlines=3,
+        )
+        return self._show_special_separators(table)
+
+    @staticmethod
+    def _show_special_separators(table: str) -> str:
+        # 在 HtmlDiff 完成真实字符匹配后才添加可见标记，避免把原文中的
+        # 字面标记（例如“⟦U+2028⟧”）和真正的 U+2028 误判为相同内容。
+        return re.sub(
+            r"[\v\f\x1c-\x1e\x85\u2028\u2029]",
+            lambda match: (
+                '<span class="special-separator" title="原文中的特殊分隔符">'
+                f'⟦U+{ord(match.group()):04X}⟧</span>'
+            ),
+            table,
+        )
 
     def _side_by_side_empty_vs_new(self, new_content, path):
         """新增文件：左侧空，右侧新内容"""
         old_lines = []
-        new_lines = new_content.splitlines() if new_content else []
+        new_lines = self._split_diff_lines(new_content)
         hd = difflib.HtmlDiff(tabsize=4)
-        return hd.make_table(
+        return self._show_special_separators(hd.make_table(
             old_lines, new_lines,
             fromdesc='(新文件)',
             todesc=f'新版本: {html.escape(path)}',
             context=False
-        )
+        ))
 
     def _side_by_side_old_vs_empty(self, old_content, path):
         """删除文件：左侧旧内容，右侧空"""
-        old_lines = old_content.splitlines() if old_content else []
+        old_lines = self._split_diff_lines(old_content)
         new_lines = []
         hd = difflib.HtmlDiff(tabsize=4)
-        return hd.make_table(
+        return self._show_special_separators(hd.make_table(
             old_lines, new_lines,
             fromdesc=f'旧版本: {html.escape(path)}',
             todesc='(已删除)',
             context=False
-        )
+        ))

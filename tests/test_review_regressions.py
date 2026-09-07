@@ -741,6 +741,8 @@ class ArchiveAndFolderRegressionTests(unittest.TestCase):
 class VCSRegressionTests(unittest.TestCase):
     def test_rename_crossing_exclude_boundary_becomes_add_or_delete(self):
         vcs = GitVCS.__new__(GitVCS)
+        vcs._repository_root = "."
+        vcs._project_prefix = ""
         vcs.exclude_patterns = ["target/**"]
 
         moved_out = vcs._filter_files([
@@ -766,6 +768,8 @@ class VCSRegressionTests(unittest.TestCase):
 
     def test_git_type_change_fails_instead_of_exporting_wrong_type(self):
         vcs = GitVCS.__new__(GitVCS)
+        vcs._repository_root = "."
+        vcs._project_prefix = ""
         vcs.exclude_patterns = []
         vcs._version_pins = {"old": "a" * 40, "new": "b" * 40}
         vcs._run_bytes = lambda args: (
@@ -774,44 +778,6 @@ class VCSRegressionTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "文件类型发生变化"):
             vcs.get_changed_files("old", "new")
-
-    def test_git_attributes_override_core_autocrlf(self):
-        vcs = GitVCS.__new__(GitVCS)
-        vcs._get_checkout_attributes = mock.Mock()
-        vcs._git_config_value = mock.Mock(return_value="true")
-
-        vcs._get_checkout_attributes.return_value = {"text": "set", "eol": "lf"}
-        self.assertFalse(vcs._checkout_uses_crlf("v", "script.sh", b"a\nb\n"))
-
-        vcs._get_checkout_attributes.return_value = {"text": "unset", "eol": "unspecified"}
-        self.assertFalse(vcs._checkout_uses_crlf("v", "payload.dat", b"a\nb\n"))
-
-        vcs._get_checkout_attributes.return_value = {"text": "set", "eol": "crlf"}
-        self.assertTrue(vcs._checkout_uses_crlf("v", "windows.txt", b"a\nb\n"))
-
-    def test_git_unset_core_eol_uses_platform_native_for_marked_text(self):
-        vcs = GitVCS.__new__(GitVCS)
-        vcs._git_config_value = mock.Mock(return_value="")
-
-        with mock.patch.object(os, "linesep", "\r\n"):
-            for text_attr in ("set", "auto"):
-                with self.subTest(text_attr=text_attr):
-                    vcs._get_checkout_attributes = mock.Mock(return_value={
-                        "text": text_attr,
-                        "eol": "unspecified",
-                    })
-                    self.assertTrue(
-                        vcs._checkout_uses_crlf("v", "windows.txt", b"a\nb\n")
-                    )
-
-        with mock.patch.object(os, "linesep", "\n"):
-            vcs._get_checkout_attributes = mock.Mock(return_value={
-                "text": "set",
-                "eol": "unspecified",
-            })
-            self.assertFalse(
-                vcs._checkout_uses_crlf("v", "unix.txt", b"a\nb\n")
-            )
 
     def test_svn_explicit_eol_styles_are_applied(self):
         vcs = SVNVCS.__new__(SVNVCS)

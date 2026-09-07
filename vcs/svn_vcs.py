@@ -29,6 +29,18 @@ def _decode_bytes(data: bytes) -> str:
     return data.decode("utf-8", errors="replace")
 
 
+def svn_keywords_enabled(properties: dict) -> bool:
+    """空值或只含 ASCII 空白的属性没有启用任何关键字展开。"""
+    return bool(properties.get("svn:keywords", "").strip(" \t\r\n\v\f"))
+
+
+def svn_externals_enabled(properties: dict) -> bool:
+    """空行和整行注释不定义 external；其它行保守视为有效定义。"""
+    value = properties.get("svn:externals", "")
+    return any(line.strip() and not line.lstrip().startswith("#")
+               for line in value.split("\n"))
+
+
 class SVNVCS(BaseVCS):
     """SVN版本控制实现"""
 
@@ -233,7 +245,7 @@ class SVNVCS(BaseVCS):
                         self._get_properties(new_rev, rel_dir)
                         if item != "deleted" else {}
                     )
-                    if "svn:externals" in old_props or "svn:externals" in new_props:
+                    if svn_externals_enabled(old_props) or svn_externals_enabled(new_props):
                         raise RuntimeError(
                             "SVN 目录启用了 svn:externals，文件级交付无法保真，"
                             f"已中止生成: {rel_dir or '<项目根>'}"
@@ -639,7 +651,7 @@ class SVNVCS(BaseVCS):
                 "SVN 端点是 svn:special（符号链接等特殊节点），普通文件导出无法保真，"
                 f"已中止生成: {special_path}"
             )
-        if "svn:keywords" in old_props or "svn:keywords" in new_props:
+        if svn_keywords_enabled(old_props) or svn_keywords_enabled(new_props):
             raise RuntimeError(
                 "SVN 文件启用了 svn:keywords，svn cat 不能可靠复现工作副本展开字节，"
                 f"已中止生成: {new_path or old_path}"
