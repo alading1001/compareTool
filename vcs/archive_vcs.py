@@ -69,7 +69,7 @@ class ArchiveVCS(BaseVCS):
     _ZIP_CENTRAL_SIGNATURE = b"PK\x01\x02"
     _ZIP_DIGITAL_SIGNATURE = b"PK\x05\x05"
 
-    def __init__(self, old_archive: str, new_archive: str):
+    def __init__(self, old_archive: str, new_archive: str, *, ignore_single_root: bool = False):
         self.old_archive = old_archive
         self.new_archive = new_archive
         self._tmp_old = ""
@@ -77,6 +77,9 @@ class ArchiveVCS(BaseVCS):
         self._folder = None
         self._old_metadata = {}
         self._new_metadata = {}
+        self.old_root_prefix = ""
+        self.new_root_prefix = ""
+        self.comparison_note = ""
         self._preflighted_sources = set()
         try:
             with ExitStack() as source_stack:
@@ -135,8 +138,28 @@ class ArchiveVCS(BaseVCS):
                 self._extract(new_source, self._tmp_new, self._new_metadata)
                 self._verify_archive_source(old_capture, old_source)
                 self._verify_archive_source(new_capture, new_source)
+                old_root, new_root = self._tmp_old, self._tmp_new
+                if ignore_single_root:
+                    old_root, self.old_root_prefix = self._single_directory_root(
+                        self._tmp_old, "旧"
+                    )
+                    new_root, self.new_root_prefix = self._single_directory_root(
+                        self._tmp_new, "新"
+                    )
+                    self._old_metadata = self._rebase_metadata(
+                        self._old_metadata, self.old_root_prefix
+                    )
+                    self._new_metadata = self._rebase_metadata(
+                        self._new_metadata, self.new_root_prefix
+                    )
+                    self.comparison_note = (
+                        "已忽略最外层单一文件夹；"
+                        f"旧比较根：{self.old_root_prefix}/；"
+                        f"新比较根：{self.new_root_prefix}/。"
+                        "报告、导出和排除规则均相对于上述目录。"
+                    )
                 self._folder = FolderVCS(
-                    self._tmp_old, self._tmp_new, snapshot=False
+                    old_root, new_root, snapshot=False
                 )
                 super().__init__(self._tmp_new)
         except Exception:
@@ -144,6 +167,31 @@ class ArchiveVCS(BaseVCS):
             raise
 
     # ── 压缩包解压 ──
+
+    @staticmethod
+    def _single_directory_root(root: str, label: str):
+        """只进入一层真实的唯一目录，不能按排除规则挑出一个剩余目录。"""
+        with os.scandir(root) as entries:
+            first = next(entries, None)
+            if (
+                first is None
+                or next(entries, None) is not None
+                or not first.is_dir(follow_symlinks=False)
+                or is_link_or_junction(first.path)
+            ):
+                raise ValueError(
+                    f"{label}压缩包不满足“忽略最外层单一文件夹”："
+                    "顶层必须只有一个文件夹，不能同时有文件或其它文件夹。"
+                    "请取消勾选，或手工解压后选择对应目录进行文件夹比对。"
+                )
+            return first.path, first.name
+
+    @staticmethod
+    def _rebase_metadata(metadata: dict, root_prefix: str) -> dict:
+        prefix = root_prefix + "/"
+        if any(not path.startswith(prefix) for path in metadata):
+            raise ValueError("压缩包文件属性路径超出所选比较根目录")
+        return {path[len(prefix):]: value for path, value in metadata.items()}
 
     @staticmethod
     def _open_archive_source(stack: ExitStack, source: str):
@@ -1027,6 +1075,7 @@ class ArchiveVCS(BaseVCS):
 
     def get_changed_files(self, old_version: str = "", new_version: str = "") -> List[ChangedFile]:
         files = self._folder.get_changed_files("old", "new")
+        self.required_directory_deletions = self._folder.required_directory_deletions
         by_path = {item.path: item for item in files}
         for path in sorted(set(self._old_metadata) | set(self._new_metadata)):
             old = self._old_metadata.get(path)

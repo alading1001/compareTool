@@ -125,6 +125,8 @@ table.diff span { white-space: pre; }
     </div>
 </div>
 
+{% if comparison_note %}<div class="delivery-note">{{ comparison_note }}</div>{% endif %}
+
 <div class="summary">
     <div class="card total"><div class="num">{{ summary.total_files }}</div><div class="lbl">变更文件</div></div>
     <div class="card added"><div class="num">{{ summary.added_files }}</div><div class="lbl">新增</div></div>

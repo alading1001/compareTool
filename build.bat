@@ -76,7 +76,7 @@ if errorlevel 1 (
 )
 
 if defined INSTALL_DEPS (
-    echo [1/2] Installing build dependencies...
+    echo [1/3] Installing build dependencies...
     %PYTHON_CMD% -m pip install -r requirements.txt
     if errorlevel 1 (
         echo.
@@ -85,11 +85,11 @@ if defined INSTALL_DEPS (
         exit /b 1
     )
 ) else (
-    echo [1/2] Build dependencies already installed
+    echo [1/3] Build dependencies already installed
 )
 
 echo.
-echo [2/2] Building...
+echo [2/3] Building...
 
 %PYTHON_CMD% -m PyInstaller ^
     --onefile ^
@@ -111,8 +111,18 @@ if errorlevel 1 (
 )
 
 echo.
+echo [3/3] Copying user manual...
+copy /Y "docs\CompareTool_*.pdf" "dist\" >nul
+if errorlevel 1 (
+    echo Failed to copy the user manual from docs to dist.
+    pause
+    exit /b 1
+)
+
+echo.
 echo ============================================
 echo  Build finished!
 echo  Output: dist\CompareTool.exe
+echo  Manual: dist\CompareTool_*.pdf
 echo ============================================
 pause

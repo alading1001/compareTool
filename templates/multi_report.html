@@ -134,7 +134,7 @@ table.diff span { white-space: pre; }
 
 <div class="project-strip">
 {% for project in projects %}
-    <span class="project-pill"><b>{{ project.project_name }}</b>{{ project.vcs_type }} · {{ project.diff_result.summary.total_files }} 个文件</span>
+    <span class="project-pill"><b>{{ project.project_name }}</b>{{ project.vcs_type }} · {{ project.diff_result.summary.total_files }} 个文件{% if project.diff_result.comparison_note %}<br>{{ project.diff_result.comparison_note }}{% endif %}</span>
 {% endfor %}
 </div>
 

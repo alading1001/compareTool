@@ -19,6 +19,8 @@ build.bat
 
 `build.bat` 优先复用项目内 `.venv`；不存在时优先使用 Python 3.12 创建 `.venv`，并按 `requirements.txt` 补齐构建依赖。打包时需确保 `templates/` 和 `assets/` 目录与 main.py 在同一目录下。PyInstaller 的 `--add-data` 已处理 `templates` 和 `assets`。应用图标使用 `assets/icons/app.ico`，`--icon` 写入 exe 图标，运行时窗口图标也从同一路径加载。使用 `--console` 而非 `--windowed`，确保 git/svn 子进程有终端可用，避免凭据认证弹 GUI 窗口。每次正式打包后必须启动新 EXE 做冒烟验证，不能只以 PyInstaller 返回成功判定可交付。
 
+使用说明书的唯一维护源是 `docs/manual/build_manual.py`，正式 PDF 位于 `docs/CompareTool_使用说明书.pdf`；`dist` 中只放交付副本，`build.bat` 负责复制。界面流程变化时同步源稿和 PDF，按 [说明书维护](docs/manual/README.md) 校验结构、两份字节一致并渲染检查；文档维护依赖不加入应用依赖。
+
 ## 架构
 
 ```
@@ -126,6 +128,8 @@ Git/SVN 可执行文件路径均自动探测：先查 `shutil.which`，再查 Wi
 文件夹和归档的预捕获路径与读取时已打开句柄必须比较稳定文件 ID：Windows 使用卷序列号与 FileId，其它平台使用设备号/inode；不能只比较 handle 的大小和 mtime，否则同大小同时间戳替换可以混入未捕获内容。
 
 **排除规则转发**：`ArchiveVCS` 覆写 `set_exclude_patterns()`，将规则同步传给内部 `FolderVCS`，否则排除规则不会生效。
+
+**比较根目录**：压缩包模式提供默认关闭的「忽略最外层单一文件夹」选项，传入 `ArchiveVCS(ignore_single_root=True)`。安全解压完成后，两端分别必须恰有一个真实顶层目录且无其它顶层项；只进入一层，不递归剥离、不按排除规则筛选顶层、不猜测目录对应关系。不满足时失败并提示取消勾选或手工选择目录。内部 `FolderVCS` 根和归档权限元数据同时重定位，报告、排除规则、摘要、读取、导出、重命名及目录删除说明使用同一内层相对路径。所有权临时根保持不变以便完整清理。`comparison_note` 记录两侧根名称，单/多项目报告与上线说明均展示。GUI 的 `ignore_archive_root` 按新压缩包路径记忆，并保存到多项目任务快照；旧配置缺字段默认关闭。
 
 **报告路径修正**：`main.py` 在生成 diff 后，对压缩包模式将 `diff_result.project_path` 覆写为压缩包文件名（而非临时目录），避免报告头部泄露临时路径。
 

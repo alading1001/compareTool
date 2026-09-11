@@ -51,6 +51,7 @@ class ReportGenerator:
             vcs_type=diff_result.vcs_type,
             old_version=diff_result.old_version,
             new_version=diff_result.new_version,
+            comparison_note=diff_result.comparison_note,
             summary=summary,
             files=report_files,
             manifest_files=manifest_files,

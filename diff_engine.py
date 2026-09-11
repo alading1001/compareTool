@@ -67,6 +67,7 @@ class DiffResult:
     new_version: str
     files: List[FileDiff] = field(default_factory=list)
     required_directory_deletions: List[str] = field(default_factory=list)
+    comparison_note: str = ""
 
     # 正常任务默认完整列出全部变更。数值上限只保留为测试/显式策略注入点，
     # 不能因为预计报告较大就让原本可生成的任务静默截断。
@@ -268,6 +269,7 @@ class DiffEngine:
             old_version=old_version,
             new_version=new_version,
             required_directory_deletions=sorted(required_directories),
+            comparison_note=getattr(self.vcs, "comparison_note", ""),
         )
 
         for cf in changed_files:

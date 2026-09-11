@@ -6,6 +6,8 @@
 
 ## 导出事务
 
+压缩包勾选「忽略最外层单一文件夹」时，两端都必须只有一个顶层目录；仅去掉一层。报告路径、排除规则、权限元数据、重命名旧/新路径、目录删除说明和导出均基于该内层根，不能只在界面隐藏前缀。报告和上线说明须记录两侧实际根名称。默认关闭；任一侧不满足条件则整次生成失败，不提交输出。
+
 `FileExporter` 导出变更文件：内置 VCS 统一通过 `export_file_to_path()` 流式写入暂存目标，避免大文件形成整块内存副本；无法流式导出的旧扩展仍按旧合同完整读取并写出，不因未知或预计大小拒绝。读取或转换失败必须使本次导出失败，不能静默漏文件或用不可靠的空文本兜底。单项目的报告、`<项目名>_上线操作说明.txt` 和 old/new 目录在各自同盘暂存后一次成组提交；正式单项目源码 stage 必须放在用户配置的可信输出根下随机 wrapper，不得混进 `oldVersion/newVersion`，多项目内层导出则显式标记目标已是外层 stage。多项目每次使用独立 `multi_run_时间戳_随机标识` 目录，全部成功后成组提交本次 old/new 根及另外两类产物，任一步失败都恢复原有输出。耗时生成前必须捕获所有正式目标的文件系统树状态，提交锁内恢复旧事务后再复核，目标变化时拒绝让慢任务覆盖新结果。事务根到 stage/target/backup 的所有现存路径组件都不得是链接或联接点。提交时写 `.comparetool_transaction_*.json` 恢复日志和 commit/rollback 决策标记；journal 和决策标记必须由独立的每用户私钥做 HMAC-SHA256 验签，并记录 stage/target/backup 身份。输出根可以是私钥路径的广义祖先，但正式输出目标不得指向或覆盖私钥；未通过验证或对象身份变化时只保留现场，禁止自动删除或替换。8 月 27 日前的 v1 无签名日志不能作为恢复或删除授权；严格识别后原样保留并告警，但不得永久阻断用户提交本次新生成的完整结果。stage 所有权标记记录持有 PID，活进程的暂存物不得被另一实例清理。启动扫描先只读识别真实候选，再只对候选目录加锁；只额外识别批次目录下一层严格命名的 `multi_run_*`，不得递归用户源码树或向普通输出子目录写锁文件。重命名文件导出时 oldVersion 使用 `old_path`，newVersion 使用 `file_path`。
 
 事务补充合同：主流程必须把用户配置的输出目录作为可信根传给目标快照、stage 创建、提交锁和恢复逻辑，不能从计算出的批次事务根才开始检查祖先。报告、说明和源码 stage 必须直接创建在可信输出根，不能写入生成期间可能被替换成 junction 的 batch/multi_run 子目录；创建后且写入内容前还要复核路径组件。固定锁文件必须以排他创建/安全打开方式拒绝链接、联接点、硬链接和替换竞态。tree identity 必须流式绑定每个普通文件的内容摘要，不能只依赖大小和 mtime。恢复删除前先把路径原子移动到由签名 journal 的 token 和源路径确定性派生的同目录隔离名，再验证被移动对象身份；恢复状态机必须识别隔离待清理、旧目标已恢复等中间态并可幂等续做。不匹配时保留现场，禁止按旧路径直接删除。有效签名 journal 是中断恢复的独立授权，不能依赖提交后可能被 finally 清理的 stage marker；PID stage marker 只授权无日志孤儿 stage 清理。
@@ -45,6 +47,8 @@ Windows 上 `core.autocrlf=true`（Git）或 `svn:eol-style=native`（SVN）会�
 普通 Git/SVN 生成开始时必须把用户填写的可变版本标识固定为完整 commit OID/数字 revision，后续差异、内容、属性和导出均复用同一端点，报告仍显示用户原始输入。Git filter 名保留大小写，按驱动成组固定并复核 `smudge`、`process` 和 `required` 配置；没有检出程序且未要求强制转换的 filter（包括仅配置 clean）允许按普通文件导出。实际启用检出转换或要求强制转换的 filter，以及启用的 `working-tree-encoding`、`ident` 或旧 `crlf` 属性，仍因无法可靠复现 checkout 字节而中止。`check-attr` 输出中的 `set`/`unset`/`unspecified` 可能是同名字面 filter 驱动，必须由隔离 Git 区分；只复制“必需但无程序”的拒绝策略，不复制或执行 smudge/process，真正的 `-filter`/`!filter` 等状态仍可正常导出。普通 SVN 和 SVN 多版本均允许空值或仅含 ASCII 空白的 `svn:keywords`；`svn:externals` 的空白和整行注释不视为有效定义，其它定义及非空 keywords 仍须中止。
 
 ## 验证入口
+
+压缩包根目录回归见 [test_archive_comparison_root.py](../tests/test_archive_comparison_root.py)：默认完整路径、只进入一层、ZIP/TAR、相对排除规则、权限元数据、重命名、报告与导出一致、异常结构中止清理，以及 GUI 和多项目任务选项保存。
 
 新增完整性回归位于 [test_complete_export_review_fixes.py](../tests/test_complete_export_review_fixes.py)：真实 Git 普通/多版本的 NTFS 别名碰撞及旧输出保留，合法 `~` 名称，520 行相似文本递归复现，随机差异表内容还原、上下文，以及未知编码字节与字面标记不混淆。
 

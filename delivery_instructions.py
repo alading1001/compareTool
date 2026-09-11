@@ -141,6 +141,10 @@ def write_delivery_instructions(project_results: list, output_path: str):
         "说明：新增和修改文件不在此重复列出，请直接以 newVersion 目录为准。",
         "",
     ])
+    for project in project_results:
+        note = getattr(project["diff_result"], "comparison_note", "")
+        if note:
+            lines.append(f"比较范围 [{project.get('project_name', '')}]：{note}")
     with open(output_path, "w", encoding="utf-8-sig", newline="\r\n") as handle:
         handle.write("\n".join(lines))
 

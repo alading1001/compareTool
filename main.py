@@ -355,6 +355,24 @@ class CompareToolApp:
         self.new_archive_btn = ttk.Button(new_frame, text="选择压缩包...", command=lambda: self._browse_archive(self.new_version_var))
         # 文件夹/压缩包浏览按钮初始隐藏
 
+        self.ignore_archive_root_var = tk.BooleanVar(value=False)
+        self.archive_options_frame = ttk.Frame(main)
+        self.archive_options_frame.grid(row=12, column=0, columnspan=3, sticky=tk.EW, pady=(0, 5))
+        ttk.Checkbutton(
+            self.archive_options_frame, text="忽略最外层单一文件夹",
+            variable=self.ignore_archive_root_var,
+        ).pack(anchor=tk.W)
+        archive_root_help = ttk.Label(
+            self.archive_options_frame,
+            text="两边都必须只有一个顶层文件夹；只忽略一层，报告和导出使用内部路径。",
+            foreground="#555555", wraplength=720, justify=tk.LEFT,
+        )
+        archive_root_help.pack(anchor=tk.W, fill=tk.X, pady=(2, 0))
+        self.archive_options_frame.bind(
+            "<Configure>", lambda e: archive_root_help.configure(wraplength=max(360, e.width - 4))
+        )
+        self.archive_options_frame.grid_remove()
+
         # 版本列表 + 填入按钮（仅 Git/SVN 模式使用）
         self.version_listbox = tk.Listbox(main, height=7, exportselection=False, selectmode=tk.SINGLE)
         self.version_listbox.grid(row=12, column=0, columnspan=3, sticky=tk.EW, pady=(0, 4))
@@ -575,6 +593,9 @@ class CompareToolApp:
                 "exclude_rules": item.get("exclude_rules", "") if isinstance(item.get("exclude_rules", ""), str) else "",
                 "show_project_root": self._option_bool(item.get("show_project_root"), default=True),
                 "show_full_context": self._option_bool(item.get("show_full_context"), default=True),
+                "ignore_archive_root": vcs_type == "archive" and self._option_bool(
+                    item.get("ignore_archive_root"), default=False
+                ),
             })
         return normalized
 
@@ -1045,10 +1066,20 @@ class CompareToolApp:
         return self.exclude_text.get("1.0", tk.END).strip()
 
     def _current_display_options(self) -> dict:
+        archive_option = getattr(self, "ignore_archive_root_var", None)
         return {
             "show_project_root": self.show_project_root_var.get(),
             "show_full_context": self.show_full_context_var.get(),
+            # 切换类型的 trace 执行时 vcs_var 已经改变，仍需保存离开前的选项。
+            "ignore_archive_root": bool(archive_option and archive_option.get()),
         }
+
+    def _ignore_archive_root(self) -> bool:
+        var = getattr(self, "ignore_archive_root_var", None)
+        return (
+            self.vcs_var.get() == "archive" and var is not None
+            and self._option_bool(var.get(), default=False)
+        )
 
     def _current_output_batch_name(self) -> str:
         if not hasattr(self, "output_batch_var"):
@@ -1081,6 +1112,8 @@ class CompareToolApp:
         options = options or {}
         self.show_project_root_var.set(self._option_value(options.get("show_project_root"), default=True))
         self.show_full_context_var.set(self._option_value(options.get("show_full_context"), default=True))
+        if hasattr(self, "ignore_archive_root_var"):
+            self.ignore_archive_root_var.set(self._option_bool(options.get("ignore_archive_root"), default=False))
 
     def _project_key_for_values(self, vcs_type: str, project_path: str, old_version: str, new_version: str) -> str:
         if vcs_type == "archive":
@@ -1260,6 +1293,11 @@ class CompareToolApp:
         is_folder = vcs_type == "folder"
         is_archive = vcs_type == "archive"
         is_multi = vcs_type in ("git_multi", "svn_multi")
+        if hasattr(self, "archive_options_frame"):
+            if is_archive:
+                self.archive_options_frame.grid()
+            else:
+                self.archive_options_frame.grid_remove()
         self.vcs_help_var.set(self._vcs_help_text(vcs_type))
         self.status_var.set("就绪")
         self._project_name_manual = False
@@ -1761,6 +1799,7 @@ class CompareToolApp:
             "exclude_rules": exclude_rules,
             "show_project_root": self.show_project_root_var.get() == "yes",
             "show_full_context": self.show_full_context_var.get() == "yes",
+            "ignore_archive_root": self._ignore_archive_root(),
         }
 
     def _ensure_unique_task_name(self, project_name: str, editing_index=None) -> bool:
@@ -1821,6 +1860,7 @@ class CompareToolApp:
         self.project_name_var.set(task.get("project_name", ""))
         self.show_project_root_var.set(self._option_value(task.get("show_project_root"), default=True))
         self.show_full_context_var.set(self._option_value(task.get("show_full_context"), default=True))
+        self.ignore_archive_root_var.set(self._option_bool(task.get("ignore_archive_root"), default=False))
         self._project_name_manual = True
         self._replace_exclude_text(task.get("exclude_rules", self._default_exclude_rules))
         self._last_exclude_key = task.get("exclude_key", "")
@@ -1926,7 +1966,10 @@ class CompareToolApp:
         exclude_text = task.get("exclude_rules", "").strip()
         exclude_patterns = exclude_text.split("\n") if exclude_text else []
         if vcs_type == "archive":
-            return ArchiveVCS(task["old_version"], task["new_version"]), True
+            return ArchiveVCS(
+                task["old_version"], task["new_version"],
+                ignore_single_root=self._option_bool(task.get("ignore_archive_root"), default=False),
+            ), True
         if vcs_type == "folder":
             return FolderVCS(task["old_version"], task["new_version"]), True
         if vcs_type == "git_multi":
@@ -2133,6 +2176,7 @@ class CompareToolApp:
         ]
         show_full = self.show_full_context_var.get() == "yes"
         show_project_root = self.show_project_root_var.get() == "yes"
+        ignore_archive_root = self._ignore_archive_root()
         self._save_current_config()
         self._set_generating(True)
         self.progress.start()
@@ -2143,6 +2187,7 @@ class CompareToolApp:
             exclude_patterns, show_full, show_project_root,
             report_path, old_export, new_export,
             os.path.abspath(self.output_dir_var.get().strip()),
+            ignore_archive_root,
         ), daemon=True)
         thread.start()
 
@@ -2222,7 +2267,8 @@ class CompareToolApp:
     def _do_generate(
             self, project_path, vcs_type, old_version, new_version, project_name,
             exclude_patterns, show_full, show_project_root,
-            report_path, old_export, new_export, trusted_output_root=""):
+            report_path, old_export, new_export, trusted_output_root="",
+            ignore_archive_root=False):
         cleanup_vcs = None  # 持有引用以便 finally 清理临时目录
         try:
             trusted_output_root = (
@@ -2267,7 +2313,7 @@ class CompareToolApp:
             info(f"project_path={project_path}, vcs_type={vcs_type}, old={old_version}, new={new_version}")
 
             if vcs_type == "archive":
-                vcs = ArchiveVCS(old_version, new_version)
+                vcs = ArchiveVCS(old_version, new_version, ignore_single_root=ignore_archive_root)
                 cleanup_vcs = vcs
             elif vcs_type == "folder":
                 vcs = FolderVCS(old_version, new_version)
