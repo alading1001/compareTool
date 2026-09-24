@@ -12,6 +12,8 @@
 
 事务补充合同：主流程必须把用户配置的输出目录作为可信根传给目标快照、stage 创建、提交锁和恢复逻辑，不能从计算出的批次事务根才开始检查祖先。报告、说明和源码 stage 必须直接创建在可信输出根，不能写入生成期间可能被替换成 junction 的 batch/multi_run 子目录；创建后且写入内容前还要复核路径组件。固定锁文件必须以排他创建/安全打开方式拒绝链接、联接点、硬链接和替换竞态。tree identity 必须流式绑定每个普通文件的内容摘要，不能只依赖大小和 mtime。恢复删除前先把路径原子移动到由签名 journal 的 token 和源路径确定性派生的同目录隔离名，再验证被移动对象身份；恢复状态机必须识别隔离待清理、旧目标已恢复等中间态并可幂等续做。不匹配时保留现场，禁止按旧路径直接删除。有效签名 journal 是中断恢复的独立授权，不能依赖提交后可能被 finally 清理的 stage marker；PID stage marker 只授权无日志孤儿 stage 清理。
 
+恢复与重试：生成前在可信根的事务锁内恢复与本次目标重叠的旧事务，再捕获生成基线，提交时仍须在锁内复核。有效签名、合法路径和决策标记均校验后，才可跳过无关事务；范围判断包括正式目标、备份、暂存及隔离路径，覆盖 Windows 大小写和实际短别名。跳过时保留该日志及其暂存物，不因其它项目失败阻塞本次生成。无法验证签名或范围时仍保留现场并报错。回滚未完成期间，外层 finally 不得清除日志引用的暂存项或所有权标记；日志本身删除失败时必须保留决策及所有权标记。兼容旧版已清理 stage 的现场：正式目标缺失而完整旧备份身份匹配时可继续回滚，不能覆盖身份不同的现存文件，也不能把已提交但安装不完整的事务当作回滚成功。报错同时保留最初提交错误和回滚错误。
+
 ## 差异展示
 
 `DiffEngine.__init__` 接收 `show_full_context` 参数（由 GUI 单选按钮控制）。`True` 时展示文件全部行（`context=False`），`False` 时仅展示差异上下文（`context=True, numlines=3`）。默认为全部内容。
@@ -47,6 +49,8 @@ Windows 上 `core.autocrlf=true`（Git）或 `svn:eol-style=native`（SVN）会�
 普通 Git/SVN 生成开始时必须把用户填写的可变版本标识固定为完整 commit OID/数字 revision，后续差异、内容、属性和导出均复用同一端点，报告仍显示用户原始输入。Git filter 名保留大小写，按驱动成组固定并复核 `smudge`、`process` 和 `required` 配置；没有检出程序且未要求强制转换的 filter（包括仅配置 clean）允许按普通文件导出。实际启用检出转换或要求强制转换的 filter，以及启用的 `working-tree-encoding`、`ident` 或旧 `crlf` 属性，仍因无法可靠复现 checkout 字节而中止。`check-attr` 输出中的 `set`/`unset`/`unspecified` 可能是同名字面 filter 驱动，必须由隔离 Git 区分；只复制“必需但无程序”的拒绝策略，不复制或执行 smudge/process，真正的 `-filter`/`!filter` 等状态仍可正常导出。普通 SVN 和 SVN 多版本均允许空值或仅含 ASCII 空白的 `svn:keywords`；`svn:externals` 的空白和整行注释不视为有效定义，其它定义及非空 keywords 仍须中止。
 
 ## 验证入口
+
+事务重试回归见 [test_output_recovery_retry.py](../tests/test_output_recovery_retry.py)：真实 Windows 文件占用解除后的重试、旧版丢失 stage 的恢复、finally 保留恢复材料、日志删除失败、首次 GUI 重试、无关事务隔离，以及签名和并发写入保护。
 
 压缩包根目录回归见 [test_archive_comparison_root.py](../tests/test_archive_comparison_root.py)：默认完整路径、只进入一层、ZIP/TAR、相对排除规则、权限元数据、重命名、报告与导出一致、异常结构中止清理，以及 GUI 和多项目任务选项保存。
 

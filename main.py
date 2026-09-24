@@ -2300,7 +2300,7 @@ class CompareToolApp:
                 [report_path, instruction_target],
                 allow_descendant_outputs=vcs_type not in ("folder", "archive"),
             )
-            expected_target_states = FileExporter.capture_target_states(
+            expected_target_states = FileExporter.prepare_target_states(
                 [
                     FileExporter._safe_join(old_export, project_name),
                     FileExporter._safe_join(new_export, project_name),
@@ -2448,7 +2448,7 @@ class CompareToolApp:
                         "folder", "archive"
                     ),
                 )
-            expected_target_states = FileExporter.capture_target_states(
+            expected_target_states = FileExporter.prepare_target_states(
                 [old_export, new_export, report_path, instruction_target],
                 trusted_root=trusted_output_root,
             )

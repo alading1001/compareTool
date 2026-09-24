@@ -7,6 +7,7 @@ import secrets
 import shutil
 import stat
 import tempfile
+import threading
 import time
 import uuid
 from contextlib import contextmanager
@@ -48,6 +49,9 @@ class FileExporter:
     _MULTI_RUN_DIRECTORY_PATTERN = re.compile(
         r"^multi_run_\d{8}_\d{6}_\d{3}(?:_[0-9a-f]{8})?$"
     )
+    # 只用于当前进程的 finally 清理；跨进程恢复仍由签名日志独立授权。
+    _pending_stage_journals = {}
+    _pending_stage_lock = threading.Lock()
 
     def __init__(self, diff_result: DiffResult, vcs):
         self.diff_result = diff_result
@@ -65,7 +69,7 @@ class FileExporter:
         target_old = self._safe_join(old_dir, project_name) if project_name else old_dir
         target_new = self._safe_join(new_dir, project_name) if project_name else new_dir
         trusted_root = self._transaction_root([target_old, target_new])
-        expected_target_states = self.capture_target_states(
+        expected_target_states = self.prepare_target_states(
             [target_old, target_new], trusted_root=trusted_root
         )
         pairs = self.prepare_export(
@@ -155,6 +159,13 @@ class FileExporter:
     def _cleanup_stage(cls, stage: str):
         if not stage:
             return
+        stage_key = cls._target_state_key(stage)
+        with cls._pending_stage_lock:
+            journal = cls._pending_stage_journals.get(stage_key)
+            if journal and os.path.lexists(journal):
+                # 回滚未完成时不能让外层 finally 破坏可重试的事务状态。
+                return
+            cls._pending_stage_journals.pop(stage_key, None)
         parent = os.path.dirname(os.path.abspath(stage))
         owner = parent if os.path.basename(parent).startswith(".comparetool_stage_") else stage
         if os.path.lexists(stage):
@@ -313,6 +324,20 @@ class FileExporter:
                 pass
             remove_ownership_marker(stage_path)
             raise
+
+    @classmethod
+    def prepare_target_states(cls, targets, trusted_root: str = "") -> dict:
+        """先恢复相关旧事务，再固定本次生成基线，避免恢复本身被误判为外部修改。"""
+        targets = [os.path.abspath(path) for path in targets]
+        root = cls._validate_trusted_paths(
+            trusted_root or cls._transaction_root(targets), targets, "输出目标路径"
+        )
+        with cls._transaction_lock(root, trusted_root=root):
+            cls.recover_transactions(
+                root, raise_on_error=True, acquire_locks=False,
+                trusted_root=root, relevant_targets=targets,
+            )
+            return cls.capture_target_states(targets, trusted_root=root)
 
     @classmethod
     def capture_target_states(cls, targets, trusted_root: str = "") -> dict:
@@ -675,7 +700,8 @@ class FileExporter:
         if state["had_target"]:
             if stage_exists and not backup_exists and target_role == "old":
                 return "initial"
-            if stage_exists and backup_exists and target_role == "missing":
+            # 旧版 finally 可能已删掉 stage；完整且身份匹配的旧备份仍可恢复。
+            if backup_exists and target_role == "missing":
                 return "backed_up"
             if not stage_exists and target_role == "new":
                 return "installed"
@@ -985,6 +1011,7 @@ class FileExporter:
                 protected_stages=[stage for stage, _target in normalized_pairs],
                 acquire_locks=False,
                 trusted_root=trusted_root,
+                relevant_targets=[target for _stage, target in normalized_pairs],
             )
             verified_target_identities = {}
             if expected_target_states is not None:
@@ -1078,6 +1105,7 @@ class FileExporter:
             if rollback_errors:
                 raise RuntimeError(
                     "输出提交失败，且自动回滚未完全成功，请保留现场并检查备份目录：\n"
+                    + f"最初错误：{original_exc}\n回滚错误：\n"
                     + "\n".join(rollback_errors)
                 ) from original_exc
             cls._remove_journal(journal_path)
@@ -1176,6 +1204,9 @@ class FileExporter:
         except BaseException:
             cls._remove_journal(journal_path)
             raise
+        with cls._pending_stage_lock:
+            for state in states:
+                cls._pending_stage_journals[cls._target_state_key(state["stage"])] = journal_path
         return journal_path
 
     @staticmethod
@@ -1198,11 +1229,23 @@ class FileExporter:
             return ""
         return os.path.abspath(root)
 
-    @staticmethod
-    def _remove_journal(journal_path: str):
+    @classmethod
+    def _remove_journal(cls, journal_path: str):
         if not journal_path:
             return
-        for path in (journal_path, f"{journal_path}.commit", f"{journal_path}.rollback"):
+        try:
+            os.remove(journal_path)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            # 日志被占用时，决策和所有权标记也必须留下，供解除占用后续做。
+            warn(f"清理输出事务日志失败: {journal_path}: {exc}")
+            return
+        with cls._pending_stage_lock:
+            for stage, journal in list(cls._pending_stage_journals.items()):
+                if journal == journal_path:
+                    del cls._pending_stage_journals[stage]
+        for path in (f"{journal_path}.commit", f"{journal_path}.rollback"):
             if not os.path.isfile(path):
                 continue
             try:
@@ -1480,6 +1523,7 @@ class FileExporter:
         acquire_locks: bool = True,
         include_nested_multi_runs: bool = False,
         trusted_root: str = "",
+        relevant_targets=None,
     ):
         """恢复上次非正常中断的输出事务。"""
         if not output_root:
@@ -1543,6 +1587,7 @@ class FileExporter:
                             protected_stages=protected_stages,
                             acquire_locks=False,
                             trusted_root=anchor,
+                            relevant_targets=relevant_targets,
                         ))
                 except RuntimeError as exc:
                     if raise_on_error:
@@ -1575,10 +1620,15 @@ class FileExporter:
                     )
                     continue
                 try:
-                    cls._recover_transaction_journal(
-                        journal_path, directory, trusted_root=anchor
+                    result = cls._recover_transaction_journal(
+                        journal_path, directory, trusted_root=anchor,
+                        relevant_targets=relevant_targets,
                     )
-                    recovered.append(journal_path)
+                    if result is False:
+                        # 不相关的有效事务原样保留，也不能把它的 stage 当孤儿清理。
+                        directory_failed = True
+                    else:
+                        recovered.append(journal_path)
                 except Exception as exc:
                     warn(f"恢复输出事务失败，已保留日志: {journal_path}: {exc}")
                     failures.append(f"{journal_path}: {exc}")
@@ -1751,7 +1801,8 @@ class FileExporter:
 
     @classmethod
     def _recover_transaction_journal(
-        cls, journal_path: str, root: str, trusted_root: str = ""
+        cls, journal_path: str, root: str, trusted_root: str = "",
+        relevant_targets=None,
     ):
         if not is_owned(journal_path):
             raise RuntimeError("事务日志缺少 CompareTool 所有权标记")
@@ -1903,6 +1954,10 @@ class FileExporter:
         )
         if commit_marker and rollback_marker:
             raise RuntimeError("事务决策标记冲突")
+        if relevant_targets is not None and not cls._transaction_overlaps_targets(
+            states, relevant_targets
+        ):
+            return False
         phases = [cls._recovery_state_phase(state) for state in states]
         inferred_commit = bool(states) and all(
             phase == "installed" for phase in phases
@@ -1943,6 +1998,27 @@ class FileExporter:
             else:
                 remove_ownership_marker(state["stage"])
         cls._remove_journal(journal_path)
+
+    @classmethod
+    def _transaction_overlaps_targets(cls, states, targets) -> bool:
+        """有效日志才可按范围跳过；包含备份/暂存/隔离路径及真实短别名路径。"""
+        def keys(path):
+            return {
+                cls._target_state_key(value).rstrip("\\")
+                for value in (path, os.path.realpath(path))
+            }
+
+        requested = {key for target in targets for key in keys(target)}
+        for state in states:
+            paths = [state["target"], state["backup"], state["stage"],
+                     cls._stage_owner(state["stage"]),
+                     *cls._quarantine_paths(state).values()]
+            for path in paths:
+                for key in keys(path):
+                    if any(key == target or key.startswith(target + "\\")
+                           or target.startswith(key + "\\") for target in requested):
+                        return True
+        return False
 
     @staticmethod
     def _remove_path(path: str):
