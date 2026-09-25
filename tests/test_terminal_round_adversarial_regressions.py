@@ -72,7 +72,8 @@ class TerminalVCSAndReportTests(unittest.TestCase):
         delegate = _MultiVersionFolderDelegate.__new__(
             _MultiVersionFolderDelegate
         )
-        delegate._tmp_root = os.getcwd()
+        # The delegate destructor removes this directory: never use cwd here.
+        delegate._tmp_root = self.enterContext(project_temp_dir())
         delegate._content_vcs = SimpleNamespace(
             get_file_size=lambda version, path: 60
         )

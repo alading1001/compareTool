@@ -182,7 +182,27 @@ def open_new_tree_file(root: str, target: str, cache=None, label="输出"):
     return target, stream
 
 
+def metadata_is_link_or_junction(metadata) -> bool:
+    """Classify links from an existing stat result without another path query."""
+    if stat.S_ISLNK(metadata.st_mode):
+        return True
+    if os.name != "nt":
+        return False
+    return is_name_surrogate_reparse_tag(
+        int(getattr(metadata, "st_reparse_tag", 0) or 0)
+    )
+
+
 def is_link_or_junction(path: str) -> bool:
+    # On current Windows Python, one lstat carries both symlink mode and
+    # st_reparse_tag. Return from that metadata instead of asking the OS
+    # separately via islink(), isjunction(), and lstat().
+    try:
+        metadata = os.lstat(path)
+    except OSError:
+        return False
+    if os.name != "nt" or hasattr(metadata, "st_reparse_tag"):
+        return metadata_is_link_or_junction(metadata)
     if os.path.islink(path):
         return True
     is_junction = getattr(os.path, "isjunction", None)
@@ -237,15 +257,6 @@ def regular_file_handle_identity(stream) -> tuple:
         import ctypes
         import msvcrt
         from ctypes import wintypes
-
-        stream_path = getattr(stream, "name", "")
-        if isinstance(stream_path, (str, bytes, os.PathLike)):
-            path_metadata = os.lstat(stream_path)
-            path_reparse_tag = int(
-                getattr(path_metadata, "st_reparse_tag", 0) or 0
-            )
-            if is_name_surrogate_reparse_tag(path_reparse_tag):
-                raise RuntimeError("不允许打开路径重定向重解析点")
 
         class BY_HANDLE_FILE_INFORMATION(ctypes.Structure):
             _fields_ = [
@@ -351,20 +362,13 @@ def open_regular_file_no_links(path: str, *, deny_writes: bool = False):
             wintypes.HANDLE,
         ]
         create_file.restype = wintypes.HANDLE
-        path_metadata = os.lstat(path)
-        path_reparse_tag = int(
-            getattr(path_metadata, "st_reparse_tag", 0) or 0
-        )
-        if is_name_surrogate_reparse_tag(path_reparse_tag):
-            raise RuntimeError("不允许打开路径重定向重解析点")
         share_mode = 0x00000001 if deny_writes else (
             0x00000001 | 0x00000002 | 0x00000004
         )
-        open_flags = 0x08000000  # SEQUENTIAL_SCAN
-        if not path_reparse_tag:
-            # 普通文件以 OPEN_REPARSE_POINT 打开，若检查到打开之间被替换成
-            # symlink/junction，句柄层会看到 name-surrogate tag 并拒绝。
-            open_flags |= 0x200000
+        # Always open the final path component itself. Normal files are
+        # unaffected, while a symlink/junction cannot be followed in the
+        # interval between a path pre-check and CreateFileW.
+        open_flags = 0x08000000 | 0x200000  # SEQUENTIAL_SCAN | OPEN_REPARSE_POINT
         handle = create_file(
             path,
             0x80000000,  # GENERIC_READ
@@ -399,7 +403,7 @@ def open_regular_file_no_links(path: str, *, deny_writes: bool = False):
     raw_stream = os.fdopen(fd, "rb", closefd=True)
     stream = _NamedBinaryReader(raw_stream, path)
     try:
-        regular_file_handle_identity(stream)
+        stream._initial_identity = regular_file_handle_identity(stream)
         if is_link_or_junction(path):
             raise RuntimeError("已打开文件路径被替换成符号链接或联接点")
         yield stream
@@ -410,4 +414,4 @@ def open_regular_file_no_links(path: str, *, deny_writes: bool = False):
 def regular_file_path_identity(path: str) -> tuple:
     """通过安全句柄取得路径当前指向的普通文件身份。"""
     with open_regular_file_no_links(path) as stream:
-        return regular_file_handle_identity(stream)
+        return stream._initial_identity

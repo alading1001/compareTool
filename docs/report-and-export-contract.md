@@ -57,3 +57,17 @@ Windows 上 `core.autocrlf=true`（Git）或 `svn:eol-style=native`（SVN）会�
 新增完整性回归位于 [test_complete_export_review_fixes.py](../tests/test_complete_export_review_fixes.py)：真实 Git 普通/多版本的 NTFS 别名碰撞及旧输出保留，合法 `~` 名称，520 行相似文本递归复现，随机差异表内容还原、上下文，以及未知编码字节与字面标记不混淆。
 
 在项目根用 `.\.venv\Scripts\python.exe -m unittest discover -s tests -q` 运行完整回归。正式打包后还须启动新 `dist/CompareTool.exe` 做窗口响应和 Python/Tk 启动冒烟；源码测试和打包成功不能代替真实项目验收。
+
+## 批量读取与完整渲染补充（2026-09-24）
+
+上文 Git 原始读取中的 `git show` 可由任务内持续运行的 `git cat-file --batch` 等价替代；兼容路径保留 `git show`。必须验证 blob 类型、声明字节数及协议结束符，导出仍分块写入，错误不得转成成功的空文件。原始对象通道不使用 `--filters`，检出属性和换行转换仍走既有独立规则；任务清理时关闭通道。
+
+较大的替换段可以在调用 HtmlDiff 前选择现有 `stable_diff` 完整渲染，不必等到 RecursionError。算法选择阈值不构成规模限制，所有行、字符差异、精确行数统计、格式说明及所选上下文都必须保留。小修改继续使用原对齐方式；不得以优化为由截断报告或绕过输出事务。
+
+## 文件夹扫描性能补充（2026-09-25）
+
+Windows 文件夹比较允许合并同一时点的重复元数据查询，但不能降低路径安全边界。当前 Python 的 `lstat` 同时提供文件类型和 `st_reparse_tag` 时，应复用该结果；文件最终组件由 `OPEN_REPARSE_POINT` 安全打开并按句柄验证 reparse tag/FileId。
+
+快照捕获与最终复核中，普通文件不必在目录遍历和紧随其后的安全身份打开各做一遍 leaf-link 查询；目录仍须在遍历进入前拒绝 junction/symlink。比较根的 `realpath` 可以在单个 `FolderVCS` 生命周期内缓存，但缓存键必须保留大小写，不能把大小写敏感目录中的 `old` / `OLD` 合并；每个目标路径仍须重新 `realpath` 并做根内判断，不能缓存目标解析结果。
+
+以上均属于消除重复工作，不得移除读取前后句柄身份复核、源树最终复核、目录身份检查或异常时整次失败。回归见 `tests/test_folder_scan_optimization.py`。

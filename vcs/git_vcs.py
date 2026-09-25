@@ -6,6 +6,7 @@ from typing import List
 
 from .base import BaseVCS, ChangedFile, ChangeType
 from .git_checkout import GitCheckoutSnapshot
+from .git_batch import GitBatchReader
 from logger import info, warn
 
 
@@ -65,6 +66,7 @@ class GitVCS(BaseVCS):
         self._git = self._find_git()
         self._version_pins = {}
         self._checkout_snapshot = None
+        self._batch_reader = None
 
     def _git_cwd(self):
         if not hasattr(self, "_repository_root"):
@@ -98,7 +100,18 @@ class GitVCS(BaseVCS):
             return None
         return repository_path[len(self._project_prefix):]
 
+    def _get_batch_reader(self):
+        reader = getattr(self, "_batch_reader", None)
+        if reader is None:
+            reader = GitBatchReader(self._git, self._git_cwd())
+            self._batch_reader = reader
+        return reader
+
     def cleanup(self):
+        reader = getattr(self, "_batch_reader", None)
+        if reader is not None:
+            reader.close()
+            self._batch_reader = None
         snapshot = getattr(self, "_checkout_snapshot", None)
         if snapshot is not None:
             snapshot.cleanup()
@@ -418,8 +431,11 @@ class GitVCS(BaseVCS):
         return data
 
     def get_file_content_raw_bytes(self, version: str, file_path: str) -> bytes:
-        """读取 Git 对象中的原始字节，不应用工作副本换行符转换。"""
+        """Read original blob bytes, reusing a task-local batch process."""
         try:
+            expression = f"{self._resolve_version(version)}:{self._repo_path(file_path)}"
+            if self.COMMAND_TIMEOUT is None and GitBatchReader.supports(expression):
+                return self._get_batch_reader().read_bytes(expression)
             result = subprocess.run(
                 [self._git, "show", f"{self._resolve_version(version)}:{self._repo_path(file_path)}"],
                 cwd=self._git_cwd(),
@@ -475,8 +491,12 @@ class GitVCS(BaseVCS):
 
     def export_raw_file_to_path(self, version: str, file_path: str, target_path: str):
         endpoint = self._resolve_version(version)
+        expression = f"{endpoint}:{self._repo_path(file_path)}"
         try:
             with open(target_path, "wb") as target:
+                if self.COMMAND_TIMEOUT is None and GitBatchReader.supports(expression):
+                    self._get_batch_reader().copy_to(expression, target)
+                    return
                 result = subprocess.run(
                     [self._git, "show", f"{endpoint}:{self._repo_path(file_path)}"],
                     cwd=self._git_cwd(),

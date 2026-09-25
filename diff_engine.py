@@ -12,7 +12,7 @@ from path_safety import (
     windows_path_key,
 )
 from vcs.base import BaseVCS, ChangedFile, ChangeType
-from stable_diff import make_table as make_stable_diff_table
+from stable_diff import make_table as make_stable_diff_table, prefer_stable_diff
 
 
 @dataclass
@@ -1252,6 +1252,9 @@ class DiffEngine:
             context=not self.show_full_context,
             numlines=3,
         )
+        if prefer_stable_diff(old_lines, new_lines):
+            table = make_stable_diff_table(old_lines, new_lines, **options)
+            return self._show_special_separators(table)
         try:
             table = hd.make_table(old_lines, new_lines, **options)
         except RecursionError:

@@ -166,3 +166,23 @@ Git/SVN 可执行文件路径均自动探测：先查 `shutil.which`，再查 Wi
 ### 配置持久化
 
 `compareTool_config.json` 保存项目路径、VCS 类型、输出路径、多项目任务列表、`recent_projects`、`project_exclude_rules` 和 `project_display_options`。配置必须先写同目录临时文件并 `os.replace()` 原子替换，避免进程中断破坏已有任务；序列化、写入或替换失败必须向用户报错，不得显示假成功。若现有配置本身无法解析，程序可用默认值启动，但必须告警并阻止覆盖原损坏文件。启动时会规范化 `multi_tasks` schema，损坏、缺字段、VCS 类型未知或同名的任务记录应记录警告并忽略，不能阻止窗口启动；旧多版本任务的 `new_version` 会迁移为“文件级首尾端点”。项目级配置按规范化绝对路径保存：Git/SVN/Git多版本/SVN多版本用项目目录，文件夹用新版本文件夹，压缩包用新版本压缩包完整文件路径。最近项目列表按 Git/SVN 家族分组，每组最多保留最近 10 个有效项目，旧配置没有 `recent_projects` 时应兼容为空并可由当前有效项目回填。新路径没有专属排除规则时，使用 `main.py` 内置默认模板；旧版全局 `exclude_rules` 不再作为默认模板来源。多项目任务添加/更新时保存排除规则和显示选项快照，后续项目默认配置变化不会偷偷影响已添加任务。输出批次名称不持久化，每次启动默认当天日期。
+
+## 第一批性能优化（2026-09-24）
+
+- `stable_diff.prefer_stable_diff()` 对较大的替换段提前选择完整非递归渲染；64 行仅是算法切换点，不是输入或报告上限。小修改保留原 HtmlDiff 对齐；精确行数统计和格式变化语义不变。测试应核对完整可见内容，不应要求必须调用某一种渲染器。
+- `vcs/git_batch.py` 在每个 GitVCS 生命周期内复用 `git cat-file --batch`，原始字节读取和导出均可使用。导出按 1 MiB 分块，严格校验响应类型、长度及结束符，协议异常或写入失败时关闭通道；空文件正常成功，缺失对象不能伪装成空文件。
+- 显式命令超时或无法由换行协议表示的对象路径仍使用原来的 `git show` 路径。Git 属性、检出探针、换行转换、版本固定和事务检查保持原规则，不执行外部 filter。
+- `GitVCS.cleanup()` 必须关闭批量读取进程。不要为了重用原始字节而跳过实际检出转换。
+- 回归测试见 `tests/test_performance_first_batch.py`；可重复基准见 `tools/benchmark_performance.py`，至少重复三次，并验证报告行内容及导出字节。基准的 Git 用时不包括最终事务提交，不能宣传为完整上线流程耗时。
+- 测试桩的 `_tmp_root` 必须是测试独占的临时目录，不能设为 `os.getcwd()`；该对象析构时会清理目录。完整回归建议在源码副本运行，避免错误测试夹具影响开发工作区。
+
+## Windows 文件夹扫描性能与安全边界（2026-09-25）
+
+- `path_safety.is_link_or_junction()` 在当前 Windows Python 上应复用一次 `lstat` 的 `st_reparse_tag`，不要重新串行调用 `islink`、`isjunction`、`lstat`；旧环境无 `st_reparse_tag` 时保留兼容回退。
+- `open_regular_file_no_links()` 在 Windows 用 `FILE_FLAG_OPEN_REPARSE_POINT` 打开最终路径组件，再按句柄检查 reparse tag 与 FileId。不要恢复“先查路径、再普通打开”的 TOCTOU 窗口。
+- `regular_file_path_identity()` 可复用同一次安全打开得到的初始句柄身份；真正读取内容的调用方仍须在读取前后重新检查句柄身份，并在需要时重新核对路径身份。
+- `FolderVCS` 快照捕获/最终验证可把普通文件的 leaf-link 检查交给紧随其后的安全身份打开；目录在遍历前仍必须检查 junction/symlink，防止 `os.walk` 进入根外。
+- `FolderVCS._resolve_file_path()` 只缓存比较根的 `realpath`；缓存键必须保留路径大小写，不能用 `normcase` 合并，因为 Windows 目录可启用大小写敏感。目标文件的 `realpath` 必须每次重新计算，不能缓存，否则运行期间插入中间 junction/symlink 会绕过越界检测。
+- 回归见 `tests/test_folder_scan_optimization.py`；扫描基准见 `tools/benchmark_folder_scan.py`。性能改动不得删除源树最终复核、FileId 检查或失败即中止语义。
+
+根路径缓存键必须保留规范化绝对路径的大小写，不能用 `normcase` 合并大小写敏感目录。补充回归见 `tests/test_folder_scan_edge_cases.py`；本轮完整测试和交替基准结果见 `docs/performance-folder-scan.md`。基准只创建独占随机临时目录，不清理固定名称的已有路径。

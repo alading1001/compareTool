@@ -1,6 +1,7 @@
 import os
 import re
 import tempfile
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
@@ -204,6 +205,24 @@ class BaseVCS(ABC):
                     return True
 
     @staticmethod
+    def _replace_eol_stage(temporary: str, target: str):
+        """Retry only transient Windows replacement errors on our EOL stage.
+
+        Persistent failures still propagate; never delete or rewrite the target
+        as a workaround. This is not used for output transaction decisions.
+        """
+        delays = (0.05, 0.15, 0.30)
+        for attempt in range(len(delays) + 1):
+            try:
+                os.replace(temporary, target)
+                return
+            except OSError as exc:
+                if (os.name != "nt" or getattr(exc, "winerror", None) not in (5, 32, 33)
+                        or attempt == len(delays)):
+                    raise
+                time.sleep(delays[attempt])
+
+    @staticmethod
     def _rewrite_file_eol(path: str, newline: bytes):
         """分块规范化 CR/LF/CRLF，正确处理分块边界上的 CRLF。"""
         parent = os.path.dirname(os.path.abspath(path)) or "."
@@ -228,7 +247,7 @@ class BaseVCS(ABC):
                     target.write(normalized.replace(b"\n", newline))
                 if pending_cr:
                     target.write(newline)
-            os.replace(temp_path, path)
+            BaseVCS._replace_eol_stage(temp_path, path)
         finally:
             if os.path.exists(temp_path):
                 try:
@@ -258,7 +277,7 @@ class BaseVCS(ABC):
                     target.write(re.sub(rb"(?<!\r)\n", b"\r\n", chunk))
                 if pending_cr:
                     target.write(b"\r")
-            os.replace(temp_path, path)
+            BaseVCS._replace_eol_stage(temp_path, path)
         finally:
             if os.path.exists(temp_path):
                 try:

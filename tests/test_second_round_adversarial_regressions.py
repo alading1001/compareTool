@@ -328,18 +328,17 @@ class DiffFidelityTests(unittest.TestCase):
             self.assertIn("\\u003c/script\\u003e", html)
 
     def test_estimated_diff_time_does_not_skip_html_diff(self):
+        from test_complete_export_review_fixes import TableRows
         old_data = (b"a" * 101 + b"\n") * 2_500
         new_data = (b"b" * 101 + b"\n") * 2_500
-        with mock.patch(
-            "diff_engine.difflib.HtmlDiff.make_table",
-            return_value='<table class="diff"></table>',
-        ) as make_table:
-            result = DiffEngine(
-                BytesVCS(old_data, new_data)
-            ).generate_diff("old", "new")
-
-        make_table.assert_called_once()
-        self.assertIn('<table class="diff"', result.files[0].side_by_side_html)
+        result = DiffEngine(BytesVCS(old_data, new_data)).generate_diff("old", "new")
+        file = result.files[0]
+        rows = TableRows(file.side_by_side_html)
+        # Verify the full user-visible result, not the choice of renderer.
+        self.assertEqual([(i + 1, "a" * 101) for i in range(2500)], rows.side())
+        self.assertEqual([(i + 1, "b" * 101) for i in range(2500)], rows.side(True))
+        self.assertEqual((2500, 2500), (file.deleted_lines, file.added_lines))
+        self.assertFalse(file.report_detail_omitted)
         self.assertTrue(result.summary["line_counts_complete"])
 
     def test_shared_report_budget_is_not_reset_between_projects(self):

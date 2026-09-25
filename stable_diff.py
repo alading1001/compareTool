@@ -76,3 +76,30 @@ def make_table(old_lines, new_lines, fromdesc="", todesc="", context=False, numl
                   + ('没有内容差异' if context else '空文件') + '</td></tr></tbody>')
     out.write('</table>')
     return out.getvalue()
+
+
+def prefer_stable_diff(old_lines, new_lines):
+    """提前选择完整逐行渲染，不等待 HtmlDiff 的相似行递归失败。
+
+    64 仅是算法切换点，不是输入/输出上限；两种路径均保留全部明细。
+    小修改继续使用原来的相似行对齐，避免无关的视觉变化。
+    """
+    minimum = 64
+    if min(len(old_lines), len(new_lines)) < minimum:
+        return False
+    start = 0
+    limit = min(len(old_lines), len(new_lines))
+    while start < limit and old_lines[start] == new_lines[start]:
+        start += 1
+    old_end, new_end = len(old_lines), len(new_lines)
+    while old_end > start and new_end > start and old_lines[old_end - 1] == new_lines[new_end - 1]:
+        old_end -= 1
+        new_end -= 1
+    if min(old_end - start, new_end - start) < minimum:
+        return False
+    # 与 HtmlDiff 的行级匹配采用相同启发式，只判定是否存在大替换段。
+    matcher = difflib.SequenceMatcher(None, old_lines, new_lines)
+    return any(
+        tag == "replace" and min(j - i, l - k) >= minimum
+        for tag, i, j, k, l in matcher.get_opcodes()
+    )

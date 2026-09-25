@@ -7,6 +7,7 @@ from typing import List
 
 from path_safety import (
     is_link_or_junction,
+    metadata_is_link_or_junction,
     open_regular_file_no_links,
     open_new_tree_file,
     regular_file_handle_identity,
@@ -45,6 +46,10 @@ class FolderVCS(BaseVCS):
         self.source_old_dir = old_dir
         self.source_new_dir = new_dir
         self._owned_temp_dirs = []
+        self._real_root_cache = {
+            os.path.abspath(old_dir): source_old,
+            os.path.abspath(new_dir): source_new,
+        }
         self._snapshot_requested = snapshot
         self._snapshot_lock = threading.Lock()
         self._snapshotted = not snapshot
@@ -161,14 +166,21 @@ class FolderVCS(BaseVCS):
         """仅当规则明确覆盖任意深度后代时才剪枝，避免误伤 foo/*。"""
         return bool(self.exclude_patterns) and self._is_excluded_tree(relative_path)
 
-    def _walk_tree(self, root: str, apply_excludes: bool = False):
+    def _walk_tree(
+        self, root: str, apply_excludes: bool = False,
+        validate_file_links: bool = True,
+    ):
         """遍历目录，返回文件与目录的相对路径集合。"""
         files = set()
         directories = set()
-        if not os.path.isdir(root):
-            raise RuntimeError(f"比对源目录不存在或不是目录: {root}")
-        if is_link_or_junction(root):
+        try:
+            root_metadata = os.lstat(root)
+        except OSError as exc:
+            raise RuntimeError(f"比对源目录不存在或不是目录: {root}") from exc
+        if metadata_is_link_or_junction(root_metadata):
             raise RuntimeError(f"不允许将符号链接或联接点作为比对根目录: {root}")
+        if not stat.S_ISDIR(root_metadata.st_mode):
+            raise RuntimeError(f"比对源目录不存在或不是目录: {root}")
 
         def raise_walk_error(error):
             raise RuntimeError(f"遍历比对源目录失败: {root}: {error}") from error
@@ -206,7 +218,7 @@ class FolderVCS(BaseVCS):
                 rel = os.path.relpath(full, root).replace("\\", "/")
                 if apply_excludes and self._is_excluded(rel):
                     continue
-                if is_link_or_junction(full):
+                if validate_file_links and is_link_or_junction(full):
                     raise RuntimeError(f"比对目录包含符号链接，已拒绝读取: {full}")
                 files.add(rel)
                 if (
@@ -227,8 +239,8 @@ class FolderVCS(BaseVCS):
         return files, directories
 
     def _file_signature(self, path: str):
-        if is_link_or_junction(path):
-            raise RuntimeError(f"比对目录包含符号链接或联接点，已拒绝读取: {path}")
+        # regular_file_path_identity already opens the final component without
+        # following links and verifies its handle identity.
         try:
             return regular_file_path_identity(path)
         except OSError as exc:
@@ -237,30 +249,33 @@ class FolderVCS(BaseVCS):
             raise RuntimeError(f"比对源包含非普通文件，已拒绝读取: {path}") from exc
 
     def _directory_identity(self, path: str):
-        if not os.path.isdir(path):
-            raise RuntimeError(f"比对源目录不存在或不是目录: {path}")
-        if is_link_or_junction(path):
-            raise RuntimeError(f"比对目录包含符号链接或联接点，已拒绝读取: {path}")
+        # One lstat provides type, identity metadata, and the Windows reparse tag.
         try:
-            metadata = os.stat(path, follow_symlinks=False)
+            metadata = os.lstat(path)
         except OSError as exc:
-            raise RuntimeError(f"读取比对源目录元数据失败: {path}: {exc}") from exc
+            # Keep the existing public error contract from the former
+            # os.path.isdir() pre-check.
+            raise RuntimeError(f"比对源目录不存在或不是目录: {path}") from exc
+        if metadata_is_link_or_junction(metadata):
+            raise RuntimeError(f"比对目录包含符号链接或联接点，已拒绝读取: {path}")
         if not stat.S_ISDIR(metadata.st_mode):
             raise RuntimeError(f"比对源目录在快照期间被替换: {path}")
         return metadata.st_dev, metadata.st_ino
 
     def _capture_directory(self, source: str) -> dict:
         root_identity = self._directory_identity(source)
-        files, directories = self._walk_tree(source, apply_excludes=True)
+        files, directories = self._walk_tree(
+            source, apply_excludes=True, validate_file_links=False
+        )
         initial_directory_identities = {
             relative_path: self._directory_identity(
-                self._resolve_file_path(source, relative_path)
+                self._resolve_file_path(source, relative_path, check_leaf_link=False)
             )
             for relative_path in directories
         }
         initial_file_signatures = {
             relative_path: self._file_signature(
-                self._resolve_file_path(source, relative_path)
+                self._resolve_file_path(source, relative_path, check_leaf_link=False)
             )
             for relative_path in files
         }
@@ -305,8 +320,8 @@ class FolderVCS(BaseVCS):
         if old_signature[1] != new_signature[1]:
             return False
 
-        old_path = self._resolve_file_path(old_source, relative_path)
-        new_path = self._resolve_file_path(new_source, relative_path)
+        old_path = self._resolve_file_path(old_source, relative_path, check_leaf_link=False)
+        new_path = self._resolve_file_path(new_source, relative_path, check_leaf_link=False)
         try:
             with open_regular_file_no_links(old_path) as old_stream, \
                     open_regular_file_no_links(new_path) as new_stream:
@@ -348,7 +363,7 @@ class FolderVCS(BaseVCS):
 
     def _verify_capture(self, source: str, capture: dict):
         final_files, final_directories = self._walk_tree(
-            source, apply_excludes=True
+            source, apply_excludes=True, validate_file_links=False
         )
         if (
             final_files != capture["files"]
@@ -360,11 +375,11 @@ class FolderVCS(BaseVCS):
         for relative_path, expected_identity in capture[
             "directory_identities"
         ].items():
-            current_path = self._resolve_file_path(source, relative_path)
+            current_path = self._resolve_file_path(source, relative_path, check_leaf_link=False)
             if self._directory_identity(current_path) != expected_identity:
                 raise RuntimeError(f"比对源目录在快照期间被替换: {current_path}")
         for relative_path, expected_signature in capture["file_signatures"].items():
-            current_path = self._resolve_file_path(source, relative_path)
+            current_path = self._resolve_file_path(source, relative_path, check_leaf_link=False)
             if self._file_signature(current_path) != expected_signature:
                 raise RuntimeError(
                     f"比对源文件在快照期间发生变化: {current_path}"
@@ -390,8 +405,8 @@ class FolderVCS(BaseVCS):
         self._owned_temp_dirs.append(target)
         directory_entries = {}
         for rel_path in sorted(selected_files):
-            source_path = self._resolve_file_path(source, rel_path)
-            target_path = self._resolve_file_path(target, rel_path)
+            source_path = self._resolve_file_path(source, rel_path, check_leaf_link=False)
+            target_path = self._resolve_file_path(target, rel_path, check_leaf_link=False)
             expected_signature = initial_file_signatures[rel_path]
             try:
                 with open_regular_file_no_links(source_path) as src:
@@ -533,15 +548,27 @@ class FolderVCS(BaseVCS):
         with open(full_path, "rb") as source, open(target_path, "wb") as target:
             shutil.copyfileobj(source, target, length=1024 * 1024)
 
-    @staticmethod
-    def _resolve_file_path(folder: str, file_path: str) -> str:
+    def _resolve_file_path(
+        self, folder: str, file_path: str, *, check_leaf_link: bool = True
+    ) -> str:
         try:
             full_path = safe_join(folder, file_path, label="比对文件路径")
         except ValueError as exc:
             raise RuntimeError(str(exc)) from exc
-        if is_link_or_junction(full_path):
+        if check_leaf_link and is_link_or_junction(full_path):
             raise RuntimeError(f"比对文件是符号链接或联接点，已拒绝读取: {full_path}")
-        root_real = os.path.realpath(os.path.abspath(folder))
+        root_abs = os.path.abspath(folder)
+        cache = getattr(self, "_real_root_cache", None)
+        if cache is None:
+            self._real_root_cache = {}
+            cache = self._real_root_cache
+        root_key = root_abs  # Preserve case-sensitive directory identities.
+        root_real = cache.get(root_key)
+        if root_real is None:
+            root_real = os.path.realpath(root_abs)
+            cache[root_key] = root_real
+        # Resolve the target on every access so newly inserted intermediate
+        # junctions/symlinks are still detected.
         target_real = os.path.realpath(full_path)
         try:
             inside = os.path.commonpath([root_real, target_real]) == root_real
