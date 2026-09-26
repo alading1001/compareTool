@@ -24,6 +24,11 @@
 每层单独显示成员计数，文本有左右对照及上一处/下一处；CLASS 仍是二进制，不反编译。
 明细在 HTML 生成时已完整写入；浏览器用 template 延迟实例化折叠明细，不是联网加载。
 
+生成端使用递归 `include` 逐片段输出，避免 Jinja 宏先在内存拼出整个包的 HTML。
+单项目和多项目共用同一模板；浏览器仍使用原有的 template 惰性展开与局部导航。
+流式块大小、完整成员内容和转义回归见 `tests/test_rendering_performance_regressions.py`，
+可重复内存测量见 `tools/benchmark_performance.py`。
+
 ## 排除、资源与错误
 
 包内排除规则在每层包的根目录重新匹配，只影响该层审查；不会改写交付包内容。
@@ -64,3 +69,23 @@ RAR/7z 等未支持格式仍按普通二进制文件展示，不宣称已检查�
 - 说明书仍为 12 页，docs/dist 两份 PDF 字节一致；目录、书签、字体与文本边界检查通过，并渲染复核。
 
 原始验收记录位于上述 .tmp 目录：`tests.json`、`real-acceptance.json`、`release-checks.json`、`exe-smoke.json`、`delivery-summary.json`，以及单/多项目浏览器渲染结果。业务输入仅用于读取，未写入可提交的测试源码。
+
+## 后续源码修复验证（2026-09-26）
+
+- 修复重复边界匹配、递归模板整包缓冲，以及日志隔离测试的跨盘断言。
+  合成阶段基准见 `docs/performance-first-batch.md` 的补充记录。
+- 独立源码副本完整回归 464 项：463 通过、1 因 Windows 符号链接权限跳过，
+  0 失败、0 错误；最终运行源码与测试副本的 SHA-256 指纹一致。
+- 用户指定的两个真实输入目录各 3,558 个文件，无排除规则；普通与递归模式均为
+  33 个交付变更、66 份新旧导出。每份导出与输入 SHA-256 一致，主统计及上线说明
+  在开关前后完全一致，测试前后两棵输入树全部文件摘要一致。
+- 本次源码工作线程普通模式 70.83 秒、递归模式 271.99 秒，递归 HTML 写出约
+  0.056 秒。同期存在回归等任务，不能与先前 EXE 或不同负载的记录作提速比较。
+- 浏览器验证了单/多项目的 TAR → WAR → JAR → 文本展开、成员名转义、包内差异
+  导航和切回普通文件后的导航；多项目页面未记录浏览器控制台错误。
+- 原始记录保存在 `.tmp/fix_0926_7trc0ccb/`：`regression.log`、
+  `benchmark-before.json`、`benchmark-after.json`、`real-acceptance.json`、
+  `browser-checks.json`、`verification-summary.json`；真实报告位于
+  `real/plain/report.html` 和 `real/recursive/report.html`。
+
+本次只验证源码，没有更新版本号、重新打包、替换正式 EXE 或修改用户配置。

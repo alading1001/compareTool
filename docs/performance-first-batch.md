@@ -88,3 +88,22 @@ Git 样本该段流程耗时降低约 20.7%；每轮 Git 子进程总数由 99 �
 ```powershell
 .\.venv\Scripts\python.exe -B tools\benchmark_folder_scan.py
 ```
+## 渲染回退补充修复（2026-09-26）
+
+以 `b148e0a` 为修复前基线。提前选择非递归渲染时，大量相同前后缀会参与
+`autojunk=False` 的重复行匹配；现先处理公共前后缀，仅对中间区间匹配。
+完整内容、原始行号、上下文和精确变更行数保持不变，不引入输入规模上限。
+
+`tools/benchmark_performance.py` 新增两个案例，可继续用相同脚本的
+`--source-root` 参数分别指向修复前后源码，并至少运行三次：
+
+- `repeated_edges`：8,000 行相同前缀加 64 行替换，每次验证两侧全部 8,064 行
+  和 64/64 变更行数。本次三次中位耗时由 5.642 秒降至 0.040 秒。
+- `archive_stream`：64 个成员、每个约 128 KiB 已生成 HTML；计量 Jinja 输出及
+  UTF-8 编码的额外 Python 分配，不含已存在的明细对象、磁盘 I/O 或浏览器。
+  第二次测量峰值由 84,353,868 字节降至 5,404,623 字节；最大输出块由
+  8,438,495 字节降至 789,708 字节。修复前后三次均记录在原始结果中。
+
+这些是合成案例的阶段测量，同期存在完整回归任务，不代表真实目录全流程提速比例。
+原始记录位于 `.tmp/fix_0926_7trc0ccb/benchmark-before.json` 和
+`benchmark-after.json`。内容与上下文回归见 `tests/test_rendering_performance_regressions.py`。

@@ -1,4 +1,3 @@
-{% macro archive_details(detail) -%}
 <section class="archive-report">
   <div class="archive-note">包内审查明细：只供报告查看，不单独交付、不重新打包，也不生成服务器删除指令。</div>
   {% if detail.status != 'compared' %}
@@ -19,7 +18,7 @@
       <template class="archive-member-template">
       {% if member.archive_details %}
         {% for note in member.metadata_changes %}<p class="archive-note">{{ note }}</p>{% endfor %}
-        {{ archive_details(member.archive_details) }}
+        {% with detail=member.archive_details %}{% include 'archive_details.html' %}{% endwith %}
       {% else %}
         <div class="archive-inline-nav"><button type="button" data-archive-step="-1">上一处</button>
           <span class="archive-diff-count"></span><button type="button" data-archive-step="1">下一处</button></div>
@@ -30,4 +29,3 @@
     {% endfor %}
   {% endif %}
 </section>
-{%- endmacro %}

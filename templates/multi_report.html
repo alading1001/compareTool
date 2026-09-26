@@ -106,7 +106,6 @@ table.diff span { white-space: pre; }
 </style>
 </head>
 <body>
-{% from "archive_details.html" import archive_details as render_archive_details %}
 <div class="header">
     <h1>多项目代码比对总报告</h1>
     <h2>共 {{ summary.project_count }} 个项目</h2>
@@ -198,7 +197,7 @@ table.diff span { white-space: pre; }
 {% for project in projects %}
 {% set project_loop = loop %}
 {% for file in project.diff_result.report_files %}
-<div id="sbs-{{ project_loop.index }}-{{ loop.index }}" data-path="{{ file.file_path | e }}" data-type="{{ file.report_type }}">{% if file.archive_details %}{{ render_archive_details(file.archive_details) }}<details class="archive-original"><summary>压缩包文件本身的变更标记</summary>{{ file.side_by_side_html | safe }}</details>{% else %}{{ file.side_by_side_html | safe }}{% endif %}</div>
+<div id="sbs-{{ project_loop.index }}-{{ loop.index }}" data-path="{{ file.file_path | e }}" data-type="{{ file.report_type }}">{% if file.archive_details %}{% with detail=file.archive_details %}{% include 'archive_details.html' %}{% endwith %}<details class="archive-original"><summary>压缩包文件本身的变更标记</summary>{{ file.side_by_side_html | safe }}</details>{% else %}{{ file.side_by_side_html | safe }}{% endif %}</div>
 {% endfor %}
 {% endfor %}
 </div>

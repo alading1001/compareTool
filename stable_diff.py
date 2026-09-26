@@ -34,11 +34,46 @@ def _changed_pair(old, new):
     return "".join(left), "".join(right)
 
 
+def _line_groups(old, new, context, numlines):
+    # Do not feed a long, unchanged repeated prefix/suffix to the exact matcher:
+    # autojunk=False otherwise revisits every pair of those identical lines.
+    start = 0
+    limit = min(len(old), len(new))
+    while start < limit and old[start] == new[start]:
+        start += 1
+    old_end, new_end = len(old), len(new)
+    while old_end > start and new_end > start and old[old_end - 1] == new[new_end - 1]:
+        old_end -= 1
+        new_end -= 1
+
+    if context:
+        # Retain the requested boundary context before grouping internal edits.
+        offset = max(0, start - numlines)
+        matcher = difflib.SequenceMatcher(
+            None, old[offset:min(len(old), old_end + numlines)],
+            new[offset:min(len(new), new_end + numlines)], autojunk=False,
+        )
+        for group in matcher.get_grouped_opcodes(numlines):
+            yield [(tag, i + offset, j + offset, k + offset, l + offset)
+                   for tag, i, j, k, l in group]
+    else:
+        matcher = difflib.SequenceMatcher(
+            None, old[start:old_end], new[start:new_end], autojunk=False,
+        )
+        codes = []
+        if start:
+            codes.append(("equal", 0, start, 0, start))
+        codes.extend((tag, i + start, j + start, k + start, l + start)
+                     for tag, i, j, k, l in matcher.get_opcodes())
+        if old_end < len(old):
+            codes.append(("equal", old_end, len(old), new_end, len(new)))
+        yield codes
+
+
 def make_table(old_lines, new_lines, fromdesc="", todesc="", context=False, numlines=3):
     # 复用标准库的 tab 表示，避免把原文 tab 与等宽空格误认为相同内容。
     old, new = difflib.HtmlDiff(tabsize=4)._tab_newline_replace(old_lines, new_lines)
-    matcher = difflib.SequenceMatcher(None, old, new, autojunk=False)
-    groups = matcher.get_grouped_opcodes(numlines) if context else [matcher.get_opcodes()]
+    groups = _line_groups(old, new, context, numlines)
     prefix = "stable_" + uuid4().hex
     out = io.StringIO()
     out.write('<div class="diff-render-note">使用完整逐行对比：替换段按行序对齐，保留行内差异。'

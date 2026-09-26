@@ -110,7 +110,6 @@ table.diff span { white-space: pre; }
 </style>
 </head>
 <body>
-{% from "archive_details.html" import archive_details as render_archive_details %}
 
 <div class="header">
     <h1>代码比对报告</h1>
@@ -204,7 +203,7 @@ table.diff span { white-space: pre; }
 {# 将每个文件的 side_by_side_html 存在 hidden div 中，避免 JSON 编码导致中文乱码 #}
 <div style="display:none;">
 {% for file in files %}
-<div id="sbs-{{ loop.index }}" data-path="{{ file.file_path | e }}" data-type="{{ file.report_type }}">{% if file.archive_details %}{{ render_archive_details(file.archive_details) }}<details class="archive-original"><summary>压缩包文件本身的变更标记</summary>{{ file.side_by_side_html | safe }}</details>{% else %}{{ file.side_by_side_html | safe }}{% endif %}</div>
+<div id="sbs-{{ loop.index }}" data-path="{{ file.file_path | e }}" data-type="{{ file.report_type }}">{% if file.archive_details %}{% with detail=file.archive_details %}{% include 'archive_details.html' %}{% endwith %}<details class="archive-original"><summary>压缩包文件本身的变更标记</summary>{{ file.side_by_side_html | safe }}</details>{% else %}{{ file.side_by_side_html | safe }}{% endif %}</div>
 {% endfor %}
 </div>
 

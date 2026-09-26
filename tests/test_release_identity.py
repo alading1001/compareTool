@@ -45,8 +45,17 @@ class ReleaseIdentityTests(unittest.TestCase):
             source = Path(directory) / "source"
             params = dict(vcs_type="folder", old_version=str(source), new_version=str(source))
             selected = select_log_dir(source / "logs/tasks", params)
-            self.assertNotEqual(os.path.commonpath([selected, source]), str(source))
+            self.assertFalse(Path(selected).resolve().is_relative_to(source.resolve()))
             self.assertFalse(source.exists())
+
+    @unittest.skipUnless(os.name == "nt", "Windows drive boundaries")
+    def test_diagnostics_can_fall_back_to_a_different_drive(self):
+        source = Path("D:/CompareTool_test_input")
+        with mock.patch.dict(os.environ, {"LOCALAPPDATA": "C:/CompareTool_test_user"}):
+            selected = select_log_dir(source / "logs/tasks", dict(
+                vcs_type="folder", old_version=str(source), new_version=str(source)))
+        self.assertEqual(Path("C:/CompareTool_test_user/CompareTool/logs/tasks"), selected)
+        self.assertFalse(selected.is_relative_to(source))
 
     def test_no_logging_requested_remains_disabled(self):
         self.assertIsNone(select_log_dir(None, {}))

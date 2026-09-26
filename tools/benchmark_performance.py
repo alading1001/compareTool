@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tracemalloc
 from unittest import mock
 
 parser = argparse.ArgumentParser(description=__doc__)
@@ -28,10 +29,11 @@ source = args.source_root.resolve()
 sys.path.insert(0, str(source))
 sys.path.insert(1, str(source / "tests"))
 
-from diff_engine import DiffEngine
+from diff_engine import DiffEngine, DiffResult, FileDiff
 from file_exporter import FileExporter
 from report_generator import ReportGenerator
 from vcs.git_vcs import GitVCS
+from vcs.base import ChangeType
 from test_complete_export_review_fixes import BytesVCS, TableRows
 
 
@@ -54,6 +56,60 @@ def render_case(lines):
         values.append(seconds)
     return {"seconds": values, "median_seconds": statistics.median(values),
             "lines_each": lines, "content_and_counts_verified": True}
+
+def repeated_edge_case():
+    old = b"unchanged repeated line\n" * 8000 + b"AAAAAAAAAA\n" * 64
+    new = b"unchanged repeated line\n" * 8000 + b"BBBBBBBBBB\n" * 64
+    values = []
+    for _ in range(args.repeats):
+        started = time.perf_counter()
+        file = DiffEngine(BytesVCS(old, new)).generate_diff("old", "new").files[0]
+        values.append(time.perf_counter() - started)
+        rows = TableRows(file.side_by_side_html)
+        assert rows.side() == list(enumerate(old.decode().splitlines(), 1))
+        assert rows.side(True) == list(enumerate(new.decode().splitlines(), 1))
+        assert (file.deleted_lines, file.added_lines) == (64, 64)
+    return {"seconds": values, "median_seconds": statistics.median(values),
+            "lines_each": 8064, "content_and_counts_verified": True}
+
+
+def archive_stream_case():
+    if "archive_details" not in FileDiff.__dataclass_fields__:
+        return {"supported": False, "note": "This source revision predates recursive archive reports."}
+    leaves = [FileDiff(f"member_{i}.txt", ChangeType.MODIFIED,
+                side_by_side_html=f"<div>payload-{i:03d}:" + "x" * 131072 + "</div>")
+              for i in range(64)]
+    inner = DiffResult("input", "Demo", "folder", "old", "new", files=leaves)
+    parent = FileDiff("app.jar", ChangeType.MODIFIED, archive_details=dict(
+        status="compared", members=leaves, counts=inner.summary, filtered=False))
+    result = DiffResult("input", "Demo", "folder", "old", "new", files=[parent],
+                        archive_details_enabled=True)
+
+    class MeasuredReport(ReportGenerator):
+        def _dump_limited(self, stream, path):
+            stream.enable_buffering(64)
+            total = largest = chunks = 0
+            for chunk in stream:
+                payload = str(chunk).encode("utf-8")
+                total += len(payload)
+                largest = max(largest, len(payload))
+                chunks += 1
+            self.measurement = dict(total_bytes=total, largest_chunk_bytes=largest,
+                                    chunks=chunks)
+
+    runs = []
+    generator = MeasuredReport(str(source / "templates"))
+    for name in generator.env.list_templates():
+        generator.env.get_template(name)
+    for _ in range(args.repeats):
+        tracemalloc.start()
+        generator.generate(result, "unused")
+        _, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        runs.append(dict(generator.measurement, peak_additional_bytes=peak))
+    return {"members": len(leaves), "runs": runs,
+            "note": "Python rendering allocations only; input FileDiff HTML already exists; no disk I/O."}
+
 
 def git_case(root):
     repo = root / "repo"
@@ -128,7 +184,9 @@ with tempfile.TemporaryDirectory(prefix="perf_bench_", dir=source / ".tmp") as t
     }):
         results = {"source_root": str(source), "python": sys.version,
                    "repeats": args.repeats, "render_120": render_case(120),
-                   "render_240": render_case(240), "git": git_case(working)}
+                   "render_240": render_case(240),
+                   "repeated_edges": repeated_edge_case(),
+                   "archive_stream": archive_stream_case(), "git": git_case(working)}
 args.output.parent.mkdir(parents=True, exist_ok=True)
 args.output.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
 print(json.dumps(results, ensure_ascii=False, indent=2))
