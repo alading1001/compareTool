@@ -28,12 +28,12 @@ class ArchiveIntegrationTests(unittest.TestCase):
             old_version=str(self.old), new_version=str(self.new), exclude_rules='',
             show_full_context=True, show_project_root=True, recursive_archives=enabled)
 
-    def test_old_config_defaults_off_and_git_cannot_enable(self):
+    def test_old_config_defaults_off_and_git_can_enable(self):
         app = self.app()
         task = self.task(); task.pop('recursive_archives')
         self.assertFalse(app._normalize_loaded_multi_tasks([task])[0]['recursive_archives'])
         task.update(vcs_type='git', project_path=str(self.new), recursive_archives=True)
-        self.assertFalse(app._normalize_loaded_multi_tasks([task])[0]['recursive_archives'])
+        self.assertTrue(app._normalize_loaded_multi_tasks([task])[0]['recursive_archives'])
 
     def test_display_option_roundtrip_and_default(self):
         app = self.app()
@@ -48,23 +48,33 @@ class ArchiveIntegrationTests(unittest.TestCase):
         app.vcs_var = mock.Mock(); app.vcs_var.get.return_value = 'folder'
         self.assertTrue(app._recursive_archives())
         app.vcs_var.get.return_value = 'svn'
-        self.assertFalse(app._recursive_archives())
+        self.assertTrue(app._recursive_archives())
 
     def test_multi_task_uses_own_flag_and_shares_budget(self):
         self.source({'a.zip': zip_bytes({'a.txt': b'old'})},
                     {'a.zip': zip_bytes({'a.txt': b'new'})})
-        app = self.app(); budget = ArchiveReportBudget(max_members=3)
-        first = app._prepare_task_result(self.task(False), archive_budget=budget)
-        self.addCleanup(first['vcs'].cleanup)
-        self.assertIsNone(first['diff_result'].files[0].archive_details)
-        self.assertEqual(0, budget.members)
-        second = app._prepare_task_result(self.task(True), archive_budget=budget)
-        self.addCleanup(second['vcs'].cleanup)
-        self.assertIsNotNone(second['diff_result'].files[0].archive_details)
-        with self.assertRaisesRegex(RuntimeError, '累计成员'):
-            app._prepare_task_result(self.task(True), archive_budget=budget)
-        ReportGenerator().generate_multi([first, second], str(self.root/'multi.html'))
-        html = (self.root/'multi.html').read_text(encoding='utf-8')
+        app = self.app()
+        tasks = [dict(self.task(flag), project_name='Demo' + str(index))
+                 for index, flag in enumerate((False, True, True))]
+        out = self.root/'multi'; out.mkdir()
+        captured = []
+        generate = ReportGenerator.generate_multi
+        def observe(generator, results, path):
+            captured.extend(results)
+            return generate(generator, results, path)
+        with mock.patch('main.ArchiveReportBudget', side_effect=lambda: ArchiveReportBudget(max_members=3)), \
+                mock.patch.object(ReportGenerator, 'generate_multi', observe):
+            app._do_generate_multi(tasks[:2], str(out/'multi.html'),
+                str(out/'old'), str(out/'new'), str(out))
+            self.assertTrue(app._last_task_record['success'])
+            self.assertIsNone(captured[0]['diff_result'].files[0].archive_details)
+            self.assertIsNotNone(captured[1]['diff_result'].files[0].archive_details)
+            before = (out/'multi.html').read_bytes()
+            app._do_generate_multi(tasks, str(out/'multi.html'),
+                str(out/'old'), str(out/'new'), str(out))
+            self.assertFalse(app._last_task_record['success'])
+            self.assertEqual(before, (out/'multi.html').read_bytes())
+        html = (out/'multi.html').read_text(encoding='utf-8')
         self.assertIn('archive-member-template', html)
         self.assertIn('不单独交付', html)
 
@@ -145,7 +155,7 @@ class ArchiveIntegrationTests(unittest.TestCase):
                     app._generate()
                     self.assertTrue(thread.call_args.kwargs["kwargs"]["recursive_archives"])
                 app._set_generating(False); app.vcs_var.set("git")
-                self.assertTrue(app.recursive_archives_check.instate(["disabled"]))
+                self.assertFalse(app.recursive_archives_check.instate(["disabled"]))
             finally:
                 app.root.destroy()
 

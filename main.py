@@ -77,7 +77,8 @@ from vcs.folder_vcs import FolderVCS
 from vcs.archive_vcs import ArchiveVCS
 from vcs.multi_version_vcs import GitMultiVersionVCS, SVNMultiVersionVCS, parse_multi_versions
 from diff_engine import DiffEngine
-from archive_report import ArchiveReportBudget, enrich_archive_reports
+from archive_report import ArchiveReportBudget, enrich_archive_reports, has_archive_candidates
+from archive_endpoints import StagedArchiveEndpoints
 from report_generator import ReportGenerator
 from file_exporter import FileExporter
 from delivery_instructions import (
@@ -608,7 +609,7 @@ class CompareToolApp(TaskProgressUI):
                 "exclude_rules": item.get("exclude_rules", "") if isinstance(item.get("exclude_rules", ""), str) else "",
                 "show_project_root": self._option_bool(item.get("show_project_root"), default=True),
                 "show_full_context": self._option_bool(item.get("show_full_context"), default=True),
-                "recursive_archives": vcs_type in ("folder", "archive") and self._option_bool(
+                "recursive_archives": vcs_type in SUPPORTED_VCS_TYPES and self._option_bool(
                     item.get("recursive_archives"), default=False),
                 "ignore_archive_root": vcs_type == "archive" and self._option_bool(
                     item.get("ignore_archive_root"), default=False
@@ -1097,7 +1098,7 @@ class CompareToolApp(TaskProgressUI):
 
     def _recursive_archives(self) -> bool:
         var = getattr(self, "recursive_archives_var", None)
-        return (self.vcs_var.get() in ("folder", "archive") and var is not None
+        return (self.vcs_var.get() in SUPPORTED_VCS_TYPES and var is not None
                 and self._option_bool(var.get(), default=False))
 
     def _ignore_archive_root(self) -> bool:
@@ -1318,7 +1319,7 @@ class CompareToolApp(TaskProgressUI):
         """VCS 类型切换时更新界面"""
         if hasattr(self, "recursive_archives_check"):
             self.recursive_archives_check.configure(state=(tk.NORMAL
-                if self.vcs_var.get() in ("folder", "archive") else tk.DISABLED))
+                if self.vcs_var.get() in SUPPORTED_VCS_TYPES else tk.DISABLED))
         self._version_request_id += 1
         vcs_type = self.vcs_var.get()
         is_folder = vcs_type == "folder"
@@ -2056,9 +2057,6 @@ class CompareToolApp(TaskProgressUI):
                 report_budget=report_budget,
             )
             diff_result = engine.generate_diff(task["old_version"], task["new_version"])
-            if task["vcs_type"] in ("folder", "archive") and self._option_bool(task.get("recursive_archives"), default=False):
-                enrich_archive_reports(diff_result, vcs, show_full_context=show_full,
-                    exclude_patterns=exclude_text.splitlines(), budget=archive_budget)
             diff_result.project_name = task["project_name"]
             diff_result.vcs_type = self._vcs_label(task["vcs_type"])
             if task["vcs_type"] == "archive":
@@ -2402,9 +2400,6 @@ class CompareToolApp(TaskProgressUI):
             info("获取变更文件列表...")
             engine = DiffEngine(vcs, show_full_context=show_full)
             diff_result = engine.generate_diff(old_version, new_version)
-            if recursive_archives and vcs_type in ("folder", "archive"):
-                enrich_archive_reports(diff_result, vcs, show_full_context=show_full,
-                    exclude_patterns=exclude_patterns)
             diff_result.project_name = project_name
             if vcs_type == "archive":
                 diff_result.project_path = os.path.basename(new_version)
@@ -2415,12 +2410,36 @@ class CompareToolApp(TaskProgressUI):
             info(f"生成报告: {report_path}")
             template_dir = os.path.join(BASE_DIR, "templates")
             report_gen = ReportGenerator(template_dir)
-            report_stage = self._make_report_stage_path(
-                report_path, trusted_output_root
-            )
+            report_stage = ""
             export_pairs = []
             instruction_stage = ""
+            expected_stage_states = None
+            recursive_archives = self._option_bool(recursive_archives, default=False)
             try:
+                exporter = FileExporter(diff_result, vcs)
+                if recursive_archives:
+                    export_pairs = exporter.prepare_export(
+                        old_export, new_export, project_name=project_name,
+                        trusted_root=trusted_output_root,
+                    )
+                    endpoints = StagedArchiveEndpoints.from_export_pairs(
+                        export_pairs,
+                        FileExporter._safe_join(old_export, project_name),
+                        FileExporter._safe_join(new_export, project_name),
+                        trusted_root=trusted_output_root,
+                    )
+                    if has_archive_candidates(diff_result):
+                        expected_stage_states = FileExporter.capture_stage_states(
+                            [stage for stage, _target in export_pairs],
+                            trusted_root=trusted_output_root,
+                        )
+                    enrich_archive_reports(
+                        diff_result, endpoints=endpoints,
+                        show_full_context=show_full, exclude_patterns=exclude_patterns,
+                    )
+                report_stage = self._make_report_stage_path(
+                    report_path, trusted_output_root
+                )
                 report_gen.generate(
                     diff_result,
                     report_stage,
@@ -2429,14 +2448,13 @@ class CompareToolApp(TaskProgressUI):
                 )
 
                 info(f"导出文件: old={old_export}, new={new_export}")
-                exporter = FileExporter(diff_result, vcs)
-                project_name = diff_result.project_name
-                export_pairs = exporter.prepare_export(
-                    old_export,
-                    new_export,
-                    project_name=project_name,
-                    trusted_root=trusted_output_root,
-                )
+                if not recursive_archives:
+                    export_pairs = exporter.prepare_export(
+                        old_export,
+                        new_export,
+                        project_name=project_name,
+                        trusted_root=trusted_output_root,
+                    )
                 instruction_stage, instruction_target = prepare_delivery_instructions(
                     [{"project_name": project_name, "diff_result": diff_result}],
                     instruction_target,
@@ -2449,6 +2467,8 @@ class CompareToolApp(TaskProgressUI):
                     ],
                     expected_target_states=expected_target_states,
                     trusted_root=trusted_output_root,
+                    **({"expected_stage_states": expected_stage_states}
+                       if expected_stage_states is not None else {}),
                 )
             finally:
                 FileExporter.cleanup_stages(export_pairs)
@@ -2541,6 +2561,32 @@ class CompareToolApp(TaskProgressUI):
                     targets_are_staging_roots=True,
                 )
 
+            # Only now are ALL project exports complete. Bind the outer stage
+            # roots once, before any recursive inspection; subsequent loops read.
+            recursive_items = [item for item in project_results
+                               if self._option_bool(item["task"].get("recursive_archives"), default=False)]
+            expected_stage_states = None
+            if any(has_archive_candidates(item["diff_result"]) for item in recursive_items):
+                expected_stage_states = FileExporter.capture_stage_states(
+                    [stage_old_root, stage_new_root], trusted_root=trusted_output_root,
+                )
+            for idx, item in enumerate(project_results, 1):
+                task = item["task"]
+                if not self._option_bool(task.get("recursive_archives"), default=False):
+                    continue
+                project_progress(idx, len(project_results))
+                endpoints = StagedArchiveEndpoints(
+                    FileExporter._safe_join(stage_old_root, task["project_name"]),
+                    FileExporter._safe_join(stage_new_root, task["project_name"]),
+                    trusted_root=trusted_output_root,
+                )
+                enrich_archive_reports(
+                    item["diff_result"], endpoints=endpoints,
+                    show_full_context=self._option_bool(task.get("show_full_context"), default=True),
+                    exclude_patterns=task.get("exclude_rules", "").splitlines(),
+                    budget=archive_budget,
+                )
+
             template_dir = os.path.join(BASE_DIR, "templates")
             report_gen = ReportGenerator(template_dir)
             report_stage = self._make_report_stage_path(
@@ -2565,6 +2611,8 @@ class CompareToolApp(TaskProgressUI):
                 export_pairs,
                 expected_target_states=expected_target_states,
                 trusted_root=trusted_output_root,
+                **({"expected_stage_states": expected_stage_states}
+                   if expected_stage_states is not None else {}),
             )
 
             summary = ReportGenerator._multi_summary(project_results)

@@ -76,4 +76,20 @@ Windows 文件夹比较允许合并同一时点的重复元数据查询，但不
 
 开启 `recursive_archives` 仅增加 `FileDiff.archive_details`。主 `files`、summary、manifest、old/new 导出和上线说明不得包含这些内部成员，不重新打包或修改交付字节。包内删除仅供审查，不能生成服务器删除命令。文件夹模式交付原包；压缩包模式仍按现有外层比较根交付变更成员，不继续拆开内层包。
 
-递归首版支持 folder/archive 及这些模式的多项目任务，默认关闭。安全解压、每报告共享的嵌套深度/数量/展开字节限制、过滤范围及错误行为见 docs/nested-archive-report.md；错误不得提交部分报告。未知/未支持格式只标记未展开，不冒充已完成内部核验。
+递归支持 Git、SVN、folder、archive、Git多版本、SVN多版本及六模式混合多项目，默认关闭。安全解压、每报告共享的嵌套深度/数量/展开字节限制、过滤范围及错误行为见 docs/nested-archive-report.md；错误不得提交部分报告。未知/未支持格式只标记未展开，不冒充已完成内部核验。
+
+## 全模式包内报告的交付字节绑定（2026-09-26）
+
+单项目递归启用时先完成 `prepare_export()`，分析器仅借用其返回的源码
+stage；多项目先完成所有项目导出，再分析各项目子树。new/old 由显式侧别选取，
+A 仅 new、D 仅 old、R 的 old 使用 old_path，其它两侧都必须存在。
+原有 Git/SVN 检出规则及文件级端点不变，不能为了解析包回退到 raw 或工作副本。
+
+有归档候选时在分析前通过 capture_stage_states 绑定源码 stage 内容；多项目
+绑定两个外层 stage 根。提交锁内比较 expected_stage_states，任何同大小同时间
+戳内容变化或对象替换都必须中止当前提交。核验结果复用到原 journal 的
+stage_identity，不能先接受变化后的包再重新计算“基线”。无候选或关闭时不额外扫描。
+
+来源提供者仅借用路径和普通文件句柄，不拥有 stage，不创建额外原包缓存，
+不得删除 exporter 的暂存目录。递归失败、模板失败和事务失败继续使用原有清理、
+回滚和恢复生命周期。完整验收见 recursive-archives-all-vcs-verification.md。

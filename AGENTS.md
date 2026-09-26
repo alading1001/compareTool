@@ -200,9 +200,25 @@ Git/SVN 可执行文件路径均自动探测：先查 `shutil.which`，再查 Wi
 ## 包内递归审查（2026-09-26）
 
 - `archive_report.py` 仅向 `FileDiff.archive_details` 附加报告子树；绝不能将成员塞入主交付清单或让包内删除进入宿主删除指令。不改写、重压缩任何交付包。
-- 开关 `recursive_archives` 默认关闭，按来源保存并由多项目任务快照持有；首版只允许 folder/archive。旧配置缺字段保持原行为。
+- 开关 `recursive_archives` 默认关闭，按来源保存并由多项目任务快照持有；六种合法模式及混合多项目均可启用。旧配置缺字段保持原行为。
 - 相同包字节不继续展开；变化包复用安全解压器。包内正文、格式、模式属性和仅打包差异分开说明；CLASS 不反编译。相同子包不等于已验证其格式有效。
 - 嵌套展开阶段在整份报告中共享 ArchiveReportBudget（多项目不重置）：8 层、100,000 成员、10 GiB；既检查声明大小也累计实际写出字节，超限明确中止，不做成功的部分报告。
 - `templates/archive_details.html` 使用惰性 DOM 子树和局部差异导航，普通文件导航不变；包名和成员名必须转义，不能拼入可执行脚本或宿主路径。
 - 包内模板通过递归 `include` 逐片段输出，不能用返回整棵子树字符串的 Jinja 宏替代；浏览器惰性展开不等于生成端流式写出。单/多项目均须覆盖完整成员内容与最大输出块的回归。
 - 详细规则见 docs/nested-archive-report.md。外层导出文件清单、原始字节、主统计和上线说明必须在启用前后核对一致。
+
+## 全模式递归的暂存端点合同（2026-09-26）
+
+- GUI 递归流程先完成已有 exporter，`StagedArchiveEndpoints` 按显式 old/new
+  侧别借用实际返回的 stage 路径；不使用版本显示标签、不重新读取工作副本或仓库。
+- 单项目在分析前绑定两棵源码 stage；多项目在全部项目导出完成后绑定两个外层根。
+  无归档候选不做额外整树哈希；开关关闭保留原顺序与行为。
+- `FileExporter.capture_stage_states()` 的内容身份通过可选 expected_stage_states
+  传到提交锁内，正式备份/安装前必须相等；复用核验值建立旧格式 journal，
+  不放宽 HMAC、恢复、并发目标保护或所有权清理。
+- 分析的是检出规则处理后的交付文件。能解析的 raw/export 不同仍支持；待展开
+  交付文件不可解析则明确失败，不回退 raw、下载 LFS 或执行 filter。
+- 包内正文仍挂 archive_details，主 files/summary/manifest/上线说明不变；
+  保留 8b7be5f 的公共边界匹配优化与递归 include 流式模板。
+- 方案与验证见 docs/recursive-archives-all-vcs-plan.md 和
+  docs/recursive-archives-all-vcs-verification.md。本轮仅源码/文档，打包另行授权。

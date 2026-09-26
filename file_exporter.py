@@ -360,6 +360,23 @@ class FileExporter:
             for path in targets
         }
 
+    @classmethod
+    @measured_phase('archive.stage_bind', '固定包内分析的待交付内容')
+    def capture_stage_states(cls, stages, *, trusted_root):
+        """One pre-analysis scan; caller owns stages and passes this to commit."""
+        paths = [os.path.abspath(path) for path in stages]
+        cls._validate_trusted_paths(trusted_root, paths, "包内分析暂存路径")
+        result = {}
+        for path in paths:
+            key = cls._target_state_key(path)
+            if key in result:
+                raise RuntimeError("包内分析暂存根重复: " + path)
+            identity = cls._tree_identity(path)
+            if identity.get("kind") != "dir":
+                raise RuntimeError("包内分析需要完整的源码暂存目录: " + path)
+            result[key] = identity
+        return result
+
     @staticmethod
     def _target_state_key(path: str) -> str:
         return windows_path_key(os.path.abspath(path))
@@ -919,7 +936,8 @@ class FileExporter:
     @classmethod
     @measured_phase('output.commit', '校验、提交输出并清理备份')
     def _replace_outputs(
-        cls, pairs, expected_target_states=None, trusted_root: str = ""
+        cls, pairs, expected_target_states=None, trusted_root: str = "",
+        expected_stage_states=None,
     ):
         pairs = [
             (os.path.abspath(stage), os.path.abspath(target))
@@ -950,6 +968,8 @@ class FileExporter:
                 expected_target_states=expected_target_states,
                 trusted_root=anchor,
                 journal_root=anchor,
+                **({"expected_stage_states": expected_stage_states}
+                   if expected_stage_states is not None else {}),
             )
 
     @classmethod
@@ -959,6 +979,7 @@ class FileExporter:
         expected_target_states=None,
         trusted_root: str = "",
         journal_root: str = "",
+        expected_stage_states=None,
     ):
         """成组替换文件或目录；任一步失败时恢复全部原有输出。"""
         token = uuid.uuid4().hex
@@ -1037,6 +1058,25 @@ class FileExporter:
                         )
                     verified_target_identities[key] = current
 
+            # Bind every requested source stage BEFORE building rollback state
+            # or touching formal outputs. Reuse these identities in the journal.
+            verified_stage_identities = {}
+            if expected_stage_states is not None:
+                stage_keys = {cls._target_state_key(stage)
+                              for stage, _target in normalized_pairs}
+                if not isinstance(expected_stage_states, dict) or not set(expected_stage_states) <= stage_keys:
+                    raise RuntimeError("包内分析暂存基线包含未知或无效的暂存路径")
+                for stage, _target in normalized_pairs:
+                    key = cls._target_state_key(stage)
+                    if key not in expected_stage_states:
+                        continue  # Report/instructions keep their original rules.
+                    current = cls._tree_identity(stage)
+                    if current != expected_stage_states[key]:
+                        raise RuntimeError(
+                            "待交付暂存内容与包内分析前不一致，已拒绝提交: " + stage
+                        )
+                    verified_stage_identities[key] = current
+
             for stage, target in normalized_pairs:
                 backup = f"{target}.comparetool_backup_{token}"
                 key = cls._target_state_key(target)
@@ -1047,13 +1087,16 @@ class FileExporter:
                 cls._validate_trusted_paths(
                     trusted_root, [backup], "输出备份路径"
                 )
+                stage_identity = verified_stage_identities.get(cls._target_state_key(stage))
+                if stage_identity is None:
+                    stage_identity = cls._tree_identity(stage)
                 states.append({
                     "stage": stage,
                     "target": target,
                     "backup": backup,
                     "had_target": had_target,
                     "installed": False,
-                    "stage_identity": cls._tree_identity(stage),
+                    "stage_identity": stage_identity,
                     "target_identity": target_identity,
                     "_token": token,
                 })

@@ -2,6 +2,7 @@
 from contextlib import contextmanager
 from dataclasses import dataclass
 import os
+import re
 import zipfile
 
 from path_safety import open_regular_file_no_links
@@ -16,6 +17,40 @@ ARCHIVE_SUFFIXES = ('.zip', '.jar', '.war', '.ear', '.aar', '.tar',
 
 def is_report_archive(path):
     return str(path or '').lower().endswith(ARCHIVE_SUFFIXES)
+
+
+def has_archive_candidates(result):
+    from vcs.base import ChangeType
+    return any(is_report_archive(file.file_path) or (
+        file.change_type == ChangeType.RENAMED and is_report_archive(file.old_path)
+    ) for file in result.files)
+
+
+def _is_lfs_pointer(path):
+    # The LFS specification requires a complete UTF-8 pointer smaller than
+    # 1024 bytes. Never read an entire archive just to diagnose a pointer.
+    with open_regular_file_no_links(path, deny_writes=True) as source:
+        if os.fstat(source.fileno()).st_size >= 1024:
+            return False
+        data = source.read(1024)
+    if not data or not data.endswith(b'\n') or b'\r' in data:
+        return False
+    try:
+        lines = data.decode('utf-8').split('\n')[:-1]
+    except UnicodeDecodeError:
+        return False
+    pairs = [line.split(' ', 1) for line in lines]
+    if any(len(pair) != 2 or not re.fullmatch(r'[a-z0-9.-]+', pair[0])
+           or not pair[1] for pair in pairs):
+        return False
+    keys = [pair[0] for pair in pairs]
+    values = dict(pairs)
+    return (keys[0] == 'version' and len(keys) == len(values)
+            and keys[1:] == sorted(keys[1:])
+            and values.get('version') in ('https://git-lfs.github.com/spec/v1',
+                                          'https://hawser.github.com/spec/v1')
+            and re.fullmatch(r'sha256:[0-9a-f]{64}', values.get('oid', '')) is not None
+            and re.fullmatch(r'0|[1-9][0-9]*', values.get('size', '')) is not None)
 
 
 @dataclass
@@ -102,7 +137,7 @@ def _endpoint_path(vcs, version, path):
         version = vcs._to_folder_ver(version)
         vcs = vcs._folder
     if not isinstance(vcs, FolderVCS):
-        raise ValueError('包内报告首版只支持文件夹和压缩包比较')
+        raise ValueError('此来源没有可直接借用的快照，请显式传入暂存端点')
     folder = vcs._resolve_version_dir(version)
     return vcs._resolve_file_path(folder, path)
 
@@ -126,23 +161,34 @@ class _Inspector:
         self.patterns = list(patterns or [])
         self.budget = budget
 
-    def attach(self, result, vcs, depth=1, chain=()):
+    def attach(self, result, vcs=None, depth=1, chain=(), *, endpoints=None):
         from vcs.base import ChangeType
         for file in result.files:
-            old_name = file.old_path or file.file_path
+            old_name = (file.old_path or file.file_path) if file.change_type == ChangeType.RENAMED else file.file_path
             if not (is_report_archive(file.file_path) or is_report_archive(old_name)):
                 continue
-            old = None if file.change_type == ChangeType.ADDED else (
-                _endpoint_path(vcs, result.old_version, old_name))
-            new = None if file.change_type == ChangeType.DELETED else (
-                _endpoint_path(vcs, result.new_version, file.file_path))
+            try:
+                old = None if file.change_type == ChangeType.ADDED else (
+                    endpoints.path_for('old', old_name) if endpoints is not None
+                    else _endpoint_path(vcs, result.old_version, old_name))
+                new = None if file.change_type == ChangeType.DELETED else (
+                    endpoints.path_for('new', file.file_path) if endpoints is not None
+                    else _endpoint_path(vcs, result.new_version, file.file_path))
+            except (OSError, ValueError, RuntimeError) as exc:
+                raise RuntimeError(f'项目 [{result.project_name}] 包内端点读取失败: {exc}') from exc
             names = chain + (file.file_path,)
             if ((old and not is_report_archive(old_name)) or
                     (new and not is_report_archive(file.file_path))):
                 file.archive_details = dict(status='unsupported', members=[],
                     note='一侧文件格式不支持内部展开，仅保留原始文件差异。')
                 continue
-            file.archive_details = self.inspect(old, new, depth, names)
+            try:
+                file.archive_details = self.inspect(old, new, depth, names)
+            except Exception as exc:
+                raise RuntimeError(
+                    f'项目 [{result.project_name}] 旧侧 [{old_name if old else "不存在"}] / '
+                    f'新侧 [{file.file_path if new else "不存在"}]: {exc}'
+                ) from exc
 
     def inspect(self, old, new, depth, names):
         if old and new and _same_archive_bytes(old, new):
@@ -151,6 +197,9 @@ class _Inspector:
         if depth > self.budget.max_depth:
             raise RuntimeError('包内递归深度超过安全限制: ' + ' → '.join(names))
         try:
+            for side, path in (('旧', old), ('新', new)):
+                if path is not None and _is_lfs_pointer(path):
+                    raise ValueError(f'{side}侧待交付文件是 Git LFS 指针，不是实际压缩包；本功能不下载 LFS 对象')
             if old is None or new is None:
                 with _empty_archive() as empty:
                     return self.compare(old or empty, new or empty, depth, names)
@@ -176,13 +225,13 @@ class _Inspector:
 
 
 @measured_phase('archive.report', '递归分析变化压缩包（仅报告）')
-def enrich_archive_reports(result, vcs, *, show_full_context=True,
+def enrich_archive_reports(result, vcs=None, *, endpoints=None, show_full_context=True,
                            exclude_patterns=(), budget=None):
     """Attach details without changing result.files, summaries, or delivery paths."""
-    if not isinstance(vcs, (FolderVCS, ArchiveVCS)):
-        raise ValueError('包内报告首版只支持文件夹和压缩包比较')
+    if endpoints is None and not isinstance(vcs, (FolderVCS, ArchiveVCS)):
+        raise ValueError('此来源没有可直接借用的快照，请显式传入暂存端点')
     inspector = _Inspector(show_full_context, exclude_patterns,
                            budget if budget is not None else ArchiveReportBudget())
-    inspector.attach(result, vcs)
+    inspector.attach(result, vcs, endpoints=endpoints)
     result.archive_details_enabled = True
     return result
