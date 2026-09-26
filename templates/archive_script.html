@@ -11,6 +11,10 @@ function initArchiveDetails(root) {
         var leaf = body.querySelector(':scope > .archive-leaf');
         var nav = body.querySelector(':scope > .archive-inline-nav');
         if (!leaf || !nav) return;
+        // 包内正文独立滚动；方向键必须作用于当前成员，而不是外层交付包面板。
+        leaf.tabIndex = 0;
+        leaf.setAttribute('aria-label', '包内代码差异详情，使用左右方向键横向滚动');
+        leaf.addEventListener('keydown', handleDiffHorizontalKeydown);
         var groups = [], lastWasChanged = false;
         leaf.querySelectorAll('table.diff tr').forEach(function(row) {
             var changed = !!row.querySelector('.diff_add,.diff_sub,.diff_chg');
@@ -32,6 +36,14 @@ function initArchiveDetails(root) {
                 groups[index].classList.add('archive-active-diff');
                 groups[index].scrollIntoView({block:'nearest', inline:'nearest'});
                 label.textContent = (index + 1) + ' / ' + groups.length;
+                // 鼠标定位后交还正文焦点；Enter/空格定位保留按钮焦点，便于连续跳转。
+                if (event.detail !== 0) {
+                    try {
+                        leaf.focus({preventScroll: true});
+                    } catch (error) {
+                        leaf.focus();
+                    }
+                }
             });
         });
     }, true);

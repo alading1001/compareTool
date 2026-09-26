@@ -203,7 +203,7 @@ Git/SVN 可执行文件路径均自动探测：先查 `shutil.which`，再查 Wi
 - 开关 `recursive_archives` 默认关闭，按来源保存并由多项目任务快照持有；六种合法模式及混合多项目均可启用。旧配置缺字段保持原行为。
 - 相同包字节不继续展开；变化包复用安全解压器。包内正文、格式、模式属性和仅打包差异分开说明；CLASS 不反编译。相同子包不等于已验证其格式有效。
 - 嵌套展开阶段在整份报告中共享 ArchiveReportBudget（多项目不重置）：8 层、100,000 成员、10 GiB；既检查声明大小也累计实际写出字节，超限明确中止，不做成功的部分报告。
-- `templates/archive_details.html` 使用惰性 DOM 子树和局部差异导航，普通文件导航不变；包名和成员名必须转义，不能拼入可执行脚本或宿主路径。
+- `templates/archive_details.html` 使用惰性 DOM 子树和局部差异导航，普通文件导航不变；包内正文独立承接左右键与鼠标定位后的焦点，键盘激活按钮时保留按钮焦点。包名和成员名必须转义，不能拼入可执行脚本或宿主路径。
 - 包内模板通过递归 `include` 逐片段输出，不能用返回整棵子树字符串的 Jinja 宏替代；浏览器惰性展开不等于生成端流式写出。单/多项目均须覆盖完整成员内容与最大输出块的回归。
 - 详细规则见 docs/nested-archive-report.md。外层导出文件清单、原始字节、主统计和上线说明必须在启用前后核对一致。
 
@@ -221,4 +221,4 @@ Git/SVN 可执行文件路径均自动探测：先查 `shutil.which`，再查 Wi
 - 包内正文仍挂 archive_details，主 files/summary/manifest/上线说明不变；
   保留 8b7be5f 的公共边界匹配优化与递归 include 流式模板。
 - 方案与验证见 docs/recursive-archives-all-vcs-plan.md 和
-  docs/recursive-archives-all-vcs-verification.md。本轮仅源码/文档，打包另行授权。
+  docs/recursive-archives-all-vcs-verification.md。源码提交不等于发布 EXE，正式打包须另行授权。
