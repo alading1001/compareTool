@@ -54,6 +54,7 @@ class ReportGenerator:
             old_version=diff_result.old_version,
             new_version=diff_result.new_version,
             comparison_note=diff_result.comparison_note,
+            archive_details_enabled=diff_result.archive_details_enabled,
             summary=summary,
             files=report_files,
             manifest_files=manifest_files,
@@ -88,6 +89,7 @@ class ReportGenerator:
         context = dict(
             summary=summary,
             projects=project_results,
+            archive_details_enabled=any(p["diff_result"].archive_details_enabled for p in project_results),
             manifest_entries=manifest_entries,
             manifest_matches_files=manifest_matches_files,
             delivery_instructions_name=DELIVERY_INSTRUCTIONS_FILENAME,

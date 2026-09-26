@@ -38,6 +38,7 @@ class FileDiff:
     line_counts_complete: bool = True
     report_detail_omitted: bool = False
     display_notes: List[str] = field(default_factory=list)
+    archive_details: Optional[dict] = None  # Report-only; never a delivery entry.
 
     @property
     def total_changes(self) -> int:
@@ -69,6 +70,7 @@ class DiffResult:
     files: List[FileDiff] = field(default_factory=list)
     required_directory_deletions: List[str] = field(default_factory=list)
     comparison_note: str = ""
+    archive_details_enabled: bool = False
 
     # 正常任务默认完整列出全部变更。数值上限只保留为测试/显式策略注入点，
     # 不能因为预计报告较大就让原本可生成的任务静默截断。

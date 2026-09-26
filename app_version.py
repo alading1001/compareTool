@@ -3,7 +3,7 @@ import json
 import sys
 from pathlib import Path
 
-APP_VERSION = "2026.09.26"
+APP_VERSION = "2026.09.26.1"
 
 
 def build_info():

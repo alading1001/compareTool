@@ -102,9 +102,11 @@ table.diff tr.diff-current td:last-child { border-right: 2px solid #4a90e2; }
 table.diff tr.diff-current-start td { border-top: 2px solid #4a90e2; }
 table.diff tr.diff-current-end td { border-bottom: 2px solid #4a90e2; }
 table.diff span { white-space: pre; }
+{% include 'archive_style.html' %}
 </style>
 </head>
 <body>
+{% from "archive_details.html" import archive_details as render_archive_details %}
 <div class="header">
     <h1>多项目代码比对总报告</h1>
     <h2>共 {{ summary.project_count }} 个项目</h2>
@@ -138,6 +140,7 @@ table.diff span { white-space: pre; }
 {% endfor %}
 </div>
 
+{% if archive_details_enabled %}<div class="delivery-note">已启用包内递归审查。点击带“包内差异”的文件逐层展开；上方汇总及变更清单仍只统计交付文件。包内删除不等于服务器路径删除。</div>{% endif %}
 <div class="body">
     <div class="sidebar">
         <div class="sidebar-header">
@@ -195,12 +198,13 @@ table.diff span { white-space: pre; }
 {% for project in projects %}
 {% set project_loop = loop %}
 {% for file in project.diff_result.report_files %}
-<div id="sbs-{{ project_loop.index }}-{{ loop.index }}" data-path="{{ file.file_path | e }}" data-type="{{ file.report_type }}">{{ file.side_by_side_html | safe }}</div>
+<div id="sbs-{{ project_loop.index }}-{{ loop.index }}" data-path="{{ file.file_path | e }}" data-type="{{ file.report_type }}">{% if file.archive_details %}{{ render_archive_details(file.archive_details) }}<details class="archive-original"><summary>压缩包文件本身的变更标记</summary>{{ file.side_by_side_html | safe }}</details>{% else %}{{ file.side_by_side_html | safe }}{% endif %}</div>
 {% endfor %}
 {% endfor %}
 </div>
 
 <script>
+{% include "archive_script.html" %}
 var fileData = [];
 {% for project in projects %}
 {% set project_loop = loop %}
@@ -211,6 +215,7 @@ fileData.push({
     path: {{ file.file_path | replace('\\','/') | tojson }},
     oldPath: {{ file.old_path | replace('\\','/') | tojson }},
     type: {{ file.report_type | tojson }},
+    archiveDetails: {{ (file.archive_details is not none) | tojson }},
     html: document.getElementById("sbs-{{ project_loop.index }}-{{ loop.index }}").innerHTML
 });
 {% endfor %}
@@ -325,7 +330,8 @@ function renderTree(node, container, isRoot) {
         var row = document.createElement('div');
         row.className = 'row ' + typeClass(f.data.type);
         row.innerHTML = '<span class="icon">📄</span><span class="name">' + esc(f.name) + '</span>' +
-            '<span class="tag ' + f.data.type + '">' + typeLabel(f.data.type) + '</span>';
+            '<span class="tag ' + f.data.type + '">' + typeLabel(f.data.type) + '</span>' +
+            (f.data.archiveDetails ? '<span class="archive-badge">包内差异</span>' : '');
         row.addEventListener('click', function(e) {
             e.stopPropagation();
             document.querySelectorAll('#tree .row').forEach(function(r) { r.classList.remove('active'); });
@@ -364,10 +370,11 @@ function showDiff(file) {
     setDiffNavTitle(navTitle);
     var tableWrapper = document.createElement('div');
     tableWrapper.innerHTML = file.html;
+    initArchiveDetails(tableWrapper);
     currentDiffAnchors = [];
     currentDiffGroups = [];
     currentDiffIndex = -1;
-    var table = tableWrapper.querySelector('table.diff');
+    var table = file.archiveDetails ? null : tableWrapper.querySelector('table.diff');
     if (table) {
         var previousWasChange = false;
         var currentGroup = null;
@@ -403,6 +410,7 @@ function showDiff(file) {
     container.appendChild(panel);
     document.querySelector('.main').scrollTop = 0;
     updateDiffNav();
+    if (file.archiveDetails) setDiffNavVisible(false);
 }
 
 function updateDiffNav() {

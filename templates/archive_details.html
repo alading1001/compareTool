@@ -1,0 +1,33 @@
+{% macro archive_details(detail) -%}
+<section class="archive-report">
+  <div class="archive-note">包内审查明细：只供报告查看，不单独交付、不重新打包，也不生成服务器删除指令。</div>
+  {% if detail.status != 'compared' %}
+    <p class="archive-note">{{ detail.note }}</p>
+  {% else %}
+    <div class="archive-counts">本层成员变化 {{ detail.counts.total_files }} 个：
+      新增 {{ detail.counts.added_files }}，修改 {{ detail.counts.modified_files }}，
+      格式变化 {{ detail.counts.format_changed_files }}，删除 {{ detail.counts.deleted_files }}，
+      重命名 {{ detail.counts.renamed_files }}。嵌套包的内部数量单独显示。</div>
+    {% if detail.filtered %}<p class="archive-note">包内按当前排除规则逐层筛选；不检查被排除成员。排除只影响本明细，不改写交付压缩包。</p>{% endif %}
+    {% if not detail.members %}<p class="archive-note">本层未发现可展示的成员差异；原始包的新增、删除、属性或字节变化仍然有效。</p>{% endif %}
+    {% for member in detail.members %}
+    <details class="archive-member">
+      <summary><span class="archive-tag archive-tag-{{ member.report_type }}">{{ {'A':'新增','M':'修改','F':'格式变化','D':'删除','R':'重命名'}[member.report_type] }}</span>
+        {% if member.old_path %}{{ member.old_path }} → {% endif %}{{ member.file_path }}
+        {% if member.archive_details %}<span class="archive-badge">压缩包 · 可继续展开</span>{% endif %}
+      </summary>
+      <template class="archive-member-template">
+      {% if member.archive_details %}
+        {% for note in member.metadata_changes %}<p class="archive-note">{{ note }}</p>{% endfor %}
+        {{ archive_details(member.archive_details) }}
+      {% else %}
+        <div class="archive-inline-nav"><button type="button" data-archive-step="-1">上一处</button>
+          <span class="archive-diff-count"></span><button type="button" data-archive-step="1">下一处</button></div>
+        <div class="archive-leaf">{{ member.side_by_side_html | safe }}</div>
+      {% endif %}
+      </template><div class="archive-member-body"></div>
+    </details>
+    {% endfor %}
+  {% endif %}
+</section>
+{%- endmacro %}

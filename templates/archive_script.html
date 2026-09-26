@@ -1,0 +1,38 @@
+function initArchiveDetails(root) {
+    root.addEventListener('toggle', function(event) {
+        var item = event.target;
+        if (!item.matches('details.archive-member') || !item.open || item._archiveLoaded) return;
+        var template = item.querySelector(':scope > template.archive-member-template');
+        var body = item.querySelector(':scope > .archive-member-body');
+        if (!template || !body) return;
+        body.appendChild(template.content.cloneNode(true));
+        template.remove();
+        item._archiveLoaded = true;
+        var leaf = body.querySelector(':scope > .archive-leaf');
+        var nav = body.querySelector(':scope > .archive-inline-nav');
+        if (!leaf || !nav) return;
+        var groups = [], lastWasChanged = false;
+        leaf.querySelectorAll('table.diff tr').forEach(function(row) {
+            var changed = !!row.querySelector('.diff_add,.diff_sub,.diff_chg');
+            if (changed && !lastWasChanged) groups.push(row);
+            lastWasChanged = changed;
+        });
+        var index = -1, label = nav.querySelector('.archive-diff-count');
+        label.textContent = '0 / ' + groups.length;
+        nav.querySelectorAll('button').forEach(function(button) {
+            button.disabled = groups.length === 0;
+            button.addEventListener('click', function(event) {
+                event.stopPropagation();
+                var step = Number(button.dataset.archiveStep);
+                if (index < 0) index = step < 0 ? groups.length - 1 : 0;
+                else index = (index + step + groups.length) % groups.length;
+                leaf.querySelectorAll('.archive-active-diff').forEach(function(row) {
+                    row.classList.remove('archive-active-diff');
+                });
+                groups[index].classList.add('archive-active-diff');
+                groups[index].scrollIntoView({block:'nearest', inline:'nearest'});
+                label.textContent = (index + 1) + ' / ' + groups.length;
+            });
+        });
+    }, true);
+}

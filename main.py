@@ -77,6 +77,7 @@ from vcs.folder_vcs import FolderVCS
 from vcs.archive_vcs import ArchiveVCS
 from vcs.multi_version_vcs import GitMultiVersionVCS, SVNMultiVersionVCS, parse_multi_versions
 from diff_engine import DiffEngine
+from archive_report import ArchiveReportBudget, enrich_archive_reports
 from report_generator import ReportGenerator
 from file_exporter import FileExporter
 from delivery_instructions import (
@@ -287,6 +288,12 @@ class CompareToolApp(TaskProgressUI):
             wraplength=720
         )
         self.vcs_help_label.pack(anchor=tk.W, fill=tk.X, pady=(3, 0))
+        self.recursive_archives_var = tk.BooleanVar(value=False)
+        self.recursive_archives_check = ttk.Checkbutton(
+            vcs_frame, text="递归查看压缩包内部差异（仅报告，交付保留原包）",
+            variable=self.recursive_archives_var,
+        )
+        self.recursive_archives_check.pack(anchor=tk.W, pady=(3, 0))
         vcs_frame.bind(
             "<Configure>",
             lambda e: self.vcs_help_label.configure(wraplength=max(360, e.width - 4))
@@ -601,6 +608,8 @@ class CompareToolApp(TaskProgressUI):
                 "exclude_rules": item.get("exclude_rules", "") if isinstance(item.get("exclude_rules", ""), str) else "",
                 "show_project_root": self._option_bool(item.get("show_project_root"), default=True),
                 "show_full_context": self._option_bool(item.get("show_full_context"), default=True),
+                "recursive_archives": vcs_type in ("folder", "archive") and self._option_bool(
+                    item.get("recursive_archives"), default=False),
                 "ignore_archive_root": vcs_type == "archive" and self._option_bool(
                     item.get("ignore_archive_root"), default=False
                 ),
@@ -1080,7 +1089,16 @@ class CompareToolApp(TaskProgressUI):
             "show_full_context": self.show_full_context_var.get(),
             # 切换类型的 trace 执行时 vcs_var 已经改变，仍需保存离开前的选项。
             "ignore_archive_root": bool(archive_option and archive_option.get()),
+            "recursive_archives": self._option_bool(
+                getattr(self, "recursive_archives_var", None).get()
+                if getattr(self, "recursive_archives_var", None) is not None else False,
+                default=False),
         }
+
+    def _recursive_archives(self) -> bool:
+        var = getattr(self, "recursive_archives_var", None)
+        return (self.vcs_var.get() in ("folder", "archive") and var is not None
+                and self._option_bool(var.get(), default=False))
 
     def _ignore_archive_root(self) -> bool:
         var = getattr(self, "ignore_archive_root_var", None)
@@ -1118,6 +1136,8 @@ class CompareToolApp(TaskProgressUI):
 
     def _apply_display_options(self, options: dict):
         options = options or {}
+        if hasattr(self, "recursive_archives_var"):
+            self.recursive_archives_var.set(self._option_bool(options.get("recursive_archives"), default=False))
         self.show_project_root_var.set(self._option_value(options.get("show_project_root"), default=True))
         self.show_full_context_var.set(self._option_value(options.get("show_full_context"), default=True))
         if hasattr(self, "ignore_archive_root_var"):
@@ -1296,6 +1316,9 @@ class CompareToolApp(TaskProgressUI):
 
     def _on_vcs_changed(self):
         """VCS 类型切换时更新界面"""
+        if hasattr(self, "recursive_archives_check"):
+            self.recursive_archives_check.configure(state=(tk.NORMAL
+                if self.vcs_var.get() in ("folder", "archive") else tk.DISABLED))
         self._version_request_id += 1
         vcs_type = self.vcs_var.get()
         is_folder = vcs_type == "folder"
@@ -1808,6 +1831,7 @@ class CompareToolApp(TaskProgressUI):
             "show_project_root": self.show_project_root_var.get() == "yes",
             "show_full_context": self.show_full_context_var.get() == "yes",
             "ignore_archive_root": self._ignore_archive_root(),
+            "recursive_archives": self._recursive_archives(),
         }
 
     def _ensure_unique_task_name(self, project_name: str, editing_index=None) -> bool:
@@ -1869,6 +1893,8 @@ class CompareToolApp(TaskProgressUI):
         self.show_project_root_var.set(self._option_value(task.get("show_project_root"), default=True))
         self.show_full_context_var.set(self._option_value(task.get("show_full_context"), default=True))
         self.ignore_archive_root_var.set(self._option_bool(task.get("ignore_archive_root"), default=False))
+        if hasattr(self, "recursive_archives_var"):
+            self.recursive_archives_var.set(self._option_bool(task.get("recursive_archives"), default=False))
         self._project_name_manual = True
         self._replace_exclude_text(task.get("exclude_rules", self._default_exclude_rules))
         self._last_exclude_key = task.get("exclude_key", "")
@@ -2005,7 +2031,8 @@ class CompareToolApp(TaskProgressUI):
 
     @measured_phase("project.prepare", "读取当前项目并生成明细")
     def _prepare_task_result(
-        self, task: dict, show_full: bool = None, report_budget: dict = None
+        self, task: dict, show_full: bool = None, report_budget: dict = None,
+        archive_budget=None,
     ):
         vcs = None
         cleanup_needed = False
@@ -2029,6 +2056,9 @@ class CompareToolApp(TaskProgressUI):
                 report_budget=report_budget,
             )
             diff_result = engine.generate_diff(task["old_version"], task["new_version"])
+            if task["vcs_type"] in ("folder", "archive") and self._option_bool(task.get("recursive_archives"), default=False):
+                enrich_archive_reports(diff_result, vcs, show_full_context=show_full,
+                    exclude_patterns=exclude_text.splitlines(), budget=archive_budget)
             diff_result.project_name = task["project_name"]
             diff_result.vcs_type = self._vcs_label(task["vcs_type"])
             if task["vcs_type"] == "archive":
@@ -2191,6 +2221,7 @@ class CompareToolApp(TaskProgressUI):
         show_full = self.show_full_context_var.get() == "yes"
         show_project_root = self.show_project_root_var.get() == "yes"
         ignore_archive_root = self._ignore_archive_root()
+        recursive_archives = self._recursive_archives()
         self._save_current_config()
         self._set_generating(True)
         self.progress.start()
@@ -2202,7 +2233,7 @@ class CompareToolApp(TaskProgressUI):
             report_path, old_export, new_export,
             os.path.abspath(self.output_dir_var.get().strip()),
             ignore_archive_root,
-        ), daemon=True)
+        ), kwargs={"recursive_archives": recursive_archives}, daemon=True)
         thread.start()
 
     def _generate_multi(self):
@@ -2283,7 +2314,7 @@ class CompareToolApp(TaskProgressUI):
             self, project_path, vcs_type, old_version, new_version, project_name,
             exclude_patterns, show_full, show_project_root,
             report_path, old_export, new_export, trusted_output_root="",
-            ignore_archive_root=False):
+            ignore_archive_root=False, recursive_archives=False):
         cleanup_vcs = None  # 持有引用以便 finally 清理临时目录
         try:
             trusted_output_root = (
@@ -2371,6 +2402,9 @@ class CompareToolApp(TaskProgressUI):
             info("获取变更文件列表...")
             engine = DiffEngine(vcs, show_full_context=show_full)
             diff_result = engine.generate_diff(old_version, new_version)
+            if recursive_archives and vcs_type in ("folder", "archive"):
+                enrich_archive_reports(diff_result, vcs, show_full_context=show_full,
+                    exclude_patterns=exclude_patterns)
             diff_result.project_name = project_name
             if vcs_type == "archive":
                 diff_result.project_path = os.path.basename(new_version)
@@ -2476,11 +2510,12 @@ class CompareToolApp(TaskProgressUI):
             task_metrics(project_count=len(tasks))
             info("=== 开始生成多项目总报告 ===")
             report_budget = {} if DiffEngine.report_limits_enabled() else None
+            archive_budget = ArchiveReportBudget()
             for idx, task in enumerate(tasks, start=1):
                 info(f"多项目任务 {idx}/{len(tasks)}: {task.get('project_name')} {task.get('vcs_type')}")
                 project_progress(idx, len(tasks))
                 project_results.append(self._prepare_task_result(
-                    task, report_budget=report_budget
+                    task, report_budget=report_budget, archive_budget=archive_budget
                 ))
 
             self._check_multi_display_path_conflicts(project_results)
