@@ -1,3 +1,4 @@
+from task_progress import measured_phase, task_failure, defer_completion, observe_job, project_progress
 import json
 import os
 import secrets
@@ -84,6 +85,9 @@ from delivery_instructions import (
     single_delivery_instructions_filename,
 )
 from logger import info, warn, error
+from app_version import window_title
+from ui_progress import TaskProgressUI
+from task_progress import task_metrics
 from path_safety import sanitize_windows_component, windows_path_key
 
 
@@ -142,10 +146,10 @@ def _save_config(data):
                 pass
 
 
-class CompareToolApp:
+class CompareToolApp(TaskProgressUI):
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("代码比对报告工具")
+        self.root.title(window_title())
         self.root.resizable(True, True)
         self.root.minsize(600, 560)
         # 窗口居中显示
@@ -194,6 +198,7 @@ class CompareToolApp:
         self._multi_tasks = self._normalize_loaded_multi_tasks(raw_multi_tasks)
         self._editing_task_index = None
         self._generating = False
+        self._init_task_progress(CONFIG_DIR)
         self._last_exclude_key = ""
         self._project_name_manual = False
         self._version_items = []
@@ -214,14 +219,17 @@ class CompareToolApp:
         bottom_frame = ttk.Frame(self.root, padding=(14, 6, 14, 8))
         bottom_frame.pack(side=tk.BOTTOM, fill=tk.X)
 
-        self.progress = ttk.Progressbar(bottom_frame, mode="indeterminate")
+        controls_frame = ttk.Frame(bottom_frame)
+        controls_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(5, 0))
+        self.progress = ttk.Progressbar(controls_frame, mode="indeterminate")
         self.progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 12))
 
-        self.generate_btn = ttk.Button(bottom_frame, text="生成比对报告", command=self._generate)
+        self.generate_btn = ttk.Button(controls_frame, text="生成比对报告", command=self._generate)
         self.generate_btn.pack(side=tk.RIGHT)
+        ttk.Button(controls_frame, text="版本信息", command=self._show_version_info).pack(side=tk.RIGHT, padx=(0, 8))
 
         self.status_var = tk.StringVar(value="就绪")
-        ttk.Label(bottom_frame, textvariable=self.status_var, font=("", 9)).pack(side=tk.RIGHT, padx=(0, 12))
+        ttk.Label(bottom_frame, textvariable=self.status_var, font=("", 9)).pack(side=tk.TOP, fill=tk.X)
 
         container = ttk.Frame(self.root)
         container.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
@@ -1932,6 +1940,11 @@ class CompareToolApp:
         state = tk.DISABLED if generating else tk.NORMAL
         self.generate_btn.config(state=state)
         self._sync_multi_task_buttons()
+        if hasattr(self, "_task_mailbox"):
+            if generating:
+                self._begin_task_progress()
+            else:
+                self._end_task_progress()
 
     def _multi_run_paths(self):
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
@@ -1990,6 +2003,7 @@ class CompareToolApp:
             return SVNVCS(task["project_path"]), False
         raise RuntimeError(f"不支持的多项目任务类型: {vcs_type}")
 
+    @measured_phase("project.prepare", "读取当前项目并生成明细")
     def _prepare_task_result(
         self, task: dict, show_full: bool = None, report_budget: dict = None
     ):
@@ -2264,6 +2278,7 @@ class CompareToolApp:
         )
         thread.start()
 
+    @observe_job("single")
     def _do_generate(
             self, project_path, vcs_type, old_version, new_version, project_name,
             exclude_patterns, show_full, show_project_root,
@@ -2309,6 +2324,8 @@ class CompareToolApp:
                 ],
                 trusted_root=trusted_output_root,
             )
+            if isinstance(expected_target_states, dict):
+                task_metrics(overwrite_targets=sum(s.get("kind") != "missing" for s in expected_target_states.values()))
             info(f"=== 开始生成比对报告 ===")
             info(f"project_path={project_path}, vcs_type={vcs_type}, old={old_version}, new={new_version}")
 
@@ -2406,17 +2423,19 @@ class CompareToolApp:
 
             summary = diff_result.summary
             info(f"=== 完成: {summary} ===")
-            self.root.after(0, lambda: self._on_complete(report_path, summary))
+            defer_completion(self, "_on_complete", report_path, summary)
 
         except Exception as e:
             msg = str(e)
             error(f"生成失败: {msg}")
             import traceback; error(traceback.format_exc())
-            self.root.after(0, lambda msg=msg: self._show_error(msg))
+            task_failure(e)
+            defer_completion(self, "_show_error", msg)
         finally:
             if cleanup_vcs:
                 cleanup_vcs.cleanup()
 
+    @observe_job("multi")
     def _do_generate_multi(
         self, tasks, report_path, old_export, new_export, trusted_output_root=""
     ):
@@ -2452,12 +2471,14 @@ class CompareToolApp:
                 [old_export, new_export, report_path, instruction_target],
                 trusted_root=trusted_output_root,
             )
+            if isinstance(expected_target_states, dict):
+                task_metrics(overwrite_targets=sum(s.get("kind") != "missing" for s in expected_target_states.values()))
+            task_metrics(project_count=len(tasks))
             info("=== 开始生成多项目总报告 ===")
             report_budget = {} if DiffEngine.report_limits_enabled() else None
             for idx, task in enumerate(tasks, start=1):
                 info(f"多项目任务 {idx}/{len(tasks)}: {task.get('project_name')} {task.get('vcs_type')}")
-                self.root.after(0, lambda idx=idx, total=len(tasks), name=task.get("project_name", ""):
-                                self.status_var.set(f"正在处理项目 {idx}/{total}: {name}"))
+                project_progress(idx, len(tasks))
                 project_results.append(self._prepare_task_result(
                     task, report_budget=report_budget
                 ))
@@ -2474,7 +2495,8 @@ class CompareToolApp:
                 stage_parent=trusted_output_root,
                 trusted_root=trusted_output_root,
             )
-            for item in project_results:
+            for idx, item in enumerate(project_results, 1):
+                project_progress(idx, len(project_results))
                 task = item["task"]
                 exporter = FileExporter(item["diff_result"], item["vcs"])
                 exporter.export(
@@ -2512,12 +2534,13 @@ class CompareToolApp:
 
             summary = ReportGenerator._multi_summary(project_results)
             info(f"=== 多项目完成: {summary} ===")
-            self.root.after(0, lambda: self._on_multi_complete(report_path, summary))
+            defer_completion(self, "_on_multi_complete", report_path, summary)
         except Exception as e:
             msg = str(e)
             error(f"多项目生成失败: {msg}")
             import traceback; error(traceback.format_exc())
-            self.root.after(0, lambda msg=msg: self._show_error(msg))
+            task_failure(e)
+            defer_completion(self, "_show_error", msg)
         finally:
             for stage_root in (stage_old_root, stage_new_root):
                 FileExporter._cleanup_stage(stage_root)
@@ -2541,6 +2564,7 @@ class CompareToolApp:
         self.status_var.set(
             f"完成! 共 {summary['total_files']} 个文件变更 "
             f"(+{summary['total_added_lines']}/-{summary['total_deleted_lines']}{line_note})"
+            + self._task_status_suffix()
         )
         if messagebox.askyesno("完成", f"比对报告已生成!\n\n"
                                        f"变更文件: {summary['total_files']} 个\n"
@@ -2549,7 +2573,7 @@ class CompareToolApp:
                                        f"删除行数: -{summary['total_deleted_lines']}\n"
                                        f"{line_dialog_note}\n"
                                        f"输出目录:\n{output_dir}\n\n"
-                                       f"是否打开报告?"):
+                                       f"{self._task_details_note()}\n是否打开报告?"):
             webbrowser.open(f"file:///{report_path}")
 
     def _on_multi_complete(self, report_path, summary):
@@ -2563,6 +2587,7 @@ class CompareToolApp:
             f"多项目完成! {summary['project_count']} 个项目，"
             f"{summary['total_files']} 个文件变更 "
             f"(+{summary['total_added_lines']}/-{summary['total_deleted_lines']}{line_note})"
+            + self._task_status_suffix()
         )
         if messagebox.askyesno("完成", f"多项目总报告已生成!\n\n"
                                        f"项目: {summary['project_count']} 个\n"
@@ -2572,14 +2597,14 @@ class CompareToolApp:
                                        f"删除行数: -{summary['total_deleted_lines']}\n"
                                        f"{line_dialog_note}\n"
                                        f"输出目录:\n{output_dir}\n\n"
-                                       f"是否打开报告?"):
+                                       f"{self._task_details_note()}\n是否打开报告?"):
             webbrowser.open(f"file:///{report_path}")
 
     def _show_error(self, msg):
         self.progress.stop()
         self._set_generating(False)
         self.status_var.set("出错")
-        messagebox.showerror("错误", msg)
+        messagebox.showerror("错误", msg + self._task_details_note())
 
     def _save_current_config(self, notify: bool = True) -> bool:
         """保存当前界面配置到文件"""

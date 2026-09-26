@@ -1,3 +1,4 @@
+from task_progress import measured_phase
 import subprocess
 import os
 import re
@@ -199,6 +200,7 @@ class GitVCS(BaseVCS):
             raise RuntimeError(f"Git命令失败: {' '.join(args)}\n{stderr}")
         return result.stdout
 
+    @measured_phase('git.changes', '查询 Git 版本差异')
     def get_changed_files(self, old_version: str, new_version: str) -> List[ChangedFile]:
         pinned = self._pin_versions_stable((old_version, new_version))
         old_endpoint = pinned[str(old_version)]

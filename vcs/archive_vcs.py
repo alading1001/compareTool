@@ -1,3 +1,4 @@
+from task_progress import measured_phase
 import os
 import posixpath
 import shutil
@@ -69,6 +70,7 @@ class ArchiveVCS(BaseVCS):
     _ZIP_CENTRAL_SIGNATURE = b"PK\x01\x02"
     _ZIP_DIGITAL_SIGNATURE = b"PK\x05\x05"
 
+    @measured_phase("archive.extract", "读取并解压归档")
     def __init__(self, old_archive: str, new_archive: str, *, ignore_single_root: bool = False):
         self.old_archive = old_archive
         self.new_archive = new_archive

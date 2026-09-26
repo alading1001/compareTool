@@ -135,3 +135,11 @@ Git多版本只接受当前分支第一父历史中的提交，合并提交相�
 本轮改动、三轮基准数据、验证范围和仍未优化的部分见 [第一批性能优化记录](docs/performance-first-batch.md)。基准工具为 `tools/benchmark_performance.py`；源码性能改动只有重新打包后才会进入 EXE，原有 EXE 不会随源码自动更新。
 
 Windows 文件夹扫描的重复元数据查询和比较根路径解析也已优化，保留源树复核与内容正确性检查。大小写不同的目录使用独立缓存键。本机对照数据及验证记录见 [文件夹扫描优化记录](docs/performance-folder-scan.md)，可用 `tools/benchmark_folder_scan.py` 重复测量。
+
+## 正式入口、版本与任务进度
+
+使用 `dist/CompareTool.exe`；标题中的版本和构建号用于区分不同构建，底部“版本信息”可查看构建时间、源码指纹和实际运行路径。`build.bat` 通过 `tools/build_release.py` 生成并嵌入构建信息，附带 `CompareTool_build.json`；请使用此入口打包，而非旧的手工 spec。
+
+生成时显示真实阶段、可确定的文件处理数量及已用时间；进度条只表示当前阶段。完成后显示总耗时和日志路径。正常耗时记录在程序目录的 `logs/tasks/`，与输入目录重叠时改用独立用户目录。日志不可写不影响比较结果。
+
+使用说明与验证范围见 [正式版收尾记录](docs/release-polish.md)。旧构建保存在 `dist/archive/`，回退时不要混用不同构建的程序。源码仍由用户自行提交和推送。

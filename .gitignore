@@ -8,3 +8,7 @@ __pycache__/
 compareTool.log
 compareTool_config.json
 /.claude/
+
+# Local task timing and generated release artifacts
+logs/
+build_info.json

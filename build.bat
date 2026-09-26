@@ -91,15 +91,7 @@ if defined INSTALL_DEPS (
 echo.
 echo [2/3] Building...
 
-%PYTHON_CMD% -m PyInstaller ^
-    --onefile ^
-    --console ^
-    --name "CompareTool" ^
-    --icon "assets\icons\app.ico" ^
-    --add-data "templates;templates" ^
-    --add-data "assets;assets" ^
-    --clean ^
-    main.py
+%PYTHON_CMD% tools\build_release.py
 
 if errorlevel 1 (
     echo.

@@ -1,3 +1,4 @@
+from task_progress import measured_phase, progress, advance
 import hashlib
 import hmac
 import json
@@ -88,6 +89,7 @@ class FileExporter:
         finally:
             self.cleanup_stages(pairs)
 
+    @measured_phase('output.export', '导出新旧变更文件')
     def prepare_export(
         self,
         old_dir: str,
@@ -128,6 +130,8 @@ class FileExporter:
             stage_new = self._make_stage_dir(
                 new_dir, stage_parent=trusted_root, trusted_root=trusted_root
             )
+            progress(0, sum(1 if f.change_type in (ChangeType.ADDED, ChangeType.DELETED) else 2
+                            for f in self.diff_result.files))
             for file_diff in self.diff_result.files:
                 if file_diff.change_type == ChangeType.DELETED:
                     self._write_file(stage_old, file_diff.file_path, old_ver, file_diff.old_content)
@@ -202,6 +206,7 @@ class FileExporter:
         if stream_export is not None:
             try:
                 stream_export(version, rel_path, file_path)
+                advance()
                 return
             except Exception:
                 try:
@@ -216,6 +221,7 @@ class FileExporter:
             raise RuntimeError(f"无法读取版本 {version} 中的文件，已中止导出: {rel_path}")
         with open(file_path, "wb") as f:
             f.write(raw)
+        advance()
 
     def _validate_export_paths(self, old_dir: str, new_dir: str):
         old_paths = []
@@ -326,6 +332,7 @@ class FileExporter:
             raise
 
     @classmethod
+    @measured_phase('output.baseline', '恢复旧事务并核验输出')
     def prepare_target_states(cls, targets, trusted_root: str = "") -> dict:
         """先恢复相关旧事务，再固定本次生成基线，避免恢复本身被误判为外部修改。"""
         targets = [os.path.abspath(path) for path in targets]
@@ -910,6 +917,7 @@ class FileExporter:
             )
 
     @classmethod
+    @measured_phase('output.commit', '校验、提交输出并清理备份')
     def _replace_outputs(
         cls, pairs, expected_target_states=None, trusted_root: str = ""
     ):

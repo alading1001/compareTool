@@ -1,3 +1,4 @@
+from task_progress import measured_phase
 import hashlib
 import re
 import shutil
@@ -392,6 +393,7 @@ class SVNVCS(BaseVCS):
         cache[key] = kind
         return kind
 
+    @measured_phase('svn.changes', '查询 SVN 版本差异')
     def get_changed_files(self, old_version: str, new_version: str) -> List[ChangedFile]:
         self._pin_source_identity()
         old_endpoint = self._pin_version(old_version)

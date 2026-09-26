@@ -186,3 +186,12 @@ Git/SVN 可执行文件路径均自动探测：先查 `shutil.which`，再查 Wi
 - 回归见 `tests/test_folder_scan_optimization.py`；扫描基准见 `tools/benchmark_folder_scan.py`。性能改动不得删除源树最终复核、FileId 检查或失败即中止语义。
 
 根路径缓存键必须保留规范化绝对路径的大小写，不能用 `normcase` 合并大小写敏感目录。补充回归见 `tests/test_folder_scan_edge_cases.py`；本轮完整测试和交替基准结果见 `docs/performance-folder-scan.md`。基准只创建独占随机临时目录，不清理固定名称的已有路径。
+
+## 正式版身份与任务观测（2026-09-26）
+
+- `app_version.py` 定义日历版本；正式构建使用 `tools/build_release.py`（由 build.bat 调用），将时间、父提交、dirty 状态和源码 SHA-256 写入临时 build_info.json 并嵌入。运行时不可猜测构建号；源码为 source，缺失元数据为 unknown。
+- 只发布 `dist/CompareTool.exe`，旧构建归档。保留 `CompareTool_build.json` 以核对 EXE 和源码指纹。打包返回成功后仍需检查真实窗口及标题版本。
+- `task_progress.py` 通过 ContextVar 隔离任务，观测装饰器不改变比较、过滤、字节导出或恢复策略。阶段包含时间不能直接相加，汇总同时提供 exclusive_seconds。
+- `ui_progress.py` 仅由主线程每 200ms 轮询最新状态槽；不为每个文件排队 Tk 回调，不逐文件写日志。不知道总量时不编造百分比。后台清理与任务记录完成后才发完成通知。
+- 耗时日志失败不得导致业务比较失败；只记录计数、耗时和构建身份，不写代码正文。日志目录不得位于输入树中，必要时选择独立用户目录。保留最近 50 组已结束日志，中断现场不自动清除。
+- `tests/test_task_progress.py` 和 `tests/test_release_identity.py` 覆盖观测独立性及身份；维护界面时同步说明书源稿和两个 PDF。完整验证记录见 docs/release-polish.md。

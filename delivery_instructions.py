@@ -1,3 +1,4 @@
+from task_progress import measured_phase
 import os
 from file_exporter import FileExporter
 from vcs.base import ChangeType
@@ -12,6 +13,7 @@ def single_delivery_instructions_filename(project_name: str) -> str:
     return f"{name}_{DELIVERY_INSTRUCTIONS_FILENAME}" if name else DELIVERY_INSTRUCTIONS_FILENAME
 
 
+@measured_phase('output.instructions', '生成上线操作说明')
 def prepare_delivery_instructions(
     project_results: list,
     target_path: str,

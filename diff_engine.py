@@ -1,3 +1,4 @@
+from task_progress import measured_phase, stage, progress
 import difflib
 import hashlib
 import html
@@ -249,6 +250,7 @@ class DiffEngine:
         ext = os.path.splitext(file_path)[1].lower()
         return ext in self.BINARY_EXTS
 
+    @measured_phase('diff.total', '查找变更并生成明细')
     def generate_diff(self, old_version: str, new_version: str) -> DiffResult:
         """生成两个版本之间的完整差异"""
         if self._owns_report_budget:
@@ -272,29 +274,32 @@ class DiffEngine:
             comparison_note=getattr(self.vcs, "comparison_note", ""),
         )
 
-        for cf in changed_files:
-            entry_reason = (
-                self._reserve_report_entry(cf)
-                if self._report_limits_enabled else ""
-            )
-            if entry_reason:
-                file_diff = FileDiff(
-                    file_path=cf.path,
-                    change_type=cf.change_type,
-                    old_path=cf.old_path,
-                    metadata_changes=list(cf.metadata_changes),
-                    old_executable=cf.old_executable,
-                    new_executable=cf.new_executable,
-                    old_mode=cf.old_mode,
-                    new_mode=cf.new_mode,
-                    line_counts_complete=False,
-                    report_detail_omitted=True,
+        with stage("diff.render", "生成变更文件明细"):
+            progress(0, len(changed_files))
+            for index, cf in enumerate(changed_files, 1):
+                entry_reason = (
+                    self._reserve_report_entry(cf)
+                    if self._report_limits_enabled else ""
                 )
-            else:
-                file_diff = self._diff_file(old_version, new_version, cf)
-                if self._report_limits_enabled:
-                    self._finalize_report_entry(file_diff)
-            result.files.append(file_diff)
+                if entry_reason:
+                    file_diff = FileDiff(
+                        file_path=cf.path,
+                        change_type=cf.change_type,
+                        old_path=cf.old_path,
+                        metadata_changes=list(cf.metadata_changes),
+                        old_executable=cf.old_executable,
+                        new_executable=cf.new_executable,
+                        old_mode=cf.old_mode,
+                        new_mode=cf.new_mode,
+                        line_counts_complete=False,
+                        report_detail_omitted=True,
+                    )
+                else:
+                    file_diff = self._diff_file(old_version, new_version, cf)
+                    if self._report_limits_enabled:
+                        self._finalize_report_entry(file_diff)
+                result.files.append(file_diff)
+                progress(index, len(changed_files))
 
         return result
 
@@ -819,6 +824,7 @@ class DiffEngine:
             '</div>'
         )
 
+    @measured_phase('diff.renames', '确认重命名文件')
     def _merge_exact_renames(
         self,
         changed_files: List[ChangedFile],

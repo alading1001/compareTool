@@ -1,3 +1,4 @@
+from task_progress import measured_phase
 import os
 import tempfile
 from datetime import datetime
@@ -22,6 +23,7 @@ class ReportGenerator:
             autoescape=select_autoescape(enabled_extensions=("html", "xml")),
         )
 
+    @measured_phase('report.write', '写入 HTML 报告')
     def generate(
         self,
         diff_result: DiffResult,
@@ -64,6 +66,7 @@ class ReportGenerator:
         stream = template.stream(**context)
         self._dump_limited(stream, output_path)
 
+    @measured_phase('report.write_multi', '写入多项目 HTML 报告')
     def generate_multi(self, project_results: list, output_path: str):
         summary = self._multi_summary(project_results)
         manifest_matches_files = (

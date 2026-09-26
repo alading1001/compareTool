@@ -1,3 +1,4 @@
+from task_progress import measured_phase, progress
 import os
 import hashlib
 import shutil
@@ -262,6 +263,7 @@ class FolderVCS(BaseVCS):
             raise RuntimeError(f"比对源目录在快照期间被替换: {path}")
         return metadata.st_dev, metadata.st_ino
 
+    @measured_phase('folder.capture', '扫描目录并固定状态')
     def _capture_directory(self, source: str) -> dict:
         root_identity = self._directory_identity(source)
         files, directories = self._walk_tree(
@@ -273,12 +275,13 @@ class FolderVCS(BaseVCS):
             )
             for relative_path in directories
         }
-        initial_file_signatures = {
-            relative_path: self._file_signature(
+        initial_file_signatures = {}
+        progress(0, len(files))
+        for index, relative_path in enumerate(files, 1):
+            initial_file_signatures[relative_path] = self._file_signature(
                 self._resolve_file_path(source, relative_path, check_leaf_link=False)
             )
-            for relative_path in files
-        }
+            progress(index, len(files))
         return {
             "root_identity": root_identity,
             "files": files,
@@ -287,6 +290,7 @@ class FolderVCS(BaseVCS):
             "file_signatures": initial_file_signatures,
         }
 
+    @measured_phase('folder.compare', '核对文件内容')
     def _compare_captures(self, old_capture: dict, new_capture: dict):
         old_files = old_capture["files"]
         new_files = new_capture["files"]
@@ -298,7 +302,9 @@ class FolderVCS(BaseVCS):
             ChangedFile(path=path, change_type=ChangeType.DELETED)
             for path in sorted(old_files - new_files)
         )
-        for path in sorted(old_files & new_files):
+        common_files = sorted(old_files & new_files)
+        progress(0, len(common_files))
+        for index, path in enumerate(common_files, 1):
             if not self._same_captured_file_content(
                 self.source_old_dir,
                 self.source_new_dir,
@@ -307,6 +313,7 @@ class FolderVCS(BaseVCS):
                 new_capture["file_signatures"][path],
             ):
                 result.append(ChangedFile(path=path, change_type=ChangeType.MODIFIED))
+            progress(index, len(common_files))
         return result
 
     def _same_captured_file_content(
@@ -361,6 +368,7 @@ class FolderVCS(BaseVCS):
             raise RuntimeError(f"新版本文件在快照复制期间发生变化: {new_path}")
         return same
 
+    @measured_phase('folder.verify', '复核源目录状态')
     def _verify_capture(self, source: str, capture: dict):
         final_files, final_directories = self._walk_tree(
             source, apply_excludes=True, validate_file_links=False
@@ -378,13 +386,16 @@ class FolderVCS(BaseVCS):
             current_path = self._resolve_file_path(source, relative_path, check_leaf_link=False)
             if self._directory_identity(current_path) != expected_identity:
                 raise RuntimeError(f"比对源目录在快照期间被替换: {current_path}")
-        for relative_path, expected_signature in capture["file_signatures"].items():
+        progress(0, len(capture["file_signatures"]))
+        for index, (relative_path, expected_signature) in enumerate(capture["file_signatures"].items(), 1):
             current_path = self._resolve_file_path(source, relative_path, check_leaf_link=False)
             if self._file_signature(current_path) != expected_signature:
                 raise RuntimeError(
                     f"比对源文件在快照期间发生变化: {current_path}"
                 )
+            progress(index, len(capture["file_signatures"]))
 
+    @measured_phase('folder.snapshot', '保存变更文件快照')
     def _snapshot_directory(
         self,
         source: str,
@@ -404,7 +415,8 @@ class FolderVCS(BaseVCS):
         )
         self._owned_temp_dirs.append(target)
         directory_entries = {}
-        for rel_path in sorted(selected_files):
+        progress(0, len(selected_files))
+        for index, rel_path in enumerate(sorted(selected_files), 1):
             source_path = self._resolve_file_path(source, rel_path, check_leaf_link=False)
             target_path = self._resolve_file_path(target, rel_path, check_leaf_link=False)
             expected_signature = initial_file_signatures[rel_path]
@@ -432,6 +444,7 @@ class FolderVCS(BaseVCS):
                 raise RuntimeError(
                     f"比对源文件在快照复制期间发生变化: {source_path}"
                 )
+            progress(index, len(selected_files))
 
         if not self._defer_snapshot_final_verification:
             self._verify_capture(source, capture)
