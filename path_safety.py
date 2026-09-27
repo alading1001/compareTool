@@ -3,6 +3,58 @@ import os
 import re
 import stat
 from contextlib import contextmanager
+from functools import lru_cache
+
+
+if os.name == "nt":
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    # Only the API bindings and layouts are shared. Every query below still
+    # allocates its own result buffer and reads the current handle metadata.
+    class _BY_HANDLE_FILE_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("dwFileAttributes", wintypes.DWORD),
+            ("ftCreationTime", wintypes.FILETIME),
+            ("ftLastAccessTime", wintypes.FILETIME),
+            ("ftLastWriteTime", wintypes.FILETIME),
+            ("dwVolumeSerialNumber", wintypes.DWORD),
+            ("nFileSizeHigh", wintypes.DWORD),
+            ("nFileSizeLow", wintypes.DWORD),
+            ("nNumberOfLinks", wintypes.DWORD),
+            ("nFileIndexHigh", wintypes.DWORD),
+            ("nFileIndexLow", wintypes.DWORD),
+        ]
+
+    class _FILE_ATTRIBUTE_TAG_INFO(ctypes.Structure):
+        _fields_ = [
+            ("FileAttributes", wintypes.DWORD),
+            ("ReparseTag", wintypes.DWORD),
+        ]
+
+    # A private DLL instance avoids changing signatures on ctypes.windll's
+    # globally shared functions. Last-error storage is local to each thread.
+    _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _get_file_information = _kernel32.GetFileInformationByHandle
+    _get_file_information.argtypes = [
+        wintypes.HANDLE, ctypes.POINTER(_BY_HANDLE_FILE_INFORMATION),
+    ]
+    _get_file_information.restype = wintypes.BOOL
+    _get_file_information_ex = _kernel32.GetFileInformationByHandleEx
+    _get_file_information_ex.argtypes = [
+        wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD,
+    ]
+    _get_file_information_ex.restype = wintypes.BOOL
+    _create_file = _kernel32.CreateFileW
+    _create_file.argtypes = [
+        wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+        wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE,
+    ]
+    _create_file.restype = wintypes.HANDLE
+    _close_handle = _kernel32.CloseHandle
+    _close_handle.argtypes = [wintypes.HANDLE]
+    _close_handle.restype = wintypes.BOOL
 
 
 WINDOWS_INVALID_CHARS = set('<>:"|?*')
@@ -70,6 +122,13 @@ def sanitize_windows_component(value: str) -> str:
 def split_safe_relative_path(
         path: str, label: str = "路径", *, reject_short_alias: bool = False):
     """解析可安全落到 Windows 文件系统的相对路径。"""
+    # Keep the public mutable-list contract; cached values are immutable.
+    return list(_relative_path_parts(path, label, reject_short_alias))
+
+
+@lru_cache(maxsize=8192)
+def _relative_path_parts(path: str, label: str, reject_short_alias: bool):
+    """缓存纯字符串校验，不缓存路径实际存在性、链接或文件身份。"""
     raw = (path or "").replace("\\", "/")
     drive, _ = ntpath.splitdrive(raw)
     parts = [part for part in raw.split("/") if part not in ("", ".")]
@@ -95,15 +154,13 @@ def split_safe_relative_path(
             raise ValueError(
                 f"{label}疑似 Windows 8.3 短名称，可能覆盖同目录长文件名: {path}"
             )
-    return parts
+    return tuple(parts)
 
 
 def safe_join(
         base_dir: str, rel_path: str, label: str = "路径", *,
         reject_short_alias: bool = False) -> str:
-    parts = split_safe_relative_path(
-        rel_path, label=label, reject_short_alias=reject_short_alias
-    )
+    parts = _relative_path_parts(rel_path, label, reject_short_alias)
     root = os.path.abspath(base_dir)
     target = os.path.abspath(os.path.join(root, *parts))
     try:
@@ -254,56 +311,21 @@ def regular_file_handle_identity(stream) -> tuple:
         raise RuntimeError("已打开对象不是普通文件")
 
     if os.name == "nt":
-        import ctypes
-        import msvcrt
-        from ctypes import wintypes
-
-        class BY_HANDLE_FILE_INFORMATION(ctypes.Structure):
-            _fields_ = [
-                ("dwFileAttributes", wintypes.DWORD),
-                ("ftCreationTime", wintypes.FILETIME),
-                ("ftLastAccessTime", wintypes.FILETIME),
-                ("ftLastWriteTime", wintypes.FILETIME),
-                ("dwVolumeSerialNumber", wintypes.DWORD),
-                ("nFileSizeHigh", wintypes.DWORD),
-                ("nFileSizeLow", wintypes.DWORD),
-                ("nNumberOfLinks", wintypes.DWORD),
-                ("nFileIndexHigh", wintypes.DWORD),
-                ("nFileIndexLow", wintypes.DWORD),
-            ]
-
-        info = BY_HANDLE_FILE_INFORMATION()
+        info = _BY_HANDLE_FILE_INFORMATION()
         handle = msvcrt.get_osfhandle(stream.fileno())
-        get_info = ctypes.windll.kernel32.GetFileInformationByHandle
-        get_info.argtypes = [wintypes.HANDLE, ctypes.POINTER(BY_HANDLE_FILE_INFORMATION)]
-        get_info.restype = wintypes.BOOL
-        if not get_info(handle, ctypes.byref(info)):
-            raise ctypes.WinError()
+        if not _get_file_information(handle, ctypes.byref(info)):
+            raise ctypes.WinError(ctypes.get_last_error())
         if info.dwFileAttributes & 0x400:  # FILE_ATTRIBUTE_REPARSE_POINT
             reparse_tag = int(getattr(metadata, "st_reparse_tag", 0) or 0)
             if not reparse_tag:
-                class FILE_ATTRIBUTE_TAG_INFO(ctypes.Structure):
-                    _fields_ = [
-                        ("FileAttributes", wintypes.DWORD),
-                        ("ReparseTag", wintypes.DWORD),
-                    ]
-
-                tag_info = FILE_ATTRIBUTE_TAG_INFO()
-                get_info_ex = ctypes.windll.kernel32.GetFileInformationByHandleEx
-                get_info_ex.argtypes = [
-                    wintypes.HANDLE,
-                    ctypes.c_int,
-                    wintypes.LPVOID,
-                    wintypes.DWORD,
-                ]
-                get_info_ex.restype = wintypes.BOOL
-                if not get_info_ex(
+                tag_info = _FILE_ATTRIBUTE_TAG_INFO()
+                if not _get_file_information_ex(
                     handle,
                     9,  # FileAttributeTagInfo
                     ctypes.byref(tag_info),
                     ctypes.sizeof(tag_info),
                 ):
-                    raise ctypes.WinError()
+                    raise ctypes.WinError(ctypes.get_last_error())
                 reparse_tag = int(tag_info.ReparseTag)
             if is_name_surrogate_reparse_tag(reparse_tag):
                 raise RuntimeError("已打开对象是路径重定向重解析点")
@@ -347,21 +369,6 @@ def open_regular_file_no_links(path: str, *, deny_writes: bool = False):
     """
     path = os.path.abspath(path)
     if os.name == "nt":
-        import ctypes
-        import msvcrt
-        from ctypes import wintypes
-
-        create_file = ctypes.windll.kernel32.CreateFileW
-        create_file.argtypes = [
-            wintypes.LPCWSTR,
-            wintypes.DWORD,
-            wintypes.DWORD,
-            wintypes.LPVOID,
-            wintypes.DWORD,
-            wintypes.DWORD,
-            wintypes.HANDLE,
-        ]
-        create_file.restype = wintypes.HANDLE
         share_mode = 0x00000001 if deny_writes else (
             0x00000001 | 0x00000002 | 0x00000004
         )
@@ -369,7 +376,7 @@ def open_regular_file_no_links(path: str, *, deny_writes: bool = False):
         # unaffected, while a symlink/junction cannot be followed in the
         # interval between a path pre-check and CreateFileW.
         open_flags = 0x08000000 | 0x200000  # SEQUENTIAL_SCAN | OPEN_REPARSE_POINT
-        handle = create_file(
+        handle = _create_file(
             path,
             0x80000000,  # GENERIC_READ
             share_mode,
@@ -380,13 +387,13 @@ def open_regular_file_no_links(path: str, *, deny_writes: bool = False):
         )
         invalid_handle = ctypes.c_void_p(-1).value
         if handle == invalid_handle:
-            raise ctypes.WinError()
+            raise ctypes.WinError(ctypes.get_last_error())
         try:
             fd = msvcrt.open_osfhandle(
                 int(handle), os.O_RDONLY | getattr(os, "O_BINARY", 0)
             )
         except BaseException:
-            ctypes.windll.kernel32.CloseHandle(handle)
+            _close_handle(handle)
             raise
     else:
         flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)

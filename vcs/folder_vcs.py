@@ -187,9 +187,11 @@ class FolderVCS(BaseVCS):
             raise RuntimeError(f"遍历比对源目录失败: {root}: {error}") from error
 
         for dirpath, dirnames, filenames in os.walk(root, onerror=raise_walk_error):
+            relative_dir = os.path.relpath(dirpath, root)
+            prefix = "" if relative_dir == "." else relative_dir.replace("\\", "/") + "/"
             for name in list(dirnames):
                 full = os.path.join(dirpath, name)
-                rel = os.path.relpath(full, root).replace("\\", "/")
+                rel = prefix + name.replace("\\", "/")
                 if apply_excludes and self._should_prune_directory(rel):
                     # 保留目录拓扑以正确识别“目录被文件替换”，但不进入或复制其内容。
                     directories.add(rel)
@@ -216,7 +218,7 @@ class FolderVCS(BaseVCS):
                     )
             for f in filenames:
                 full = os.path.join(dirpath, f)
-                rel = os.path.relpath(full, root).replace("\\", "/")
+                rel = prefix + f.replace("\\", "/")
                 if apply_excludes and self._is_excluded(rel):
                     continue
                 if validate_file_links and is_link_or_junction(full):

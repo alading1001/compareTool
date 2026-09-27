@@ -30,7 +30,7 @@ main.py                  # tkinter GUI 入口，线程管理，配置持久化�
 │   ├── git_vcs.py       # GitVCS：git diff --raw -z --find-renames / git show / git log
 │   ├── git_checkout.py  # 隔离 Git 属性/配置快照、微小检出探针和流式文本判定
 │   ├── svn_vcs.py       # SVNVCS：svn diff --summarize / svn cat (URL+@peg) / svn log
-│   ├── folder_vcs.py    # FolderVCS：先快照两个端点，再用分块字节读取判断差异
+│   ├── folder_vcs.py    # FolderVCS：固定树身份、分块比较、快照变更端点并复核源树
 │   ├── archive_vcs.py   # ArchiveVCS：解压 zip/tar 到临时目录，委托 FolderVCS 比对
 │   └── multi_version_vcs.py # Git/SVN 多版本：历史身份追踪 + 文件级端点快照
 ├── diff_engine.py       # 遍历变更、编码/格式判定、差异统计及左右 HTML
@@ -72,7 +72,7 @@ newVersion/项目名/...
 |------|-----------|-----------|------|
 | Git | commit hash / tag / branch | 同左 | `get_file_content_working` 直接读工作副本文件 |
 | SVN | `rNNNNN` 或 `NNNNN` | 同左 | `get_file_content` 使用仓库 URL + peg revision |
-| 文件夹 | 旧文件夹路径 | 新文件夹路径 | 生成开始时先把两个目录快照到 CompareTool 专用临时目录；版本标识兼容 `"old"`/`"new"` 和用户输入的实际路径 |
+| 文件夹 | 旧文件夹路径 | 新文件夹路径 | 固定树身份，只快照变更端点并复核源树；兼容 `"old"`/`"new"` 和用户输入的实际路径 |
 | 压缩包 | 旧压缩包路径 | 新压缩包路径 | 解压到临时目录后委托 `FolderVCS` 比对；支持 `.zip` / `.jar` / `.war` / `.ear` / `.aar` / `.tar` / `.tar.gz` / `.tgz` / `.tar.bz2` / `.tbz2` |
 | Git多版本 | 多个 commit hash | `文件级首尾端点` | 每个文件 old 取首次选中变更的第一父提交，new 取末次选中提交 |
 | SVN多版本 | 多个 `rNNNNN` 或 `NNNNN` | `文件级首尾端点` | 每个文件 old 取首次选中 revision 前状态，new 取末次选中 revision 后状态 |
@@ -178,6 +178,7 @@ Git/SVN 可执行文件路径均自动探测：先查 `shutil.which`，再查 Wi
 - 链接判断复用 lstat 的 reparse tag，旧环境保留回退。安全打开用 `FILE_FLAG_OPEN_REPARSE_POINT`，检查句柄 tag/FileId；不能恢复先查路径再普通打开的竞态。
 - 初始身份可复用同一次安全打开；内容读取前后身份和源树最终复核仍保留。叶文件可复用随后安全打开的检查，遍历目录前仍拒绝 junction/symlink。
 - 只缓存比较根 realpath，键保留绝对路径大小写，不用 normcase 合并大小写敏感目录；目标 realpath 每次重新解析。测试见 `test_folder_scan_optimization.py`、`test_folder_scan_edge_cases.py`，基准及边界见 [扫描记录](docs/performance-folder-scan.md)。
+- Windows ctypes 结构和 API 签名在模块内复用，每次查询仍分配独立结果并读取当前句柄，不缓存 FileId、大小、时间或 reparse tag。相对路径的纯字符串校验使用有界不可变缓存，公共接口返回独立列表；不得缓存目标 realpath 或用目录枚举元数据替代读取前后、最终源树复核。后续验证见 [扫描优化续篇](docs/performance-folder-followup.md)。
 
 ## 构建身份与任务观测
 
