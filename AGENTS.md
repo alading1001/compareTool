@@ -222,3 +222,19 @@ Git/SVN 可执行文件路径均自动探测：先查 `shutil.which`，再查 Wi
   保留 8b7be5f 的公共边界匹配优化与递归 include 流式模板。
 - 方案与验证见 docs/recursive-archives-all-vcs-plan.md 和
   docs/recursive-archives-all-vcs-verification.md。源码提交不等于发布 EXE，正式打包须另行授权。
+
+## 下一轮性能优化的新增约束（源码候选）
+
+- glob 使用按规则及 implicit_any_depth 键控的有界纯函数编译缓存；规则可直接赋值，缓存淘汰不是输入上限。
+- `retain_text_contents` 默认 True；工作线程和包内分析明确选择 False，公共 FileDiff 正文字段的默认行为不变。
+- SVN raw 缓存只在固定任务内有效；完成写入才发布，消费流核对内容摘要和身份。普通 SVN 现在需要 cleanup，不能在主流程遗漏。
+- 多版本 raw/export 成对生成，保留独立普通文件；从固定 raw 派生 export 仍调用原生判定后的既有转换，不修改 raw、不用硬链接。
+- TAR 完整预检结果用于后续顺序提取；成员最终名称、类型、长度和权限逐项核对。旧 GNU sparse 使用已验证的兼容路径，不宣称所有 TAR 都已减少读取遍数。
+- B4 内部固定排除计划保留全部名称占位，排除正文读完校验后丢弃。公共动态 setter 仍全量提取；不得让占位成为可导出的真实内容。
+- 递归实际展开预算从内容消费入口累计，含丢弃正文且只计一次。安全预算按全量，磁盘选择按保留正文和目录/占位开销。
+- Git 批量 filters 仅用于两个已知微小探针，按固定端点/隔离配置复用；不同于原始 blob 通道。不得把它用于任意大文件或自行猜测检出属性。
+- 浏览器详情数据保存模板引用，不预建所有 HTML 字符串；树的过滤和 manifest 必须基于完整数据，不能只看已挂载节点。
+- 跨阶段事务摘要、HMAC、恢复决策和 stage 基线保持原规则；同遍元数据复用不授权减少跨阶段内容验证。
+- C1 已接入：HtmlDetailStore 为单/多项目及递归成员提供任务级片段存储。公共 DiffEngine 默认仍返回 HTML 字符串，工作线程显式选择片段引用。
+- 模板用迭代 include 读取片段；不得通过 str、__html__ 或递归宏重新拼接整表。store 在报告写完后关闭，不能接管交付 stage/journal。
+- stable_diff.iter_table 按行输出，make_table 保留兼容封装；原 HtmlDiff 与显式限制路径不强行替换。输入文本和最长行仍可能占内存，不宣称常量内存。验证见 docs/performance-c1-verification.md。

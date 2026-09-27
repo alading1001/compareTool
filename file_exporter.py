@@ -17,6 +17,7 @@ from logger import warn
 from path_safety import (
     ensure_no_link_components,
     is_link_or_junction,
+    metadata_is_link_or_junction,
     open_regular_file_no_links,
     open_new_tree_file,
     regular_file_handle_identity,
@@ -428,14 +429,19 @@ class FileExporter:
             digest.update(b"\n")
 
         def visit(current: str, relative: str):
-            if is_link_or_junction(current):
-                raise RuntimeError(
-                    f"事务对象树包含符号链接或联接点: {current}"
-                )
             try:
                 metadata = os.lstat(current)
             except OSError as exc:
                 raise RuntimeError(f"无法读取事务对象身份: {current}: {exc}") from exc
+            # Same-scan metadata only; later handle/path and transaction checks
+            # remain independent observations.
+            is_redirect = metadata_is_link_or_junction(metadata)
+            if os.name == "nt" and not hasattr(metadata, "st_reparse_tag"):
+                is_redirect = is_redirect or is_link_or_junction(current)
+            if is_redirect:
+                raise RuntimeError(
+                    f"事务对象树包含符号链接或联接点: {current}"
+                )
             if stat.S_ISREG(metadata.st_mode):
                 add_record(relative, "file", metadata)
                 try:

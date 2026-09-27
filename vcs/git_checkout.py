@@ -6,6 +6,7 @@ import stat
 import subprocess
 
 from .temp_storage import create_temp_dir, remove_temp_dir
+from .git_probe_batch import GitProbeBatch, ProbeBatchUnavailable
 
 
 class GitCheckoutSnapshot:
@@ -14,6 +15,8 @@ class GitCheckoutSnapshot:
 
     def __init__(self, vcs, config):
         self.root = ""
+        self._probe_batches = {}
+        self._probe_batch_unavailable = False
         self.git = vcs._git
         self.timeout = vcs.COMMAND_TIMEOUT
         self.env = {
@@ -151,12 +154,11 @@ class GitCheckoutSnapshot:
                 # 不复制转换命令。真正引用该驱动时，Git 因缺少必需程序失败；
                 # -filter / !filter / 裸 filter 的状态由 Git 自己识别。
                 args.extend(["-c", f"filter.{driver}.required=true"])
-        args.extend(["cat-file", "--filters", f"--path={repository_path}"])
-        plain = self._run([*args, self.probes[0]], endpoint=endpoint)
+        plain = self._probe(args, endpoint, repository_path, self.probes[0])
         if plain == self._PLAIN_PROBE:
             mode = "none"
         elif plain == self._PLAIN_PROBE.replace(b"\n", b"\r\n"):
-            binary = self._run([*args, self.probes[1]], endpoint=endpoint)
+            binary = self._probe(args, endpoint, repository_path, self.probes[1])
             if binary == self._BINARY_PROBE:
                 mode = "auto"
             elif binary == b"CompareTool\x00\r\n\rprobe\r\n":
@@ -167,6 +169,33 @@ class GitCheckoutSnapshot:
             raise RuntimeError("Git 检出规则不属于可可靠流式处理的换行转换")
         self.modes[key] = mode
         return mode
+
+    def _probe(self, args, endpoint, path, oid):
+        if (self.timeout is not None or self._probe_batch_unavailable
+                or not GitProbeBatch.supports(path)):
+            return self._run([*args, "cat-file", "--filters", f"--path={path}", oid],
+                             endpoint=endpoint)
+        key = (endpoint, tuple(args))
+        channel = self._probe_batches.get(key)
+        if channel is None:
+            env = dict(self.env)
+            env["GIT_ATTR_SOURCE"] = endpoint
+            channel = GitProbeBatch([self.git, *args, "cat-file", "--batch", "--filters"],
+                                    env, dict(zip(self.probes, (self._PLAIN_PROBE, self._BINARY_PROBE))))
+            self._probe_batches[key] = channel
+        try:
+            return channel.read(oid, path)
+        except ProbeBatchUnavailable:
+            # Only a rejected capability at startup uses the legacy command.
+            # Bad frames, content errors and failed filters never fall back.
+            self._probe_batches.pop(key, None)
+            self._probe_batch_unavailable = True
+            return self._run([*args, "cat-file", "--filters", f"--path={path}", oid],
+                             endpoint=endpoint)
+        except BaseException:
+            self._probe_batches.pop(key, None)
+            channel.close()
+            raise
 
     @staticmethod
     def auto_text_uses_crlf(chunks):
@@ -191,6 +220,9 @@ class GitCheckoutSnapshot:
         return has_lf and (printable >> 7) >= nonprintable
 
     def cleanup(self):
+        for channel in getattr(self, "_probe_batches", {}).values():
+            channel.close()
+        self._probe_batches = {}
         if self.root:
             remove_temp_dir(self.root)
             self.root = ""

@@ -6,6 +6,7 @@ import json
 import os
 import re
 from bisect import bisect_left
+from itertools import chain
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional
 from path_safety import (
@@ -13,7 +14,9 @@ from path_safety import (
     windows_path_key,
 )
 from vcs.base import BaseVCS, ChangedFile, ChangeType
-from stable_diff import make_table as make_stable_diff_table, prefer_stable_diff
+from html_details import HtmlFragment
+from stable_diff import (make_table as make_stable_diff_table,
+                         iter_table as iter_stable_diff_table, prefer_stable_diff)
 
 
 @dataclass
@@ -39,6 +42,7 @@ class FileDiff:
     report_detail_omitted: bool = False
     display_notes: List[str] = field(default_factory=list)
     archive_details: Optional[dict] = None  # Report-only; never a delivery entry.
+    html_fragment: Optional[HtmlFragment] = field(default=None, repr=False, compare=False)
 
     @property
     def total_changes(self) -> int:
@@ -216,8 +220,11 @@ class DiffEngine:
         vcs,
         show_full_context: bool = True,
         report_budget: Optional[dict] = None,
+        *, retain_text_contents: bool = True, detail_store=None,
     ):
         self.vcs = vcs
+        self.retain_text_contents = retain_text_contents
+        self.detail_store = detail_store
         self.show_full_context = show_full_context
         self._report_limits_enabled = self.report_limits_enabled()
         self._owns_report_budget = (
@@ -300,6 +307,13 @@ class DiffEngine:
                     file_diff = self._diff_file(old_version, new_version, cf)
                     if self._report_limits_enabled:
                         self._finalize_report_entry(file_diff)
+                if not self.retain_text_contents:
+                    file_diff.old_content = file_diff.new_content = ""
+                if self.detail_store is not None and not file_diff.report_detail_omitted:
+                    rendered = file_diff.side_by_side_html
+                    file_diff.html_fragment = (self.detail_store.add_fragment(rendered)
+                        if isinstance(rendered, str) else self.detail_store.add_chunks(rendered))
+                    file_diff.side_by_side_html = ""
                 result.files.append(file_diff)
                 progress(index, len(changed_files))
 
@@ -778,7 +792,9 @@ class DiffEngine:
             f'<b>{title}</b>'
             f'{details}</div>'
         )
-        file_diff.side_by_side_html = banner + file_diff.side_by_side_html
+        body = file_diff.side_by_side_html
+        file_diff.side_by_side_html = (banner + body if isinstance(body, str)
+                                       else chain((banner,), body))
 
     def _large_file_placeholder(self, cf: ChangedFile, raw_values: List[bytes]) -> str:
         largest = max((len(data) for data in raw_values), default=0)
@@ -1261,15 +1277,23 @@ class DiffEngine:
             numlines=3,
         )
         if prefer_stable_diff(old_lines, new_lines):
-            table = make_stable_diff_table(old_lines, new_lines, **options)
-            return self._show_special_separators(table)
+            return self._render_stable_table(old_lines, new_lines, options)
         try:
             table = hd.make_table(old_lines, new_lines, **options)
         except RecursionError:
             # HtmlDiff 的相似行配对递归会在正常的批量替换上耗尽调用栈。
             # 仅切换对齐方式；全部输入行和行内差异仍保留，不增加规模上限。
-            table = make_stable_diff_table(old_lines, new_lines, **options)
+            return self._render_stable_table(old_lines, new_lines, options)
         return self._show_special_separators(table)
+
+    def _render_stable_table(self, old_lines, new_lines, options):
+        # Only the explicit internal store path streams. Public string results
+        # and explicitly enabled size policies keep their original contract.
+        if self.detail_store is not None and not self._report_limits_enabled:
+            return (self._show_special_separators(chunk) for chunk in
+                    iter_stable_diff_table(old_lines, new_lines, **options))
+        return self._show_special_separators(
+            make_stable_diff_table(old_lines, new_lines, **options))
 
     @staticmethod
     def _show_special_separators(table: str) -> str:

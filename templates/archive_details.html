@@ -22,7 +22,7 @@
       {% else %}
         <div class="archive-inline-nav"><button type="button" data-archive-step="-1">上一处</button>
           <span class="archive-diff-count"></span><button type="button" data-archive-step="1">下一处</button></div>
-        <div class="archive-leaf">{{ member.side_by_side_html | safe }}</div>
+        <div class="archive-leaf">{% with detail_file=member %}{% include 'file_detail.html' %}{% endwith %}</div>
       {% endif %}
       </template><div class="archive-member-body"></div>
     </details>

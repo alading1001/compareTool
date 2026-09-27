@@ -473,7 +473,7 @@ class GitVCS(BaseVCS):
         # cat-file -s 不增加签名判定能力，只会让每个重命名候选多一次子进程。
         return "git-object", object_id
 
-    def export_file_to_path(self, version: str, file_path: str, target_path: str):
+    def _checkout_export_mode(self, version: str, file_path: str):
         endpoint = self._resolve_version(version)
         attrs = self._get_checkout_attributes(endpoint, file_path)
         self._validate_checkout_attributes(file_path, attrs)
@@ -481,7 +481,9 @@ class GitVCS(BaseVCS):
         mode = self._checkout_snapshot.conversion_mode(
             endpoint, self._repo_path(file_path), self._filter_config_cache
         )
-        self.export_raw_file_to_path(endpoint, file_path, target_path)
+        return mode
+
+    def _convert_export_file(self, target_path: str, mode: str):
         convert = mode == "text"
         if mode == "auto":
             with open(target_path, "rb") as source:
@@ -490,6 +492,16 @@ class GitVCS(BaseVCS):
                 )
         if convert:
             self._rewrite_file_lf_to_crlf(target_path)
+
+    def export_file_to_path(self, version: str, file_path: str, target_path: str):
+        mode = self._checkout_export_mode(version, file_path)
+        self.export_raw_file_to_path(version, file_path, target_path)
+        self._convert_export_file(target_path, mode)
+
+    def derive_export_from_raw(self, version: str, file_path: str, raw_path: str, target_path: str):
+        mode = self._checkout_export_mode(version, file_path)
+        self._copy_fixed_raw(raw_path, target_path)
+        self._convert_export_file(target_path, mode)
 
     def export_raw_file_to_path(self, version: str, file_path: str, target_path: str):
         endpoint = self._resolve_version(version)

@@ -77,30 +77,12 @@ class ArchiveReportBudget:
         self.actual_bytes += size
 
 
-class _CountedWriter:
-    def __init__(self, stream, budget):
-        self._stream, self._budget = stream, budget
-
-    def write(self, data):
-        self._budget.consume(len(data))
-        return self._stream.write(data)
-
-    def __getattr__(self, name):
-        return getattr(self._stream, name)
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        return self._stream.__exit__(*exc)
-
-
 class _ReportArchiveVCS(ArchiveVCS):
     """Keep the existing validator/extractor, adding a shared expansion budget."""
-    def __init__(self, old, new, budget):
+    def __init__(self, old, new, budget, *, extraction_excludes=None):
         self._report_budget = budget
         self._reserved_sources = {}
-        super().__init__(old, new, ignore_single_root=False)
+        super().__init__(old, new, ignore_single_root=False, extraction_excludes=extraction_excludes)
 
     def _validate_archive_limits(self, path, members, check_member_ratio=True):
         size = super()._validate_archive_limits(path, members, check_member_ratio)
@@ -114,9 +96,10 @@ class _ReportArchiveVCS(ArchiveVCS):
             raise ValueError('包内比较源信息在预检后变化，已中止')
         return size
 
-    def _open_archive_member_target(self, dest, target, cache):
-        path, stream = super()._open_archive_member_target(dest, target, cache)
-        return path, _CountedWriter(stream, self._report_budget)
+    def _consume_archive_bytes(self, size):
+        # Includes discarded bodies exactly once; creating empty placeholders
+        # itself consumes no expanded-content budget.
+        self._report_budget.consume(size)
 
 
 @contextmanager
@@ -156,10 +139,11 @@ def _same_archive_bytes(old, new):
 
 
 class _Inspector:
-    def __init__(self, show_full_context, patterns, budget):
+    def __init__(self, show_full_context, patterns, budget, detail_store=None):
         self.show_full_context = show_full_context
         self.patterns = list(patterns or [])
         self.budget = budget
+        self.detail_store = detail_store
 
     def attach(self, result, vcs=None, depth=1, chain=(), *, endpoints=None):
         from vcs.base import ChangeType
@@ -210,10 +194,10 @@ class _Inspector:
 
     def compare(self, old, new, depth, names):
         from diff_engine import DiffEngine
-        vcs = _ReportArchiveVCS(old, new, self.budget)
+        vcs = _ReportArchiveVCS(old, new, self.budget, extraction_excludes=self.patterns or None)
         try:
             vcs.set_exclude_patterns(self.patterns)
-            result = DiffEngine(vcs, show_full_context=self.show_full_context).generate_diff('old', 'new')
+            result = DiffEngine(vcs, show_full_context=self.show_full_context, retain_text_contents=False, detail_store=self.detail_store).generate_diff('old', 'new')
             self.attach(result, vcs, depth + 1, names)
             for member in result.files:
                 # Only the rendered details are retained; these are not exports.
@@ -226,12 +210,13 @@ class _Inspector:
 
 @measured_phase('archive.report', '递归分析变化压缩包（仅报告）')
 def enrich_archive_reports(result, vcs=None, *, endpoints=None, show_full_context=True,
-                           exclude_patterns=(), budget=None):
+                           exclude_patterns=(), budget=None, detail_store=None):
     """Attach details without changing result.files, summaries, or delivery paths."""
     if endpoints is None and not isinstance(vcs, (FolderVCS, ArchiveVCS)):
         raise ValueError('此来源没有可直接借用的快照，请显式传入暂存端点')
     inspector = _Inspector(show_full_context, exclude_patterns,
-                           budget if budget is not None else ArchiveReportBudget())
+                           budget if budget is not None else ArchiveReportBudget(),
+                           detail_store=detail_store)
     inspector.attach(result, vcs, endpoints=endpoints)
     result.archive_details_enabled = True
     return result

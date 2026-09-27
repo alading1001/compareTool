@@ -507,7 +507,7 @@ class _MultiVersionFolderDelegate(BaseVCS):
         if exclude_patterns:
             super().set_exclude_patterns(exclude_patterns)
 
-    def _finish_plan(self, entities: List[_LogicalFile], content_writer, raw_content_writer):
+    def _finish_plan(self, entities: List[_LogicalFile], content_writer, raw_content_writer, *, derive_writer=None):
         os.makedirs(self._old_dir, exist_ok=True)
         os.makedirs(self._new_dir, exist_ok=True)
         os.makedirs(self._old_raw_dir, exist_ok=True)
@@ -571,34 +571,46 @@ class _MultiVersionFolderDelegate(BaseVCS):
             new_raw_target = self._reserve_endpoint_target(
                 self._new_raw_dir, new_path, new_raw_targets
             )
-            self._write_endpoint_file(
-                content_writer,
-                entity.old_version,
-                old_path,
-                old_target,
-                "旧版本",
-            )
-            self._write_endpoint_file(
-                content_writer,
-                entity.new_version,
-                new_path,
-                new_target,
-                "新版本",
-            )
-            self._write_endpoint_file(
-                raw_content_writer,
-                entity.old_version,
-                old_path,
-                old_raw_target,
-                "旧版本原始字节",
-            )
-            self._write_endpoint_file(
-                raw_content_writer,
-                entity.new_version,
-                new_path,
-                new_raw_target,
-                "新版本原始字节",
-            )
+            if derive_writer is None:
+                self._write_endpoint_file(
+                    content_writer,
+                    entity.old_version,
+                    old_path,
+                    old_target,
+                    "旧版本",
+                )
+                self._write_endpoint_file(
+                    content_writer,
+                    entity.new_version,
+                    new_path,
+                    new_target,
+                    "新版本",
+                )
+                self._write_endpoint_file(
+                    raw_content_writer,
+                    entity.old_version,
+                    old_path,
+                    old_raw_target,
+                    "旧版本原始字节",
+                )
+                self._write_endpoint_file(
+                    raw_content_writer,
+                    entity.new_version,
+                    new_path,
+                    new_raw_target,
+                    "新版本原始字节",
+                )
+            else:
+                for version, path, raw_target, target, label in (
+                    (entity.old_version, old_path, old_raw_target, old_target, "旧版本"),
+                    (entity.new_version, new_path, new_raw_target, new_target, "新版本"),
+                ):
+                    self._write_endpoint_file(raw_content_writer, version, path,
+                                              raw_target, label + "原始字节")
+                    self._write_endpoint_file(
+                        lambda v, p, t: derive_writer(v, p, raw_target, t),
+                        version, path, target, label,
+                    )
 
             if (
                 old_path is not None
@@ -1384,6 +1396,7 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
             planner.selected_entities,
             self._write_git_endpoint,
             self._write_git_raw_endpoint,
+            derive_writer=self._derive_git_endpoint,
         )
 
     @staticmethod
@@ -1825,9 +1838,55 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
         self._validate_git_endpoint_mode(version, path)
         self._content_vcs.export_file_to_path(version, path, target)
 
+    def _derive_git_endpoint(self, version: str, path: str, raw_path: str, target: str):
+        self._validate_git_endpoint_mode(version, path)
+        self._content_vcs.derive_export_from_raw(version, path, raw_path, target)
+
     def _write_git_raw_endpoint(self, version: str, path: str, target: str):
         self._validate_git_endpoint_mode(version, path)
         self._content_vcs.export_raw_file_to_path(version, path, target)
+
+    def _prime_git_endpoint_modes(self, endpoints):
+        groups = {}
+        for version, path in endpoints:
+            if (str(version), path) not in self._git_mode_cache:
+                groups.setdefault(str(version), {})[self._content_vcs._repo_path(path)] = path
+        for version, paths in groups.items():
+            chunk, units = [], 0
+            def fetch(selected):
+                requested = set(selected)
+                raw = self._git_bytes("--literal-pathspecs", "ls-tree", "-z",
+                                      "--full-tree", version, "--", *selected)
+                if raw and not raw.endswith(b"\0"):
+                    raise RuntimeError("Git 端点 mode 查询返回不完整")
+                found = {}
+                for record in raw.split(b"\0"):
+                    if not record:
+                        continue
+                    try:
+                        header, encoded_path = record.split(b"\t", 1)
+                        mode, kind, oid = header.split(b" ")
+                        repository_path = encoded_path.decode("utf-8", "surrogateescape")
+                    except (ValueError, UnicodeError) as exc:
+                        raise RuntimeError("Git 端点 mode 查询记录无效") from exc
+                    if repository_path not in requested or repository_path in found:
+                        raise RuntimeError("Git 端点 mode 查询路径超出请求或重复")
+                    if mode not in (b"100644", b"100755") or kind != b"blob":
+                        raise RuntimeError(f"Git 多版本端点不是普通文件，已中止生成: {repository_path}@{version}")
+                    if not re.fullmatch(rb"[0-9a-f]{40}|[0-9a-f]{64}", oid):
+                        raise RuntimeError("Git 端点 mode 查询对象标识无效")
+                    found[repository_path] = mode.decode("ascii")
+                if set(found) != requested:
+                    raise RuntimeError("Git 固定端点缺少所需文件，已中止生成")
+                for repository_path, mode in found.items():
+                    self._git_mode_cache[(version, paths[repository_path])] = mode
+            for path in sorted(paths):
+                cost = len(path.encode("utf-16-le", "surrogatepass")) // 2 + 4
+                if chunk and units + cost > 8000:
+                    fetch(chunk); chunk, units = [], 0
+                chunk.append(path); units += cost
+            if chunk:
+                fetch(chunk)
 
     def _validate_git_endpoint_mode(self, version: str, path: str):
         cache_key = (str(version), path)
@@ -1877,6 +1936,7 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
             if new_path is not None:
                 endpoints.append((entity.new_version, new_path))
         self._content_vcs._snapshot_checkout_policy(endpoints)
+        self._prime_git_endpoint_modes(endpoints)
 
 
 @dataclass(frozen=True)
@@ -2074,6 +2134,7 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
             self._pinned_peg_revision: self._project_url
         }
         self._content_vcs._eol_cache = {}
+        self._content_vcs.use_fixed_property_provider(self._fixed_content_properties)
 
         output = self._run_bytes([
             "log", "--xml", "-v", "--non-interactive",
@@ -2097,6 +2158,7 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
             planner.selected_entities,
             self._write_svn_endpoint,
             self._write_svn_raw_endpoint,
+            derive_writer=self._derive_svn_endpoint,
         )
 
     def _parse_revisions(self) -> List[int]:
@@ -2979,6 +3041,12 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         self._validate_svn_regular_endpoint(version, path)
         self._content_vcs.export_file_to_path(version, path, target)
 
+    def _derive_svn_endpoint(self, version: str, path: str, raw_path: str, target: str):
+        self._validate_svn_regular_endpoint(version, path)
+        # The planner has already successfully read these fixed properties.
+        self._content_vcs._get_properties(version, path)
+        self._content_vcs.derive_export_from_raw(version, path, raw_path, target)
+
     def _write_svn_raw_endpoint(self, version: str, path: str, target: str):
         self._validate_svn_regular_endpoint(version, path)
         self._content_vcs.export_raw_file_to_path(version, path, target)
@@ -2993,8 +3061,14 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         self._svn_eol_cache[cache_key] = style
         return style
 
+    def _fixed_content_properties(self, version: str, path: str):
+        identity = (self._repo_uuid, self._repo_root_url,
+                    self._project_url, self._pinned_peg_revision)
+        return (identity, self._svn_file_url(version, path),
+                dict(self._get_svn_properties(version, path)))
+
     def _get_svn_properties(self, version: str, path: str):
-        cache_key = (str(version), path)
+        cache_key = (str(version).lstrip("rR"), path)
         if cache_key in self._svn_property_cache:
             return self._svn_property_cache[cache_key]
         rev = str(version).lstrip("rR")

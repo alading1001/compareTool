@@ -1,0 +1,7 @@
+{%- if detail_file.html_fragment -%}
+  {%- for html_chunk in detail_file.html_fragment.iter_text() -%}
+    {{- html_chunk | safe -}}
+  {%- endfor -%}
+{%- else -%}
+  {{- detail_file.side_by_side_html | safe -}}
+{%- endif -%}

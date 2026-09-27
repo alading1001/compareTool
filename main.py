@@ -76,6 +76,7 @@ from vcs.svn_vcs import SVNVCS
 from vcs.folder_vcs import FolderVCS
 from vcs.archive_vcs import ArchiveVCS
 from vcs.multi_version_vcs import GitMultiVersionVCS, SVNMultiVersionVCS, parse_multi_versions
+from html_details import HtmlDetailStore
 from diff_engine import DiffEngine
 from archive_report import ArchiveReportBudget, enrich_archive_reports, has_archive_candidates
 from archive_endpoints import StagedArchiveEndpoints
@@ -2009,6 +2010,8 @@ class CompareToolApp(TaskProgressUI):
             return ArchiveVCS(
                 task["old_version"], task["new_version"],
                 ignore_single_root=self._option_bool(task.get("ignore_archive_root"), default=False),
+                **({"extraction_excludes": task["exclude_rules"].splitlines()}
+                   if task.get("exclude_rules", "").strip() else {}),
             ), True
         if vcs_type == "folder":
             return FolderVCS(task["old_version"], task["new_version"]), True
@@ -2027,13 +2030,13 @@ class CompareToolApp(TaskProgressUI):
         if vcs_type == "git":
             return GitVCS(task["project_path"]), True
         if vcs_type == "svn":
-            return SVNVCS(task["project_path"]), False
+            return SVNVCS(task["project_path"]), True
         raise RuntimeError(f"不支持的多项目任务类型: {vcs_type}")
 
     @measured_phase("project.prepare", "读取当前项目并生成明细")
     def _prepare_task_result(
         self, task: dict, show_full: bool = None, report_budget: dict = None,
-        archive_budget=None,
+        archive_budget=None, *, detail_store=None,
     ):
         vcs = None
         cleanup_needed = False
@@ -2055,6 +2058,7 @@ class CompareToolApp(TaskProgressUI):
                 vcs,
                 show_full_context=show_full,
                 report_budget=report_budget,
+                retain_text_contents=False, detail_store=detail_store,
             )
             diff_result = engine.generate_diff(task["old_version"], task["new_version"])
             diff_result.project_name = task["project_name"]
@@ -2314,6 +2318,7 @@ class CompareToolApp(TaskProgressUI):
             report_path, old_export, new_export, trusted_output_root="",
             ignore_archive_root=False, recursive_archives=False):
         cleanup_vcs = None  # 持有引用以便 finally 清理临时目录
+        detail_store = None
         try:
             trusted_output_root = (
                 trusted_output_root
@@ -2359,7 +2364,7 @@ class CompareToolApp(TaskProgressUI):
             info(f"project_path={project_path}, vcs_type={vcs_type}, old={old_version}, new={new_version}")
 
             if vcs_type == "archive":
-                vcs = ArchiveVCS(old_version, new_version, ignore_single_root=ignore_archive_root)
+                vcs = ArchiveVCS(old_version, new_version, ignore_single_root=ignore_archive_root, **({"extraction_excludes": exclude_patterns} if exclude_patterns else {}))
                 cleanup_vcs = vcs
             elif vcs_type == "folder":
                 vcs = FolderVCS(old_version, new_version)
@@ -2383,6 +2388,7 @@ class CompareToolApp(TaskProgressUI):
                 cleanup_vcs = vcs
             elif vcs_type == "svn":
                 vcs = SVNVCS(project_path)
+                cleanup_vcs = vcs
             else:
                 raise RuntimeError(f"不支持的版本控制类型: {vcs_type}")
 
@@ -2398,7 +2404,9 @@ class CompareToolApp(TaskProgressUI):
                     raise RuntimeError(f"新版本不存在: {new_version}")
 
             info("获取变更文件列表...")
-            engine = DiffEngine(vcs, show_full_context=show_full)
+            detail_store = HtmlDetailStore(avoid_paths=source_paths)
+            engine = DiffEngine(vcs, show_full_context=show_full, retain_text_contents=False,
+                                detail_store=detail_store)
             diff_result = engine.generate_diff(old_version, new_version)
             diff_result.project_name = project_name
             if vcs_type == "archive":
@@ -2436,6 +2444,7 @@ class CompareToolApp(TaskProgressUI):
                     enrich_archive_reports(
                         diff_result, endpoints=endpoints,
                         show_full_context=show_full, exclude_patterns=exclude_patterns,
+                        detail_store=detail_store,
                     )
                 report_stage = self._make_report_stage_path(
                     report_path, trusted_output_root
@@ -2447,6 +2456,9 @@ class CompareToolApp(TaskProgressUI):
                     delivery_instructions_name=os.path.basename(instruction_target),
                 )
 
+                task_metrics(html_fragment_count=detail_store.fragments,
+                             html_fragment_bytes=detail_store.total_bytes)
+                detail_store.close()
                 info(f"导出文件: old={old_export}, new={new_export}")
                 if not recursive_archives:
                     export_pairs = exporter.prepare_export(
@@ -2486,14 +2498,22 @@ class CompareToolApp(TaskProgressUI):
             task_failure(e)
             defer_completion(self, "_show_error", msg)
         finally:
-            if cleanup_vcs:
-                cleanup_vcs.cleanup()
+            try:
+                if cleanup_vcs:
+                    cleanup_vcs.cleanup()
+            finally:
+                if detail_store is not None:
+                    try:
+                        detail_store.close()
+                    except OSError as exc:
+                        warn(f"清理 HTML 明细临时文件失败: {exc}")
 
     @observe_job("multi")
     def _do_generate_multi(
         self, tasks, report_path, old_export, new_export, trusted_output_root=""
     ):
         project_results = []
+        detail_store = None
         stage_old_root = ""
         stage_new_root = ""
         report_stage = ""
@@ -2531,11 +2551,14 @@ class CompareToolApp(TaskProgressUI):
             info("=== 开始生成多项目总报告 ===")
             report_budget = {} if DiffEngine.report_limits_enabled() else None
             archive_budget = ArchiveReportBudget()
+            detail_store = HtmlDetailStore(avoid_paths=[
+                path for task in tasks for path in self._task_source_directories(task)])
             for idx, task in enumerate(tasks, start=1):
                 info(f"多项目任务 {idx}/{len(tasks)}: {task.get('project_name')} {task.get('vcs_type')}")
                 project_progress(idx, len(tasks))
                 project_results.append(self._prepare_task_result(
-                    task, report_budget=report_budget, archive_budget=archive_budget
+                    task, report_budget=report_budget, archive_budget=archive_budget,
+                    detail_store=detail_store,
                 ))
 
             self._check_multi_display_path_conflicts(project_results)
@@ -2584,7 +2607,7 @@ class CompareToolApp(TaskProgressUI):
                     item["diff_result"], endpoints=endpoints,
                     show_full_context=self._option_bool(task.get("show_full_context"), default=True),
                     exclude_patterns=task.get("exclude_rules", "").splitlines(),
-                    budget=archive_budget,
+                    budget=archive_budget, detail_store=detail_store,
                 )
 
             template_dir = os.path.join(BASE_DIR, "templates")
@@ -2593,6 +2616,9 @@ class CompareToolApp(TaskProgressUI):
                 report_path, trusted_output_root
             )
             report_gen.generate_multi(project_results, report_stage)
+            task_metrics(html_fragment_count=detail_store.fragments,
+                         html_fragment_bytes=detail_store.total_bytes)
+            detail_store.close()
             instruction_stage, instruction_target = prepare_delivery_instructions(
                 project_results,
                 instruction_target,
@@ -2625,6 +2651,11 @@ class CompareToolApp(TaskProgressUI):
             task_failure(e)
             defer_completion(self, "_show_error", msg)
         finally:
+            if detail_store is not None:
+                try:
+                    detail_store.close()
+                except OSError as exc:
+                    warn(f"清理 HTML 明细临时文件失败: {exc}")
             for stage_root in (stage_old_root, stage_new_root):
                 FileExporter._cleanup_stage(stage_root)
             FileExporter._cleanup_stage(report_stage)

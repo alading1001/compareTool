@@ -473,9 +473,65 @@ class SVNVCS(BaseVCS):
     def _normalize_lf(data: bytes) -> bytes:
         return data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
 
+    def _raw_cache_key(self, version: str, file_path: str):
+        # Legacy direct readers and explicit command timeouts retain their old
+        # one-shot route. Cache only a fully fixed task identity.
+        if not getattr(self, "_source_identity_pinned", False) or self.COMMAND_TIMEOUT is not None:
+            return None
+        revision = self._resolve_version(version)
+        if not revision.isdigit(): return None
+        return self._property_source_identity(), self._file_url(revision, file_path)
+
+    def _download_raw_stream(self, url: str, target):
+        # stderr goes to an owned temporary file: draining stdout cannot deadlock
+        # on a full stderr pipe. This path is only used with no command timeout.
+        process = None
+        with open_temp_file("comparetool_svn_stderr_") as diagnostic:
+            try:
+                process = subprocess.Popen(
+                    [self._svn, "cat", "--non-interactive", url],
+                    cwd=self.project_path, stdout=subprocess.PIPE,
+                    stderr=diagnostic, stdin=subprocess.DEVNULL,
+                )
+                with process.stdout:
+                    for block in iter(lambda: process.stdout.read(1024*1024), b""):
+                        target.write(block)
+                if process.wait() != 0:
+                    diagnostic.seek(0)
+                    raise RuntimeError("SVN 内容读取失败: " + url + "\n" + _decode_bytes(diagnostic.read()))
+            finally:
+                if process is not None and process.poll() is None:
+                    process.kill(); process.wait()
+                if process is not None and process.stdout:
+                    process.stdout.close()
+
+    def _cached_raw_entry(self, key):
+        cache = getattr(self, "_raw_cache", None)
+        if cache is None:
+            from .raw_cache import RawEndpointCache
+            self._raw_cache = cache = RawEndpointCache()
+        return cache, cache.acquire(key, lambda target: self._download_raw_stream(key[1], target))
+
+    def cleanup(self):
+        cache = getattr(self, "_raw_cache", None)
+        if cache is not None:
+            cache.close()
+            self._raw_cache = None
+        self._fixed_property_provider = None
+
+    def __del__(self):
+        try:
+            self.cleanup()
+        except Exception:
+            pass
+
     def get_file_content_raw_bytes(self, version: str, file_path: str) -> bytes:
         """读取仓库中的原始字节，不应用工作副本换行符转换。"""
         try:
+            key = self._raw_cache_key(version, file_path)
+            if key is not None:
+                cache, entry = self._cached_raw_entry(key)
+                return cache.read_bytes(entry)
             return self._run_bytes(["cat", self._file_url(version, file_path)])
         except RuntimeError:
             return None
@@ -509,6 +565,10 @@ class SVNVCS(BaseVCS):
         return int(value)
 
     def get_file_signature(self, version: str, file_path: str):
+        key = self._raw_cache_key(version, file_path)
+        if key is not None:
+            cache, entry = self._cached_raw_entry(key)
+            return cache.signature(entry)
         rev = self._resolve_version(version)
         digest = hashlib.sha256()
         size = 0
@@ -539,6 +599,17 @@ class SVNVCS(BaseVCS):
     def export_file_to_path(self, version: str, file_path: str, target_path: str):
         rev = self._resolve_version(version)
         self.export_raw_file_to_path(rev, file_path, target_path)
+        self._convert_export_file(rev, file_path, target_path)
+
+    def derive_export_from_raw(self, version: str, file_path: str, raw_path: str, target_path: str):
+        rev = self._resolve_version(version)
+        self._copy_fixed_raw(raw_path, target_path)
+        self._convert_export_file(rev, file_path, target_path)
+
+    def _convert_export_file(self, rev: str, file_path: str, target_path: str):
+        known = getattr(self, "_property_cache", {}).get((rev, file_path))
+        if known is not None and not known.get("svn:eol-style", "").strip():
+            return
         if self._file_contains_null(target_path):
             return
         style = self._get_eol_style(rev, file_path).strip().lower()
@@ -552,6 +623,13 @@ class SVNVCS(BaseVCS):
     def export_raw_file_to_path(
         self, version: str, file_path: str, target_path: str
     ):
+        cache = getattr(self, "_raw_cache", None)
+        if cache is not None:
+            key = self._raw_cache_key(version, file_path)
+            entry = cache.get(key) if key is not None else None
+            if entry is not None:
+                cache.copy_to(entry, target_path)
+                return
         rev = self._resolve_version(version)
         file_url = self._file_url(rev, file_path)
         try:
@@ -590,6 +668,16 @@ class SVNVCS(BaseVCS):
         suffix = f"/{relative}" if relative else ""
         return f"{root_url.rstrip('/')}{suffix}@{rev}"
 
+    def use_fixed_property_provider(self, provider):
+        """Share successful task-local reads with checked repository/URL identity."""
+        if not getattr(self, "_source_identity_pinned", False):
+            raise RuntimeError("共享 SVN 属性前必须固定仓库身份")
+        self._fixed_property_provider = provider
+
+    def _property_source_identity(self):
+        return (self._pinned_repo_uuid, self._pinned_repo_root_url,
+                self._pinned_project_url, self._pinned_peg_revision)
+
     def _get_properties(self, version: str, file_path: str) -> dict:
         cache = getattr(self, "_property_cache", None)
         if cache is None:
@@ -598,7 +686,15 @@ class SVNVCS(BaseVCS):
         resolved_version = self._resolve_version(version)
         cache_key = (resolved_version, file_path)
         if cache_key in cache:
-            return cache[cache_key]
+            return dict(cache[cache_key])
+        provider = getattr(self, "_fixed_property_provider", None)
+        if provider is not None:
+            identity, url, properties = provider(resolved_version, file_path)
+            if (identity != self._property_source_identity()
+                    or url != self._file_url(resolved_version, file_path)):
+                raise RuntimeError("共享 SVN 属性来源与固定端点不一致")
+            cache[cache_key] = dict(properties)
+            return dict(properties)
         rev = resolved_version
         try:
             result = subprocess.run(
@@ -640,8 +736,8 @@ class SVNVCS(BaseVCS):
             if node.get("encoding"):
                 value = f"{node.get('encoding')}:{value}"
             properties[name] = value
-        cache[cache_key] = properties
-        return properties
+        cache[cache_key] = dict(properties)
+        return dict(properties)
 
     def _compare_endpoint_metadata(
             self, old_version, old_path, new_version, new_path) -> dict:

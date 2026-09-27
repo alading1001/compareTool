@@ -200,16 +200,16 @@ table.diff span { white-space: pre; }
     </div>
 </div>
 
-{# 将每个文件的 side_by_side_html 存在 hidden div 中，避免 JSON 编码导致中文乱码 #}
+{# 离线模板完整保留明细；template 仍占内容内存，不是外部按需下载 #}
 <div style="display:none;">
 {% for file in files %}
-<div id="sbs-{{ loop.index }}" data-path="{{ file.file_path | e }}" data-type="{{ file.report_type }}">{% if file.archive_details %}{% with detail=file.archive_details %}{% include 'archive_details.html' %}{% endwith %}<details class="archive-original"><summary>压缩包文件本身的变更标记</summary>{{ file.side_by_side_html | safe }}</details>{% else %}{{ file.side_by_side_html | safe }}{% endif %}</div>
+<template class="diff-source" id="sbs-{{ loop.index }}" data-path="{{ file.file_path | e }}" data-type="{{ file.report_type }}">{% if file.archive_details %}{% with detail=file.archive_details %}{% include 'archive_details.html' %}{% endwith %}<details class="archive-original"><summary>压缩包文件本身的变更标记</summary>{% with detail_file=file %}{% include 'file_detail.html' %}{% endwith %}</details>{% else %}{% with detail_file=file %}{% include 'file_detail.html' %}{% endwith %}{% endif %}</template>
 {% endfor %}
 </div>
 
 <script>
 {% include "archive_script.html" %}
-// 从 hidden div 读取数据
+// 只保存明细 ID，选择文件时克隆模板，不预先复制所有 HTML 字符串
 var fileData = [];
 {% for file in files %}
 fileData.push({
@@ -217,7 +217,7 @@ fileData.push({
     oldPath: {{ file.old_path | replace('\\','/') | tojson }},
     type: {{ file.report_type | tojson }},
     archiveDetails: {{ (file.archive_details is not none) | tojson }},
-    html: document.getElementById("sbs-{{ loop.index }}").innerHTML
+    detailId: "sbs-{{ loop.index }}"
 });
 {% endfor %}
 {% if manifest_matches_files | default(false) %}
@@ -271,25 +271,32 @@ function buildTree(files) {
             }
         }
     });
+    cacheDirectoryTypes(root);
     return root;
 }
 
+var treeContainers = [];
+var activeTreeRow = null;
+
+function cacheDirectoryTypes(root) {
+    var bits = {A:1, M:2, F:4, D:8, R:16};
+    var queue = [root], ordered = [];
+    while (queue.length) {
+        var node = queue.pop();
+        ordered.push(node);
+        Object.values(node.children).forEach(function(child) { queue.push(child); });
+    }
+    while (ordered.length) {
+        var current = ordered.pop(), mask = 0;
+        current.files.forEach(function(file) { mask |= bits[file.data.type] || 0; });
+        Object.values(current.children).forEach(function(child) { mask |= child.typeMask; });
+        current.typeMask = mask;
+    }
+}
+
 function getDirType(node) {
-    var types = [];
-    node.files.forEach(function(f) { types.push(f.data.type); });
-    Object.values(node.children).forEach(function(c) { types.push(getDirType(c)); });
-    var hasD = types.indexOf('D') >= 0;
-    var hasM = types.indexOf('M') >= 0;
-    var hasF = types.indexOf('F') >= 0;
-    var hasA = types.indexOf('A') >= 0;
-    var hasR = types.indexOf('R') >= 0;
-    // 只有全部为同一类型时才显示标签，混合类型不显示
-    if (hasD && !hasM && !hasF && !hasA && !hasR) return 'D';
-    if (hasM && !hasD && !hasF && !hasA && !hasR) return 'M';
-    if (hasF && !hasD && !hasM && !hasA && !hasR) return 'F';
-    if (hasA && !hasD && !hasM && !hasF && !hasR) return 'A';
-    if (hasR && !hasD && !hasM && !hasF && !hasA) return 'R';
-    return '';
+    if (typeof node.typeMask !== 'number') cacheDirectoryTypes(node);
+    return ({1:'A',2:'M',4:'F',8:'D',16:'R'})[node.typeMask] || '';
 }
 
 // ===== 渲染文件树 =====
@@ -306,6 +313,8 @@ function renderTree(node, container, isRoot) {
 
         var rootChildren = document.createElement('div');
         rootChildren.className = 'children open';
+        rootChildren._row = rootRow;
+        treeContainers.push(rootChildren);
         rootRow.addEventListener('click', function(e) {
             e.stopPropagation();
             var isOpen = rootChildren.classList.contains('open');
@@ -338,12 +347,18 @@ function renderTree(node, container, isRoot) {
 
         var childrenDiv = document.createElement('div');
         childrenDiv.className = 'children';
-        renderTree(child, childrenDiv, false);
+        childrenDiv._mount = function() {
+            renderTree(child, childrenDiv, false);
+            childrenDiv._mount = null;
+        };
+        childrenDiv._row = row;
+        treeContainers.push(childrenDiv);
         wrapper.appendChild(childrenDiv);
 
         row.addEventListener('click', function(e) {
             e.stopPropagation();
             var isOpen = childrenDiv.classList.contains('open');
+            if (!isOpen && childrenDiv._mount) childrenDiv._mount();
             childrenDiv.classList.toggle('open');
             row.querySelector('.icon').textContent = isOpen ? '▶' : '▼';
             clearDiff();
@@ -358,13 +373,16 @@ function renderTree(node, container, isRoot) {
     }).forEach(function(f) {
         var row = document.createElement('div');
         row.className = 'row ' + typeClass(f.data.type);
+        row.dataset.filePath = f.data.path;
+        row.dataset.fileType = f.data.type;
         row.innerHTML = '<span class="icon">📄</span><span class="name">' + esc(f.name) + '</span>' +
             '<span class="tag ' + f.data.type + '">' + typeLabel(f.data.type) + '</span>' +
             (f.data.archiveDetails ? '<span class="archive-badge">包内差异</span>' : '');
 
         row.addEventListener('click', function(e) {
             e.stopPropagation();
-            document.querySelectorAll('#tree .row').forEach(function(r) { r.classList.remove('active'); });
+            if (activeTreeRow) activeTreeRow.classList.remove('active');
+            activeTreeRow = row;
             row.classList.add('active');
             showDiff(f.data);
         });
@@ -374,6 +392,8 @@ function renderTree(node, container, isRoot) {
 }
 
 function clearDiff() {
+    if (activeTreeRow) activeTreeRow.classList.remove('active');
+    activeTreeRow = null;
     document.getElementById('emptyState').style.display = 'flex';
     document.getElementById('diffContainer').innerHTML = '';
     currentDiffAnchors = [];
@@ -402,7 +422,9 @@ function showDiff(file) {
     setDiffNavTitle(shownPath);
 
     var tableWrapper = document.createElement('div');
-    tableWrapper.innerHTML = file.html;
+    var source = document.getElementById(file.detailId);
+    if (!source || !source.content) throw new Error("报告明细来源不存在");
+    tableWrapper.appendChild(source.content.cloneNode(true));
     initArchiveDetails(tableWrapper);
     // 给差异行的行号单元格着色
     currentDiffAnchors = [];
@@ -617,25 +639,23 @@ function applyFilter() {
     var newRoot = buildTree(filtered);
     var treeEl = document.getElementById('tree');
     treeEl.innerHTML = '';
+    treeContainers = [];
+    activeTreeRow = null;
     renderTree(newRoot, treeEl, true);
     clearDiff();
 }
 
 // ===== 展开/折叠全部 =====
 function toggleAll(expand) {
-    document.querySelectorAll('#tree .children').forEach(function(el) {
-        if (expand) {
-            el.classList.add('open');
-        } else {
-            el.classList.remove('open');
-        }
-    });
-    document.querySelectorAll('#tree .row .icon').forEach(function(icon) {
-        icon.textContent = expand ? '▼' : '▶';
-    });
-    // 根节点保持一致
-    var rootIcon = document.querySelector('#tree .root-row .icon');
-    if (rootIcon) rootIcon.textContent = expand ? '▼' : '▶';
+    // Opening a branch appends its children to this same work queue.
+    // Collapsing never materializes unopened descendants.
+    for (var i = 0; i < treeContainers.length; i++) {
+        var element = treeContainers[i];
+        if (expand && element._mount) element._mount();
+        element.classList.toggle('open', expand);
+        var icon = element._row && element._row.querySelector('.icon');
+        if (icon) icon.textContent = expand ? '▼' : '▶';
+    }
 }
 
 // ===== 启动 =====

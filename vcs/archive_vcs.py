@@ -10,7 +10,8 @@ import zipfile
 import tarfile
 import struct
 from contextlib import ExitStack
-from typing import List
+from typing import List, NamedTuple
+from types import MappingProxyType
 
 from path_safety import (
     is_link_or_junction,
@@ -24,6 +25,18 @@ from .base import BaseVCS, ChangedFile, ChangeType
 from .folder_vcs import FolderVCS
 from .temp_storage import create_temp_dir, remove_temp_dir
 from logger import warn
+
+
+class _TarMemberPlan(NamedTuple):
+    name: str
+    size: int
+    kind: bytes
+    mode: int
+    legacy_sparse: bool = False
+
+    @property
+    def is_dir(self):
+        return self.kind == tarfile.DIRTYPE
 
 
 class _BorrowedBinaryStream:
@@ -71,7 +84,7 @@ class ArchiveVCS(BaseVCS):
     _ZIP_DIGITAL_SIGNATURE = b"PK\x05\x05"
 
     @measured_phase("archive.extract", "读取并解压归档")
-    def __init__(self, old_archive: str, new_archive: str, *, ignore_single_root: bool = False):
+    def __init__(self, old_archive: str, new_archive: str, *, ignore_single_root: bool = False, extraction_excludes=None):
         self.old_archive = old_archive
         self.new_archive = new_archive
         self._tmp_old = ""
@@ -83,6 +96,11 @@ class ArchiveVCS(BaseVCS):
         self.new_root_prefix = ""
         self.comparison_note = ""
         self._preflighted_sources = set()
+        self._tar_preflight_plans = {}
+        self._sparse_patterns = (tuple(p.strip() for p in extraction_excludes if p.strip())
+                                 if extraction_excludes is not None else None)
+        self._sparse_ignore_root = ignore_single_root
+        self._sparse_plans = {}
         try:
             with ExitStack() as source_stack:
                 old_source = self._open_archive_source(
@@ -164,6 +182,8 @@ class ArchiveVCS(BaseVCS):
                     old_root, new_root, snapshot=False
                 )
                 super().__init__(self._tmp_new)
+                if self._sparse_patterns is not None:
+                    self.set_exclude_patterns(self._sparse_patterns)
         except Exception:
             self.cleanup()
             raise
@@ -346,34 +366,107 @@ class ArchiveVCS(BaseVCS):
                 "（支持 .zip / .jar / .war / .ear / .aar / .tar / .tar.gz / .tgz / .tar.bz2 / .tbz2）"
             )
 
+    def _prepare_sparse_storage(self, source, members, total_size):
+        # Keep all names in original creation order. Only member bodies may be
+        # discarded. Canonical directory spelling follows the existing Windows
+        # directory creator, including implicit directories and later casing.
+        if (getattr(self, "_sparse_patterns", None) is None
+                or any(m.legacy_sparse for m in members)):
+            # Sparse TAR stores physical extents but exposes a different logical
+            # length/name. Preserve the existing full extractor for this format;
+            # do not guess its expansion plan or switch disks after writing.
+            return total_size
+        path = self._archive_source_name(source)
+        roots, directories, leaves = {}, {}, []
+        root_file = False
+        for m in members:
+            if self._is_root_directory(m.name, m.is_dir):
+                continue
+            parts = posixpath.normpath(m.name.replace("\\", "/")).split("/")
+            current = []
+            directory_parts = parts if m.is_dir else parts[:-1]
+            for part in directory_parts:
+                key = tuple(windows_path_key(p) for p in [*current, part])
+                current = list(directories.setdefault(key, tuple([*current, part])))
+            actual = current if m.is_dir else [*current, parts[-1]]
+            roots.setdefault(windows_path_key(actual[0]), actual[0])
+            if not m.is_dir:
+                root_file = root_file or len(actual) == 1
+                leaves.append(("/".join(actual), m.size))
+        prefix = ""
+        if self._sparse_ignore_root:
+            if root_file or len(roots) != 1:
+                raise ValueError("压缩包不满足忽略最外层单一文件夹：必须恰有一个真实顶层目录")
+            prefix = next(iter(roots.values()))
+        decisions = {}
+        retained = 0
+        for relative, size in leaves:
+            compared = relative[len(prefix)+1:] if prefix else relative
+            keep = not any(self._match_glob_pattern(compared, rule, True)
+                           for rule in self._sparse_patterns)
+            decisions[relative] = keep
+            if keep:
+                retained += size
+        # Conservative metadata/reserve estimate, not a content safety budget.
+        # Never select a full-extraction fallback after choosing this disk.
+        overhead = (len(leaves) + len(directories) + 1) * 4096
+        required = retained + overhead + max(1024 * 1024, retained // 20)
+        self._sparse_plans[path] = (MappingProxyType(decisions), prefix, required)
+        return required
+
+    def _storage_needed(self, source, total_size):
+        plan = getattr(self, "_sparse_plans", {}).get(self._archive_source_name(source))
+        return plan[2] if plan is not None else total_size
+
+    def _consume_archive_bytes(self, size):
+        # Overridden only by report inspection to share the expansion budget.
+        pass
+
+    def _copy_archive_payload(self, source, target, size, archive_source, dest, path):
+        plan = getattr(self, "_sparse_plans", {}).get(self._archive_source_name(archive_source))
+        keep = True
+        if plan is not None:
+            relative = os.path.relpath(path, dest).replace("\\", "/")
+            if relative not in plan[0]:
+                raise ValueError("归档实际成员路径与不可变提取计划不一致: " + relative)
+            keep = plan[0][relative]
+        count = 0
+        for block in iter(lambda: source.read(1024 * 1024), b""):
+            count += len(block)
+            self._consume_archive_bytes(len(block))
+            if keep and target.write(block) != len(block):
+                raise OSError("压缩包成员写入不完整")
+        if count != size:
+            raise ValueError("压缩包成员实际读取长度与声明不一致")
+        # Excluded targets intentionally remain empty until owned-tree cleanup.
+
     def _preflight_archive_size(self, source) -> int:
-        """在选择临时盘前取得本端实际展开字节数。"""
+        # All members remain subject to safety preflight, even if their bodies
+        # will be discarded. Return only the physical storage estimate.
         path = self._archive_source_name(source)
         if self._is_zip(path):
             self._preflight_zip(source)
             source.seek(0)
             try:
                 with zipfile.ZipFile(_BorrowedBinaryStream(source), "r") as zf:
-                    members = zf.infolist()
-                    return self._validate_archive_limits(
-                        path,
-                        [
-                            (
-                                info.filename,
-                                info.file_size,
-                                info.compress_size,
-                                info.is_dir(),
-                            )
-                            for info in members
-                        ],
-                    )
+                    infos = zf.infolist()
+                    total = self._validate_archive_limits(path, [
+                        (info.filename, info.file_size, info.compress_size, info.is_dir())
+                        for info in infos])
+                    if getattr(self, "_sparse_patterns", None) is None:
+                        return total
+                    members = tuple(_TarMemberPlan(self._fix_zip_filename(info), info.file_size,
+                        tarfile.DIRTYPE if info.is_dir() else tarfile.REGTYPE,
+                        stat.S_IMODE(info.external_attr >> 16)) for info in infos)
+                    self._validate_archive_targets(os.path.join(os.path.dirname(path),
+                        ".comparetool_archive_preflight"), [(m.name, m.is_dir) for m in members])
+                    return self._prepare_sparse_storage(source, members, total)
             finally:
                 source.seek(0)
         if self._is_tar(path):
-            validation_root = os.path.join(
-                os.path.dirname(path), ".comparetool_archive_preflight"
-            )
-            return self._preflight_tar(source, validation_root)
+            root = os.path.join(os.path.dirname(path), ".comparetool_archive_preflight")
+            total, members = self._get_tar_plan(source, root)
+            return self._prepare_sparse_storage(source, members, total)
         raise ValueError(f"不支持的压缩格式: {path}")
 
     def _extract_zip(self, source, dest: str, metadata: dict = None):
@@ -396,7 +489,7 @@ class ArchiveVCS(BaseVCS):
                     path,
                     [(info.filename, info.file_size, info.compress_size, info.is_dir()) for info in members],
                 )
-                self._ensure_free_space(dest, total_size)
+                self._ensure_free_space(dest, self._storage_needed(source, total_size))
                 decoded_members = [
                     (info, self._fix_zip_filename(info)) for info in members
                 ]
@@ -428,7 +521,8 @@ class ArchiveVCS(BaseVCS):
                                 dest, target, directory_cache
                             )
                             with dst:
-                                shutil.copyfileobj(src, dst)
+                                self._copy_archive_payload(src, dst, info.file_size,
+                                                           source, dest, target)
                         unix_mode = info.external_attr >> 16
                         file_type = stat.S_IFMT(unix_mode)
                         if (
@@ -443,12 +537,91 @@ class ArchiveVCS(BaseVCS):
         finally:
             source.seek(0)
 
+    def _get_tar_plan(self, source, dest):
+        # The same locked source is preflighted once; direct legacy extractor
+        # calls lazily obtain the identical plan and still return size normally.
+        plans = getattr(self, "_tar_preflight_plans", None)
+        if plans is None:
+            self._tar_preflight_plans = plans = {}
+        key = self._archive_source_name(source)
+        if key not in plans:
+            members = []
+            size = self._preflight_tar(source, dest, member_plan=members)
+            plans[key] = (size, tuple(members))
+        return plans[key]
+
     def _extract_tar(self, source, dest: str, metadata: dict = None):
+        if self._is_path_source(source):
+            with open_regular_file_no_links(os.fsdecode(source), deny_writes=True) as stream:
+                return self._extract_tar(stream, dest, metadata)
+        path = self._archive_source_name(source)
+        metadata = metadata if metadata is not None else {}
+        planned_size, members = self._get_tar_plan(source, dest)
+        if any(m.legacy_sparse for m in members):
+            return self._extract_tar_legacy_sparse(source, dest, metadata)
+        archive_size = max(self._archive_stream_size(source), 1)
+        total_size = self._validate_archive_limits(
+            path, [(m.name, m.size, archive_size, m.is_dir) for m in members],
+            check_member_ratio=False,
+        )
+        if total_size != planned_size:
+            raise ValueError("TAR 预检展开大小与成员计划不一致")
+        self._ensure_free_space(dest, self._storage_needed(source, total_size))
+        self._validate_archive_targets(dest, [(m.name, m.is_dir) for m in members])
+        if total_size / archive_size > self.MAX_COMPRESSION_RATIO:
+            raise ValueError(f"压缩包展开比例过高，已拒绝解压: {path}")
+        mode = 'r:gz' if path.lower().endswith(('.gz', '.tgz')) else (
+            'r:bz2' if path.lower().endswith(('.bz2', '.tbz2')) else 'r:')
+        source.seek(0)
+        try:
+            with tarfile.open(fileobj=_BorrowedBinaryStream(source), mode=mode) as tf:
+                directory_cache = {}
+                index = 0
+                # Read each header and immediately consume its body. The same
+                # gzip/bzip2 reader as before now moves forward only; getmembers
+                # followed by a backwards extract pass is deliberately absent.
+                while True:
+                    member = tf.next()
+                    if member is None:
+                        break
+                    current = _TarMemberPlan(member.name, member.size, member.type,
+                                             stat.S_IMODE(member.mode))
+                    if index >= len(members) or current != members[index]:
+                        raise ValueError(f"TAR 成员与完整预检不一致: {member.name}")
+                    index += 1
+                    # No lookups by member name and no link resolution: keeping
+                    # TarInfo objects after consumption would duplicate the plan.
+                    tf.members.clear()
+                    if self._is_root_directory(member.name, member.isdir()):
+                        continue
+                    target = self._safe_extract_target(dest, member.name)
+                    if member.isdir():
+                        self._ensure_archive_directory(dest, target, directory_cache)
+                        continue
+                    if not member.isfile():
+                        raise ValueError(f"压缩包包含不安全或不支持的链接/特殊文件: {member.name}")
+                    src = tf.extractfile(member)
+                    if src is None:
+                        raise ValueError(f"无法读取压缩包成员: {member.name}")
+                    with src:
+                        target, dst = self._open_archive_member_target(dest, target, directory_cache)
+                        with dst:
+                            self._copy_archive_payload(src, dst, member.size,
+                                                       source, dest, target)
+                    relative = os.path.relpath(target, dest).replace("\\", "/")
+                    metadata[relative] = {"mode": f"{stat.S_IMODE(member.mode):04o}",
+                                          "executable": bool(member.mode & 0o111)}
+                if index != len(members):
+                    raise ValueError("TAR 提取提前结束，缺少预检成员")
+        finally:
+            source.seek(0)
+
+    def _extract_tar_legacy_sparse(self, source, dest: str, metadata: dict = None):
         if self._is_path_source(source):
             with open_regular_file_no_links(
                 os.fsdecode(source), deny_writes=True
             ) as stream:
-                return self._extract_tar(stream, dest, metadata)
+                return self._extract_tar_legacy_sparse(stream, dest, metadata)
         path = self._archive_source_name(source)
         metadata = metadata if metadata is not None else {}
         if os.path.normcase(path) not in getattr(
@@ -503,7 +676,7 @@ class ArchiveVCS(BaseVCS):
                         dest, target, directory_cache
                     )
                     with src, dst:
-                        shutil.copyfileobj(src, dst)
+                        self._copy_archive_payload(src, dst, member.size, source, dest, target)
                     relative = os.path.relpath(target, dest).replace("\\", "/")
                     metadata[relative] = {
                         "mode": f"{stat.S_IMODE(member.mode):04o}",
@@ -513,7 +686,7 @@ class ArchiveVCS(BaseVCS):
             source.seek(0)
 
     @classmethod
-    def _preflight_tar(cls, source, dest: str):
+    def _preflight_tar(cls, source, dest: str, *, member_plan=None):
         """在 tarfile 解析 PAX/GNU 扩展前先做有界流式头检查。
 
         tarfile.getmembers() 会先把长文件名/PAX 载荷整体读入内存；这里先从
@@ -523,7 +696,7 @@ class ArchiveVCS(BaseVCS):
             with open_regular_file_no_links(
                 os.fsdecode(source), deny_writes=True
             ) as opened:
-                return cls._preflight_tar(opened, dest)
+                return cls._preflight_tar(opened, dest, member_plan=member_plan)
         path = cls._archive_source_name(source)
         lower = path.lower()
         targets = []
@@ -636,6 +809,11 @@ class ArchiveVCS(BaseVCS):
                             f"({total_size / archive_size:.0f}:1)"
                         )
                 targets.append((name, is_dir))
+                if member_plan is not None:
+                    member_plan.append(_TarMemberPlan(name, size, member.type,
+                                                      stat.S_IMODE(member.mode),
+                                                      member.type == tarfile.GNUTYPE_SPARSE
+                                                      or any(k.startswith("GNU.sparse.") for k in effective)))
                 if len(targets) > cls.MAX_ARCHIVE_MEMBERS:
                     raise ValueError("压缩包成员过多，已拒绝解压")
                 cls._discard_exact(stream, size)
@@ -1072,10 +1250,18 @@ class ArchiveVCS(BaseVCS):
     # ── BaseVCS 接口，全部委托给 FolderVCS ──
 
     def set_exclude_patterns(self, patterns: List[str]):
-        super().set_exclude_patterns(patterns)
-        self._folder.set_exclude_patterns(patterns)
+        normalized = tuple(p.strip() for p in patterns if p.strip())
+        fixed = getattr(self, "_sparse_patterns", None)
+        if fixed is not None and normalized != fixed:
+            raise ValueError("内部归档提取排除计划不可变；动态规则请使用默认完整提取接口")
+        super().set_exclude_patterns(normalized)
+        self._folder.set_exclude_patterns(normalized)
 
     def get_changed_files(self, old_version: str = "", new_version: str = "") -> List[ChangedFile]:
+        fixed = getattr(self, "_sparse_patterns", None)
+        if fixed is not None and (tuple(self.exclude_patterns) != fixed
+                                   or tuple(self._folder.exclude_patterns) != fixed):
+            raise ValueError("内部归档提取排除计划已被改变")
         files = self._folder.get_changed_files("old", "new")
         self.required_directory_deletions = self._folder.required_directory_deletions
         by_path = {item.path: item for item in files}
@@ -1099,29 +1285,41 @@ class ArchiveVCS(BaseVCS):
                 )
         return self._filter_files(files)
 
+    def _require_materialized_path(self, file_path):
+        fixed = getattr(self, "_sparse_patterns", None)
+        if fixed is not None and any(self._match_glob_pattern(file_path, p, True) for p in fixed):
+            raise ValueError("排除成员仅保留内部名称占位，不能作为原始内容读取或导出: " + file_path)
+
     def get_file_content(self, version: str, file_path: str) -> str:
+        self._require_materialized_path(file_path)
         return self._folder.get_file_content(self._to_folder_ver(version), file_path)
 
     def get_file_content_bytes(self, version: str, file_path: str) -> bytes:
+        self._require_materialized_path(file_path)
         return self._folder.get_file_content_bytes(self._to_folder_ver(version), file_path)
 
     def get_file_content_raw_bytes(self, version: str, file_path: str) -> bytes:
+        self._require_materialized_path(file_path)
         return self._folder.get_file_content_raw_bytes(self._to_folder_ver(version), file_path)
 
     def get_file_size(self, version: str, file_path: str):
+        self._require_materialized_path(file_path)
         return self._folder.get_file_size(self._to_folder_ver(version), file_path)
 
     def get_known_file_raw_size(self, version: str, file_path: str):
+        self._require_materialized_path(file_path)
         return self._folder.get_known_file_raw_size(
             self._to_folder_ver(version), file_path
         )
 
     def get_file_signature(self, version: str, file_path: str):
+        self._require_materialized_path(file_path)
         return self._folder.get_file_signature(
             self._to_folder_ver(version), file_path
         )
 
     def export_file_to_path(self, version: str, file_path: str, target_path: str):
+        self._require_materialized_path(file_path)
         return self._folder.export_file_to_path(
             self._to_folder_ver(version), file_path, target_path
         )
@@ -1140,9 +1338,11 @@ class ArchiveVCS(BaseVCS):
         return "new"
 
     def get_file_content_working(self, file_path: str) -> str:
+        self._require_materialized_path(file_path)
         return self._folder.get_file_content_working(file_path)
 
     def get_file_content_bytes_working(self, file_path: str) -> bytes:
+        self._require_materialized_path(file_path)
         return self._folder.get_file_content_bytes_working(file_path)
 
     def get_versions(self) -> List[str]:

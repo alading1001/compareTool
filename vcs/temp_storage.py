@@ -21,7 +21,7 @@ _KNOWN_PREFIXES = (
     "comparetool_folder_new_", "comparetool_git_endpoint_",
     "comparetool_svn_endpoint_", "comparetool_git_multi_",
     "comparetool_svn_multi_",
-    "comparetool_git_checkout_",
+    "comparetool_git_checkout_", "comparetool_html_",
 )
 _CLEANED_ROOTS = set()
 _WARNED_TEMP_FILE_ROOTS = set()

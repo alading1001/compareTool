@@ -5,6 +5,7 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
+from functools import lru_cache
 from typing import List, Optional
 
 
@@ -78,6 +79,13 @@ class BaseVCS(ABC):
     ) -> bool:
         """匹配 glob；目录剪枝证明时禁止给无斜杠模式补隐式 **/。"""
         path = path.replace('\\', '/')
+        return BaseVCS._compile_glob(pattern, implicit_any_depth).match(path) is not None
+
+    @staticmethod
+    @lru_cache(maxsize=1024)
+    def _compile_glob(pattern: str, implicit_any_depth: bool):
+        # Cache eviction is not an input limit. Direct exclude_patterns assignment
+        # and directory-pruning calls use the same pure compiler.
         pattern = pattern.replace('\\', '/')
 
         # 不含 / 的简单模式（如 *.class）匹配任意目录深度
@@ -97,7 +105,7 @@ class BaseVCS(ABC):
         # 单个 * 匹配单级目录内的任意字符（不含 /）
         regex = regex.replace(r'\*', '[^/]*')
 
-        return re.match('^' + regex + '$', path) is not None
+        return re.compile('^' + regex + '$')
 
     def _filter_files(self, files: List[ChangedFile]) -> List[ChangedFile]:
         """过滤掉匹配排除规则的文件"""
@@ -193,6 +201,24 @@ class BaseVCS(ABC):
             raise RuntimeError(f"无法读取版本 {version} 中的文件: {file_path}")
         with open(target_path, "wb") as stream:
             stream.write(data)
+
+    @staticmethod
+    def _copy_fixed_raw(raw_path: str, target_path: str):
+        """Copy a completed private raw endpoint to a separate ordinary file."""
+        from path_safety import (open_regular_file_no_links,
+                                 regular_file_handle_identity, regular_file_path_identity)
+        if os.path.abspath(raw_path) == os.path.abspath(target_path) or (
+                os.path.exists(target_path) and os.path.samefile(raw_path, target_path)):
+            raise RuntimeError("原始端点与交付端点不能共享同一文件")
+        with open_regular_file_no_links(raw_path, deny_writes=True) as source:
+            before = regular_file_handle_identity(source)
+            copied = 0
+            with open(target_path, "wb") as target:
+                for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                    target.write(chunk); copied += len(chunk)
+            if (copied != before[1] or regular_file_handle_identity(source) != before
+                    or regular_file_path_identity(raw_path) != before):
+                raise RuntimeError("原始端点在派生交付字节时发生变化")
 
     @staticmethod
     def _file_contains_null(path: str) -> bool:

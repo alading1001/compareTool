@@ -155,3 +155,16 @@ Windows 文件夹扫描的重复元数据查询和比较根路径解析也已优
 实现和六模式 off/on 验收见 [全模式验证记录](docs/recursive-archives-all-vcs-verification.md)。
 源码提交和 PDF 更新不会自动升级 EXE。实际构建以 `dist/CompareTool_build.json` 为准；
 包内键盘修复及现有构建的核验范围见 [包内报告规则与验证](docs/nested-archive-report.md)。
+
+## 下一轮性能优化（源码候选，未重新发布 EXE）
+
+当前源码继续减少排除规则编译、SVN 固定端点/属性重复读取及 Git 微小检出探针进程。
+普通 TAR 保留完整预检后顺序提取；固定排除规则的内部路径保留名称占位但不写被排除正文，
+安全校验和共享展开预算不因过滤减少。旧 GNU sparse 及公共动态规则入口保持兼容路径。
+报告端可释放不再使用的正文；浏览器按选择取得详情，文件树按展开创建节点。
+生成端已接入任务级 HTML 片段存储，stable 渲染路径可逐行写入，减少累计 HTML 驻留。
+最终报告仍为完整单文件；输入文本、单条长行及原 HtmlDiff 路径仍有内存开销。
+C1 的实现、回归及测量边界见 [C1 验证记录](docs/performance-c1-verification.md)。
+
+六种来源、递归交付边界、导出字节和失败恢复约束不变。源码变更不会自动更新正式 EXE。
+实际完成范围、复核记录与测量限制见 [本轮验证记录](docs/performance-next-batch-verification.md)。
