@@ -1,10 +1,11 @@
 """Complete opcodes, readable common blocks and actual renderer route coverage."""
 import random
+import difflib
 import unittest
 from unittest import mock
 import diff_engine
 from diff_engine import DiffEngine
-from stable_diff import _line_groups, _line_opcodes, make_table
+from stable_diff import _line_groups, _line_opcodes, _run_anchor, make_table
 from test_complete_export_review_fixes import BytesVCS, TableRows
 
 class MatcherHotspotTests(unittest.TestCase):
@@ -54,6 +55,36 @@ class MatcherHotspotTests(unittest.TestCase):
             old=sum(([randomizer.choice('abc')]*randomizer.randrange(1,100) for _ in range(8)),[])
             new=sum(([randomizer.choice('abc')]*randomizer.randrange(1,100) for _ in range(8)),[])
             self.check_codes(old,new)
+
+    def test_moved_runs_compete_with_common_blocks_by_line_count(self):
+        # Neither a repeated run nor a unique anchor always wins. Keep the
+        # larger contiguous block, including ordinary code with blank lines.
+        for common_size, repeated in ((2000, 32), (700, 80), (96, 400)):
+            for blank_lines in (False, True):
+                common = [f'unchanged_{i}' for i in range(common_size)]
+                if blank_lines:
+                    common = [line for value in common for line in (value, '')]
+                old = ['old-start'] * 64 + common + ['repeat'] * repeated + ['old-end'] * 64
+                new = ['new-start'] * 64 + ['repeat'] * repeated + common + ['new-end'] * 64
+                for left, right in ((old, new), (new, old)):
+                    with self.subTest(common=len(common), repeated=repeated, reverse=left is new):
+                        self.check_codes(left, right)
+                        equal = [line for tag, a, b, c, d in _line_opcodes(left, right)
+                                 if tag == 'equal' for line in left[a:b]]
+                        self.assertEqual(common if len(common) > repeated else ['repeat'] * repeated,
+                                         equal)
+
+    def test_run_boundaries_find_an_actual_longest_common_block(self):
+        randomizer = random.Random(20260927)
+        for _ in range(120):
+            old = ['shared'] * 32 + sum(([randomizer.choice('abc')] * randomizer.randrange(1, 65)
+                                        for _ in range(8)), [])
+            new = sum(([randomizer.choice('abc')] * randomizer.randrange(1, 65)
+                       for _ in range(8)), []) + ['shared'] * 32
+            i, j, k, l = _run_anchor(old, new, 0, len(old), 0, len(new))
+            self.assertEqual(old[i:j], new[k:l])
+            reference = difflib.SequenceMatcher(None, old, new, autojunk=False).find_longest_match()
+            self.assertEqual(reference.size, j-i)
 
     def test_single_few_and_batch_long_lines_in_real_engine(self):
         for count in (1,5,64):

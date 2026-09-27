@@ -4,6 +4,7 @@ import hashlib
 import os
 import stat
 import subprocess
+from collections import OrderedDict
 
 from .temp_storage import create_temp_dir, remove_temp_dir
 from .git_probe_batch import GitProbeBatch, ProbeBatchUnavailable
@@ -12,10 +13,13 @@ from .git_probe_batch import GitProbeBatch, ProbeBatchUnavailable
 class GitCheckoutSnapshot:
     _PLAIN_PROBE = b"CompareTool\n"
     _BINARY_PROBE = b"CompareTool\x00\r\n\rprobe\n"
+    # Keep the usual old/new channels warm without retaining one process for
+    # every multi-version endpoint. Eviction never limits inputs or mode results.
+    _MAX_PROBE_BATCHES = 2
 
     def __init__(self, vcs, config):
         self.root = ""
-        self._probe_batches = {}
+        self._probe_batches = OrderedDict()
         self._probe_batch_unavailable = False
         self.git = vcs._git
         self.timeout = vcs.COMMAND_TIMEOUT
@@ -178,11 +182,16 @@ class GitCheckoutSnapshot:
         key = (endpoint, tuple(args))
         channel = self._probe_batches.get(key)
         if channel is None:
+            if len(self._probe_batches) >= self._MAX_PROBE_BATCHES:
+                _, previous = self._probe_batches.popitem(last=False)
+                previous.close()
             env = dict(self.env)
             env["GIT_ATTR_SOURCE"] = endpoint
             channel = GitProbeBatch([self.git, *args, "cat-file", "--batch", "--filters"],
                                     env, dict(zip(self.probes, (self._PLAIN_PROBE, self._BINARY_PROBE))))
             self._probe_batches[key] = channel
+        else:
+            self._probe_batches.move_to_end(key)
         try:
             return channel.read(oid, path)
         except ProbeBatchUnavailable:
@@ -222,7 +231,7 @@ class GitCheckoutSnapshot:
     def cleanup(self):
         for channel in getattr(self, "_probe_batches", {}).values():
             channel.close()
-        self._probe_batches = {}
+        self._probe_batches = OrderedDict()
         if self.root:
             remove_temp_dir(self.root)
             self.root = ""

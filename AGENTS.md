@@ -167,63 +167,33 @@ Git/SVN 可执行文件路径均自动探测：先查 `shutil.which`，再查 Wi
 
 `compareTool_config.json` 保存项目路径、VCS 类型、输出路径、多项目任务列表、`recent_projects`、`project_exclude_rules` 和 `project_display_options`。配置必须先写同目录临时文件并 `os.replace()` 原子替换，避免进程中断破坏已有任务；序列化、写入或替换失败必须向用户报错，不得显示假成功。若现有配置本身无法解析，程序可用默认值启动，但必须告警并阻止覆盖原损坏文件。启动时会规范化 `multi_tasks` schema，损坏、缺字段、VCS 类型未知或同名的任务记录应记录警告并忽略，不能阻止窗口启动；旧多版本任务的 `new_version` 会迁移为“文件级首尾端点”。项目级配置按规范化绝对路径保存：Git/SVN/Git多版本/SVN多版本用项目目录，文件夹用新版本文件夹，压缩包用新版本压缩包完整文件路径。最近项目列表按 Git/SVN 家族分组，每组最多保留最近 10 个有效项目，旧配置没有 `recent_projects` 时应兼容为空并可由当前有效项目回填。新路径没有专属排除规则时，使用 `main.py` 内置默认模板；旧版全局 `exclude_rules` 不再作为默认模板来源。多项目任务添加/更新时保存排除规则和显示选项快照，后续项目默认配置变化不会偷偷影响已添加任务。输出批次名称不持久化，每次启动默认当天日期。
 
-## 第一批性能优化（2026-09-24）
+## 性能实现与验证边界
 
-- `stable_diff.prefer_stable_diff()` 对较大的替换段提前选择完整非递归渲染；64 行仅是算法切换点，不是输入或报告上限。小修改保留原 HtmlDiff 对齐；精确行数统计和格式变化语义不变。测试应核对完整可见内容，不应要求必须调用某一种渲染器。
-- 非递归渲染先剥离相同前后缀再做行匹配，避免重复边界形成平方级匹配；完整模式仍输出全部边界行，上下文模式保留原始行号及所选上下文。相关回归见 `tests/test_rendering_performance_regressions.py`，重复行及递归模板内存基准已纳入 `tools/benchmark_performance.py`。
-- `vcs/git_batch.py` 在每个 GitVCS 生命周期内复用 `git cat-file --batch`，原始字节读取和导出均可使用。导出按 1 MiB 分块，严格校验响应类型、长度及结束符，协议异常或写入失败时关闭通道；空文件正常成功，缺失对象不能伪装成空文件。
-- 显式命令超时或无法由换行协议表示的对象路径仍使用原来的 `git show` 路径。Git 属性、检出探针、换行转换、版本固定和事务检查保持原规则，不执行外部 filter。
-- `GitVCS.cleanup()` 必须关闭批量读取进程。不要为了重用原始字节而跳过实际检出转换。
-- 回归测试见 `tests/test_performance_first_batch.py`；可重复基准见 `tools/benchmark_performance.py`，至少重复三次，并验证报告行内容及导出字节。基准的 Git 用时不包括最终事务提交，不能宣传为完整上线流程耗时。
-- 测试桩的 `_tmp_root` 必须是测试独占的临时目录，不能设为 `os.getcwd()`；该对象析构时会清理目录。完整回归建议在源码副本运行，避免错误测试夹具影响开发工作区。
+- 大替换段可提前选 stable；64 行只是算法切换点，小修改保留 HtmlDiff。先剥离公共边界再匹配，保留完整正文、行号、上下文、格式语义与独立统计。测试核对用户可见内容，不绑定某个渲染器。
+- 原始 Git batch 与微小 filters 通道用途分开。raw 按 1 MiB 分块并检查 blob 类型、长度、结束符；协议/写入错误关闭通道，缺失不能当空文件；显式超时和无法表示的路径保留单次调用。cleanup 关闭进程，实际检出转换不能跳过。详见 [完整性合同](docs/report-and-export-contract.md)。
+- 基准至少三次，核对报告正文和导出字节，注明计时是否含事务；入口 `tools/benchmark_performance.py`。测试 `_tmp_root` 只能是独占目录，不能用 cwd；完整回归在独立源码副本运行，基准不清理固定已有目录。历史结果见 [第一批记录](docs/performance-first-batch.md)。
 
-## Windows 文件夹扫描性能与安全边界（2026-09-25）
+## Windows 文件夹扫描
 
-- `path_safety.is_link_or_junction()` 在当前 Windows Python 上应复用一次 `lstat` 的 `st_reparse_tag`，不要重新串行调用 `islink`、`isjunction`、`lstat`；旧环境无 `st_reparse_tag` 时保留兼容回退。
-- `open_regular_file_no_links()` 在 Windows 用 `FILE_FLAG_OPEN_REPARSE_POINT` 打开最终路径组件，再按句柄检查 reparse tag 与 FileId。不要恢复“先查路径、再普通打开”的 TOCTOU 窗口。
-- `regular_file_path_identity()` 可复用同一次安全打开得到的初始句柄身份；真正读取内容的调用方仍须在读取前后重新检查句柄身份，并在需要时重新核对路径身份。
-- `FolderVCS` 快照捕获/最终验证可把普通文件的 leaf-link 检查交给紧随其后的安全身份打开；目录在遍历前仍必须检查 junction/symlink，防止 `os.walk` 进入根外。
-- `FolderVCS._resolve_file_path()` 只缓存比较根的 `realpath`；缓存键必须保留路径大小写，不能用 `normcase` 合并，因为 Windows 目录可启用大小写敏感。目标文件的 `realpath` 必须每次重新计算，不能缓存，否则运行期间插入中间 junction/symlink 会绕过越界检测。
-- 回归见 `tests/test_folder_scan_optimization.py`；扫描基准见 `tools/benchmark_folder_scan.py`。性能改动不得删除源树最终复核、FileId 检查或失败即中止语义。
+- 链接判断复用 lstat 的 reparse tag，旧环境保留回退。安全打开用 `FILE_FLAG_OPEN_REPARSE_POINT`，检查句柄 tag/FileId；不能恢复先查路径再普通打开的竞态。
+- 初始身份可复用同一次安全打开；内容读取前后身份和源树最终复核仍保留。叶文件可复用随后安全打开的检查，遍历目录前仍拒绝 junction/symlink。
+- 只缓存比较根 realpath，键保留绝对路径大小写，不用 normcase 合并大小写敏感目录；目标 realpath 每次重新解析。测试见 `test_folder_scan_optimization.py`、`test_folder_scan_edge_cases.py`，基准及边界见 [扫描记录](docs/performance-folder-scan.md)。
 
-根路径缓存键必须保留规范化绝对路径的大小写，不能用 `normcase` 合并大小写敏感目录。补充回归见 `tests/test_folder_scan_edge_cases.py`；本轮完整测试和交替基准结果见 `docs/performance-folder-scan.md`。基准只创建独占随机临时目录，不清理固定名称的已有路径。
+## 构建身份与任务观测
 
-## 正式版身份与任务观测（2026-09-26）
+- 使用 `build.bat` / `tools/build_release.py` 嵌入时间、父提交、dirty 与源码指纹，源码显示 source、缺元数据显示 unknown，不猜构建号。正式入口仅 `dist/CompareTool.exe`，保留构建元数据并归档旧构建；发布仍须真实窗口冒烟。
+- 观测独立于业务成败；ContextVar 隔离任务，主线程每 200ms 读最新槽，不逐文件排 Tk 回调/日志，不伪造百分比，清理和任务记录后才通知完成。阶段包含时间不能相加，使用 exclusive_seconds。
+- 耗时日志不写正文、不写入输入树；保留最近 50 组已结束日志，中断现场保留。流程、身份测试和发布验证见 [正式版记录](docs/release-polish.md)；界面变化同步说明书。
 
-- `app_version.py` 定义日历版本；正式构建使用 `tools/build_release.py`（由 build.bat 调用），将时间、父提交、dirty 状态和源码 SHA-256 写入临时 build_info.json 并嵌入。运行时不可猜测构建号；源码为 source，缺失元数据为 unknown。
-- 只发布 `dist/CompareTool.exe`，旧构建归档。保留 `CompareTool_build.json` 以核对 EXE 和源码指纹。打包返回成功后仍需检查真实窗口及标题版本。
-- `task_progress.py` 通过 ContextVar 隔离任务，观测装饰器不改变比较、过滤、字节导出或恢复策略。阶段包含时间不能直接相加，汇总同时提供 exclusive_seconds。
-- `ui_progress.py` 仅由主线程每 200ms 轮询最新状态槽；不为每个文件排队 Tk 回调，不逐文件写日志。不知道总量时不编造百分比。后台清理与任务记录完成后才发完成通知。
-- 耗时日志失败不得导致业务比较失败；只记录计数、耗时和构建身份，不写代码正文。日志目录不得位于输入树中，必要时选择独立用户目录。保留最近 50 组已结束日志，中断现场不自动清除。
-- `tests/test_task_progress.py` 和 `tests/test_release_identity.py` 覆盖观测独立性及身份；维护界面时同步说明书源稿和两个 PDF。完整验证记录见 docs/release-polish.md。
+## 包内递归与暂存端点
 
-## 包内递归审查（2026-09-26）
+- 六模式及混合任务均支持，默认关闭并保存任务快照；只挂 `archive_details`，不改变主清单/统计/manifest/导出/上线指令，不改包、不重压缩。相同包不继续展开，也不宣称验证了其格式；CLASS 不反编译。
+- 全报告共享 8 层、100,000 成员、10 GiB 安全预算，多项目不重置；声明量与实际读取量均计，含丢弃的排除正文。超限/损坏明确失败，不能提交部分结果。
+- 包内模板用递归 include 流式写出和惰性 DOM；名称转义，导航及焦点局部隔离，键盘激活按钮保留焦点。单/多项目均核对完整成员与最大输出块；详见 [包内报告合同](docs/nested-archive-report.md)。
+- GUI 先完成 exporter，再用显式 old/new 侧别借用实际 stage；多项目全部导出后绑定外层根，不重新读仓库/工作副本。capture_stage_states 基线传到提交锁内，备份/安装前必须一致，核验值用于 journal；无候选不额外整树哈希。借用者不清理 stage。
+- 只分析真实交付字节，不可解析时失败，不回退 raw、下载 LFS 或执行 filter。HMAC、恢复、并发和所有权保护保持；开关前后核对交付字节与说明一致。完整流程见 [暂存合同](docs/report-and-export-contract.md) 和 [六模式验收](docs/recursive-archives-all-vcs-verification.md)。源码验收不等于发布 EXE，打包另行授权。
 
-- `archive_report.py` 仅向 `FileDiff.archive_details` 附加报告子树；绝不能将成员塞入主交付清单或让包内删除进入宿主删除指令。不改写、重压缩任何交付包。
-- 开关 `recursive_archives` 默认关闭，按来源保存并由多项目任务快照持有；六种合法模式及混合多项目均可启用。旧配置缺字段保持原行为。
-- 相同包字节不继续展开；变化包复用安全解压器。包内正文、格式、模式属性和仅打包差异分开说明；CLASS 不反编译。相同子包不等于已验证其格式有效。
-- 嵌套展开阶段在整份报告中共享 ArchiveReportBudget（多项目不重置）：8 层、100,000 成员、10 GiB；既检查声明大小也累计实际写出字节，超限明确中止，不做成功的部分报告。
-- `templates/archive_details.html` 使用惰性 DOM 子树和局部差异导航，普通文件导航不变；包内正文独立承接左右键与鼠标定位后的焦点，键盘激活按钮时保留按钮焦点。包名和成员名必须转义，不能拼入可执行脚本或宿主路径。
-- 包内模板通过递归 `include` 逐片段输出，不能用返回整棵子树字符串的 Jinja 宏替代；浏览器惰性展开不等于生成端流式写出。单/多项目均须覆盖完整成员内容与最大输出块的回归。
-- 详细规则见 docs/nested-archive-report.md。外层导出文件清单、原始字节、主统计和上线说明必须在启用前后核对一致。
-
-## 全模式递归的暂存端点合同（2026-09-26）
-
-- GUI 递归流程先完成已有 exporter，`StagedArchiveEndpoints` 按显式 old/new
-  侧别借用实际返回的 stage 路径；不使用版本显示标签、不重新读取工作副本或仓库。
-- 单项目在分析前绑定两棵源码 stage；多项目在全部项目导出完成后绑定两个外层根。
-  无归档候选不做额外整树哈希；开关关闭保留原顺序与行为。
-- `FileExporter.capture_stage_states()` 的内容身份通过可选 expected_stage_states
-  传到提交锁内，正式备份/安装前必须相等；复用核验值建立旧格式 journal，
-  不放宽 HMAC、恢复、并发目标保护或所有权清理。
-- 分析的是检出规则处理后的交付文件。能解析的 raw/export 不同仍支持；待展开
-  交付文件不可解析则明确失败，不回退 raw、下载 LFS 或执行 filter。
-- 包内正文仍挂 archive_details，主 files/summary/manifest/上线说明不变；
-  保留 8b7be5f 的公共边界匹配优化与递归 include 流式模板。
-- 方案与验证见 docs/recursive-archives-all-vcs-plan.md 和
-  docs/recursive-archives-all-vcs-verification.md。源码提交不等于发布 EXE，正式打包须另行授权。
-
-## 下一轮性能优化的新增约束（源码候选）
+## 性能资源复用约束
 
 - glob 使用按规则及 implicit_any_depth 键控的有界纯函数编译缓存；规则可直接赋值，缓存淘汰不是输入上限。
 - `retain_text_contents` 默认 True；工作线程和包内分析明确选择 False，公共 FileDiff 正文字段的默认行为不变。
@@ -233,8 +203,10 @@ Git/SVN 可执行文件路径均自动探测：先查 `shutil.which`，再查 Wi
 - B4 内部固定排除计划保留全部名称占位，排除正文读完校验后丢弃。公共动态 setter 仍全量提取；不得让占位成为可导出的真实内容。
 - 递归实际展开预算从内容消费入口累计，含丢弃正文且只计一次。安全预算按全量，磁盘选择按保留正文和目录/占位开销。
 - Git 批量 filters 仅用于两个已知微小探针，按固定端点/隔离配置复用；不同于原始 blob 通道。不得把它用于任意大文件或自行猜测检出属性。
+- 探针只保留两个最近使用的端点/策略通道，淘汰时先关闭再建新通道；已判定 mode 独立缓存。这是资源复用预算，不是版本/文件数量限制。多端点测试须核对峰值存活进程、原生转换和失败清理。
 - 浏览器详情数据保存模板引用，不预建所有 HTML 字符串；树的过滤和 manifest 必须基于完整数据，不能只看已挂载节点。
 - 跨阶段事务摘要、HMAC、恢复决策和 stage 基线保持原规则；同遍元数据复用不授权减少跨阶段内容验证。
 - C1 已接入：HtmlDetailStore 为单/多项目及递归成员提供任务级片段存储。公共 DiffEngine 默认仍返回 HTML 字符串，工作线程显式选择片段引用。
 - 模板用迭代 include 读取片段；不得通过 str、__html__ 或递归宏重新拼接整表。store 在报告写完后关闭，不能接管交付 stage/journal。
 - stable_diff.iter_table 按行输出，make_table 保留兼容封装；原 HtmlDiff 与显式限制路径不强行替换。输入文本和最长行仍可能占内存，不宣称常量内存。验证见 docs/performance-c1-verification.md。
+- 行匹配存在长重复游程时，按游程压缩后的实际行数选择最长公共块；普通单行游程同样参与竞争。不得只优先重复行或唯一行而打散更长公共块；全文/上下文及字符串/片段入口都须验证对齐质量，精确统计仍独立计算。

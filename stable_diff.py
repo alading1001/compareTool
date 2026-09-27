@@ -53,29 +53,39 @@ def _runs(lines, start, end):
 
 
 def _run_anchor(old, new, a, b, c, d):
-    """Find a verified long equal run without enumerating repeated-line pairs.
+    """Find the longest common block in run space, weighted by actual lines.
 
-    One longest run per value is indexed. Equal-length candidates prefer similar
-    relative positions. Gaps are compared again, so split/merged runs do not
-    force their remaining equal lines to become artificial inserts/deletes.
+    A long repeated run enables this path; ordinary one-line runs participate
+    too, so a small moved run cannot cut across a larger common code block.
+    Matching run pairs replace the repeated-line Cartesian product. There is
+    no input cap; inputs without long common runs keep the standard matcher.
     """
-    indexed = {}
-    for value, i, j in _runs(new, c, d):
-        if j-i >= 32 and (value not in indexed or j-i > indexed[value][1]-indexed[value][0]):
-            indexed[value] = (i,j)
-    best = None; score = None
-    for value, i, j in _runs(old, a, b):
-        other = indexed.get(value)
-        if j-i < 32 or other is None:
-            continue
-        k,l = other
-        size = min(j-i,l-k)
-        relative = abs((i-a)/(b-a) - (k-c)/(d-c))
-        balance = abs((i-a+size/2)/(b-a)-0.5) + abs((k-c+size/2)/(d-c)-0.5)
-        candidate = (size, -relative, -balance)
-        if score is None or candidate > score:
-            # Dictionary equality is full string equality, not a digest match.
-            best, score = (i,i+size,k,k+size), candidate
+    left, right = list(_runs(old, a, b)), list(_runs(new, c, d))
+    indexed, long_values = {}, set()
+    for n, (value, k, l) in enumerate(right):
+        indexed.setdefault(value, []).append(n)
+        if l-k >= 32:
+            long_values.add(value)
+    if not any(j-i >= 32 and value in long_values for value, i, j in left):
+        return None
+
+    best = None
+    best_size = 0
+    previous = {}
+    for value, i, j in left:
+        current = {}
+        for n in indexed.get(value, ()):
+            _, k, l = right[n]
+            shared = min(j-i, l-k)
+            preceding = previous.get(n-1, 0)
+            size = preceding + shared
+            if size > best_size:
+                best = (i-preceding, i+shared, k-preceding, k+shared)
+                best_size = size
+            # With unequal run lengths, a match may extend the preceding block
+            # OR end at both run ends. Only the latter can reach the next run.
+            current[n] = size if j-i == l-k else shared
+        previous = current
     return best
 
 

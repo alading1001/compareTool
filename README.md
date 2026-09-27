@@ -156,7 +156,7 @@ Windows 文件夹扫描的重复元数据查询和比较根路径解析也已优
 源码提交和 PDF 更新不会自动升级 EXE。实际构建以 `dist/CompareTool_build.json` 为准；
 包内键盘修复及现有构建的核验范围见 [包内报告规则与验证](docs/nested-archive-report.md)。
 
-## 下一轮性能优化（源码候选，未重新发布 EXE）
+## 性能优化与修复（源码已验收，尚未重新发布 EXE）
 
 当前源码继续减少排除规则编译、SVN 固定端点/属性重复读取及 Git 微小检出探针进程。
 普通 TAR 保留完整预检后顺序提取；固定排除规则的内部路径保留名称占位但不写被排除正文，
@@ -167,4 +167,6 @@ Windows 文件夹扫描的重复元数据查询和比较根路径解析也已优
 C1 的实现、回归及测量边界见 [C1 验证记录](docs/performance-c1-verification.md)。
 
 六种来源、递归交付边界、导出字节和失败恢复约束不变。源码变更不会自动更新正式 EXE。
-实际完成范围、复核记录与测量限制见 [本轮验证记录](docs/performance-next-batch-verification.md)。
+最新验收入口是 [性能优化审查与修复记录](docs/performance-next-batch-review.md)：
+长公共块误对齐和多端点探针进程过多两项问题已修复，完整回归 533 通过、1 项 Windows 权限跳过。
+优化实施阶段的原始测量见 [早期验证记录](docs/performance-next-batch-verification.md)，历史方案不作为未完成任务重新执行。

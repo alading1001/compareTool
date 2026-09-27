@@ -1,6 +1,7 @@
 """Real temporary storage, streaming templates and worker rollback contracts."""
 from dataclasses import replace
 import os
+import re
 from pathlib import Path
 from unittest import mock
 
@@ -18,6 +19,43 @@ class HtmlDetailTests(WorkflowCase):
         result = HtmlDetailStore(avoid_paths=[self.root/'inputs'])
         self.addCleanup(result.close)
         return result
+
+    def test_moved_repeated_block_keeps_common_text_aligned_in_both_engine_routes(self):
+        import diff_engine
+        common = [f'unchanged_unique_{i:04d}' for i in range(2000)]
+        old = ['old-start'] * 64 + common + ['repeat'] * 32 + ['old-end'] * 64
+        new = ['new-start'] * 64 + ['repeat'] * 32 + common + ['new-end'] * 64
+        for left, right in ((old, new), (new, old)):
+            for full in (False, True):
+                rendered = []
+                for stored in (False, True):
+                    with self.subTest(full=full, stored=stored, reverse=left is new):
+                        method = 'iter_stable_diff_table' if stored else 'make_stable_diff_table'
+                        with mock.patch.object(diff_engine, method, wraps=getattr(diff_engine, method)) as call:
+                            result = DiffEngine(BytesVCS('\n'.join(left).encode(), '\n'.join(right).encode()),
+                                show_full_context=full, detail_store=self.store() if stored else None
+                            ).generate_diff('old', 'new')
+                        self.assertTrue(call.called)
+                        file = result.files[0]
+                        self.assertEqual((160, 160), (file.added_lines, file.deleted_lines))
+                        text = ''.join(file.html_fragment.iter_text()) if stored else file.side_by_side_html
+                        rows = TableRows(text)
+                        rendered.append(rows.rows)
+                        for side, lines in ((False, left), (True, right)):
+                            visible = rows.side(side)
+                            if full:
+                                self.assertEqual(list(enumerate(lines, 1)), visible)
+                            else:
+                                self.assertTrue(set((n, value) for n, value in enumerate(lines, 1)
+                                    if not value.startswith('unchanged_unique_')).issubset(visible))
+                                self.assertTrue(all(lines[n-1] == value for n, value in visible))
+                        common_rows = [r for r in rows.rows if r[2].startswith('unchanged_unique_')]
+                        self.assertEqual(2000 if full else 6, len(common_rows))
+                        self.assertTrue(all(r[2] == r[5] for r in common_rows))
+                        # Equal text must also be unhighlighted in the emitted HTML.
+                        self.assertFalse(any('diff_chg' in row or 'diff_add' in row or 'diff_sub' in row
+                            for row in re.findall(r'<tr>.*?</tr>', text) if 'unchanged_unique_' in row))
+                self.assertEqual(*rendered)
 
     def test_unicode_boundaries_offsets_interleaving_and_empty_fragments(self):
         store = self.store()

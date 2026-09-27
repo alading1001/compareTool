@@ -5,9 +5,73 @@ import tempfile
 from unittest import mock
 from archive_workflow_fixtures import WorkflowCase, Repository
 from vcs.git_probe_batch import GitProbeBatch
+from vcs.multi_version_vcs import GitMultiVersionVCS
 
 
 class GitProbeBatchTests(WorkflowCase):
+    def test_probe_failure_after_eviction_closes_all_task_processes(self):
+        repo = Repository(self, 'git', 'failed-probe')
+        repo.commit({f'f{i}.txt': f'old-{i}\n'.encode() for i in range(6)})
+        refs = [repo.commit({f'f{i}.txt': f'new-{i}\n'.encode()}) for i in range(6)]
+        processes = []
+        original = GitProbeBatch.read
+        def fail_after_third_endpoint(channel, oid, path):
+            result = original(channel, oid, path)
+            if channel.process not in processes:
+                processes.append(channel.process)
+            if len(processes) == 3:
+                raise RuntimeError('injected probe failure after eviction')
+            return result
+        with mock.patch.object(GitProbeBatch, 'read', fail_after_third_endpoint):
+            with self.assertRaisesRegex(RuntimeError, 'injected probe failure'):
+                GitMultiVersionVCS(str(repo.path), refs)
+        self.assertEqual(3, len(processes))
+        self.assertTrue(all(p.poll() is not None for p in processes))
+        self.assertFalse(list((self.root/'runtime').glob('comparetool_git_probe_*')))
+
+    def test_many_endpoints_recycle_processes_and_keep_native_conversion(self):
+        for count in (24, 48):
+            repo = Repository(self, 'git', 'many-' + str(count))
+            repo.commit({**{f'f{i:02d}.txt': f'original-{i}\n'.encode() for i in range(count)},
+                         '.gitattributes': b'*.txt text eol=lf\n'})
+            refs = []
+            for i in range(count):
+                refs.append(repo.commit({f'f{i:02d}.txt': f'updated-{i}\n'.encode(),
+                    '.gitattributes': b'*.txt text eol=' + (b'crlf\n' if i % 2 == 0 else b'lf\n')}))
+            processes = []; peak = 0; requests = 0
+            original = GitProbeBatch.read
+            def observe(channel, oid, path):
+                nonlocal peak, requests
+                value = original(channel, oid, path)
+                requests += 1
+                if channel.process not in processes:
+                    processes.append(channel.process)
+                peak = max(peak, sum(p.poll() is None for p in processes))
+                return value
+            vcs = None
+            try:
+                with mock.patch.object(GitProbeBatch, 'read', observe):
+                    vcs = GitMultiVersionVCS(str(repo.path), refs, exclude_patterns=['.gitattributes'])
+                self.assertEqual(count, len(vcs.get_changed_files()))
+                for i in range(count):
+                    path = f'f{i:02d}.txt'
+                    before, after = f'original-{i}\n'.encode(), f'updated-{i}\n'.encode()
+                    self.assertEqual(before, vcs.get_file_content_raw_bytes('old', path))
+                    self.assertEqual(after, vcs.get_file_content_raw_bytes('new', path))
+                    self.assertEqual(before.replace(b'\n', b'\r\n') if i % 2 else before,
+                                     vcs.get_file_content_bytes('old', path))
+                    self.assertEqual(after.replace(b'\n', b'\r\n') if i % 2 == 0 else after,
+                                     vcs.get_file_content_bytes('new', path))
+                self.assertEqual(count * 3, requests)
+                self.assertLessEqual(len(processes), count * 2)
+                self.assertLessEqual(peak, 2)
+                self.assertLessEqual(sum(p.poll() is None for p in processes), 2)
+            finally:
+                if vcs is not None:
+                    vcs.cleanup()
+            self.assertTrue(all(p.poll() is not None for p in processes))
+            self.assertFalse(list((self.root/'runtime').glob('comparetool_git_probe_*')))
+
     def test_real_twelve_file_probes_reuse_two_fixed_endpoint_processes(self):
         for multi in (False,True):
             repo=Repository(self,'git','repo'+str(multi))
