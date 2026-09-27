@@ -125,7 +125,7 @@ class AllVCSArchiveTests(WorkflowCase):
         self.assertEqual(1, len(captured))
         self.assertFalse(app._last_task_record['success'])
         self.assertIn('archive', app._show_error.call_args.args[0])
-        self.assertEqual(before, tree_hashes(out)); self.assert_no_stages(out)
+        self.assertEqual({}, tree_hashes(out)); self.assert_no_stages(out)
 
     def test_git_multi_unselected_rename_keeps_old_and_new_paths(self):
         repo = Repository(self, 'git', 'multi-rename')
@@ -316,7 +316,7 @@ class AllVCSArchiveTests(WorkflowCase):
             self.assertFalse((out/'oldVersion/Demo/added.jar').exists())
             self.assertFalse((out/'newVersion/Demo/delete.jar').exists())
 
-    def test_partial_history_export_failure_preserves_four_outputs(self):
+    def test_partial_history_export_failure_leaves_no_formal_output(self):
         for repo, cls in zip(self.repositories('failure'), (GitVCS, SVNVCS)):
             task = repo.task(repo.refs[0], repo.refs[1])
             app, _, out = self.generate(task, False, self.root/(repo.kind+'_failure_out'))
@@ -327,4 +327,4 @@ class AllVCSArchiveTests(WorkflowCase):
             with mock.patch.object(cls, 'export_raw_file_to_path', partial):
                 app, _, _ = self.generate(task, output=out)
             self.assertFalse(app._last_task_record['success'])
-            self.assertEqual(before, tree_hashes(out)); self.assert_no_stages(out)
+            self.assertEqual({}, tree_hashes(out)); self.assert_no_stages(out)

@@ -339,92 +339,13 @@ class OutputCompatibilityAfterAug27Tests(unittest.TestCase):
                     [source], [root], allow_descendant_outputs=True
                 )
 
-    def test_transaction_lock_contention_waits_instead_of_failing(self):
-        attempts = []
-
-        @contextmanager
-        def fake_lock(_directory, trusted_root=""):
-            attempts.append(trusted_root)
-            if len(attempts) == 1:
-                raise RuntimeError("输出目录正在被另一个 CompareTool 实例使用")
-            yield
-
-        with (
-            mock.patch.object(FileExporter, "_transaction_lock", new=fake_lock),
-            mock.patch("file_exporter.time.sleep") as sleep,
-        ):
-            with FileExporter._transaction_lock_wait("output", trusted_root="output"):
-                pass
-
-        self.assertEqual(2, len(attempts))
-        sleep.assert_called_once_with(0.1)
-
-    def test_verified_target_identity_is_not_recomputed_and_accepted(self):
-        with project_temp_dir() as root:
-            stage = os.path.join(root, "stage")
-            target = os.path.join(root, "target")
-            os.makedirs(stage)
-            os.makedirs(target)
-            stage_file = os.path.join(stage, "value.txt")
-            target_file = os.path.join(target, "value.txt")
-            with open(stage_file, "wb") as stream:
-                stream.write(b"generated")
-            with open(target_file, "wb") as stream:
-                stream.write(b"original")
-
-            expected = FileExporter.capture_target_states([target])
-            real_identity = FileExporter._tree_identity
-            target_key = FileExporter._target_state_key(target)
-            target_reads = 0
-
-            def mutate_after_generation_check(path):
-                nonlocal target_reads
-                identity = real_identity(path)
-                if FileExporter._target_state_key(path) == target_key:
-                    target_reads += 1
-                    if target_reads == 1:
-                        with open(target_file, "wb") as stream:
-                            stream.write(b"newer")
-                return identity
-
-            with mock.patch.object(
-                FileExporter,
-                "_tree_identity",
-                side_effect=mutate_after_generation_check,
-            ):
-                with self.assertRaisesRegex(RuntimeError, "身份或内容元数据已变化"):
-                    FileExporter._replace_outputs(
-                        [(stage, target)],
-                        expected_target_states=expected,
-                        trusted_root=root,
-                    )
-
-            with open(target_file, "rb") as stream:
-                self.assertEqual(b"newer", stream.read())
-            with open(stage_file, "rb") as stream:
-                self.assertEqual(b"generated", stream.read())
 
     @unittest.skipUnless(os.name == "nt", "Windows drive-root behavior")
-    def test_windows_drive_root_is_a_valid_common_transaction_root(self):
+    def test_windows_drive_root_is_a_valid_common_output_root(self):
         self.assertEqual(
             os.path.abspath("D:\\"),
-            FileExporter._transaction_root(["D:\\old", "D:\\new"]),
+            FileExporter._output_root(["D:\\old", "D:\\new"]),
         )
-
-    def test_user_home_output_root_does_not_reject_default_key_location(self):
-        with project_temp_dir() as root:
-            key_path = os.path.join(root, "AppData", "transaction_hmac.key")
-            old_value = os.environ.get(FileExporter.TRANSACTION_KEY_ENV)
-            os.environ[FileExporter.TRANSACTION_KEY_ENV] = key_path
-            try:
-                key = FileExporter._load_transaction_key(root, create=True)
-            finally:
-                if old_value is None:
-                    os.environ.pop(FileExporter.TRANSACTION_KEY_ENV, None)
-                else:
-                    os.environ[FileExporter.TRANSACTION_KEY_ENV] = old_value
-
-            self.assertEqual(32, len(key))
 
 
 if __name__ == "__main__":

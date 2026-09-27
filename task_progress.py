@@ -13,6 +13,8 @@ from datetime import datetime
 from functools import wraps
 from pathlib import Path
 from app_version import build_info
+from path_safety import is_link_or_junction
+from stage_ownership import pid_is_alive
 
 _current = ContextVar("comparetool_task", default=None)
 
@@ -34,6 +36,10 @@ class ProgressMailbox:
 
 class TaskObserver:
     MAX_EVENT_BYTES = 512 * 1024
+    MAX_SUMMARY_BYTES = 64 * 1024
+    MAX_HISTORY = 50
+    _active_logs = set()
+    _active_lock = threading.Lock()
 
     def __init__(self, mode, mailbox=None, log_dir=None, clock=time.perf_counter):
         self.clock, self.started = clock, clock()
@@ -49,10 +55,14 @@ class TaskObserver:
                 directory = Path(log_dir)
                 directory.mkdir(parents=True, exist_ok=True)
                 self.log_path = str(directory / ("task_" + self.task_id + ".jsonl"))
-                self.stream = open(self.log_path, "x", encoding="utf-8", buffering=1)
+                self.stream = open(self.log_path, "x", encoding="utf-8", buffering=1, newline="\n")
+                with self._active_lock:
+                    self._active_logs.add(os.path.abspath(self.log_path))
             except OSError as exc:
                 self.log_error = type(exc).__name__
-        self.record("task_start", mode=mode, build=build_info())
+        self.record("task_start", mode=mode, build=build_info(), pid=os.getpid())
+        if self.log_path:
+            self._prune(Path(self.log_path).parent)
 
     def record(self, event, **fields):
         if self.stream is None:
@@ -62,6 +72,11 @@ class TaskObserver:
                 task_id=self.task_id, elapsed=round(self.clock()-self.started, 6), **fields),
                 ensure_ascii=False) + "\n"
             size = len(payload.encode("utf-8"))
+            if event == "task_end" and size > self.MAX_SUMMARY_BYTES:
+                payload = json.dumps(dict(schema="comparetool.task.v1", event=event,
+                    task_id=self.task_id, result=self._compact_result(fields.get("result", {}))),
+                    ensure_ascii=False) + "\n"
+                size = len(payload.encode("utf-8"))
             if self.event_bytes + size <= self.MAX_EVENT_BYTES or event == "task_end":
                 self.stream.write(payload)
                 self.event_bytes += size
@@ -100,25 +115,70 @@ class TaskObserver:
         if self.log_path:
             try:
                 final = Path(self.log_path).with_suffix(".json")
-                with open(final, "x", encoding="utf-8") as stream:
-                    json.dump(result, stream, ensure_ascii=False, indent=2)
-                self._prune(final.parent)
+                serialized = json.dumps(result, ensure_ascii=False, indent=2)
+                if len(serialized.encode("utf-8")) > self.MAX_SUMMARY_BYTES:
+                    serialized = json.dumps(self._compact_result(result), ensure_ascii=False)
+                with open(final, "x", encoding="utf-8", newline="\n") as stream:
+                    stream.write(serialized)
             except (OSError, ValueError) as exc:
                 self.log_error = type(exc).__name__
+            finally:
+                with self._active_lock:
+                    self._active_logs.discard(os.path.abspath(self.log_path))
+                self._prune(Path(self.log_path).parent)
         result.update(log_path=self.log_path, log_error=self.log_error)
         return result
 
     @staticmethod
-    def _prune(directory):
-        # Only our completed task pairs; incomplete logs are kept as evidence.
-        names = sorted(p for p in directory.glob("task_*.json") if re.fullmatch(
-            r"task_\d{8}_\d{6}_[0-9a-f]{12}\.json", p.name))
-        for path in names[:-50]:
+    def _compact_result(result):
+        return {**{k: result[k] for k in ("schema", "task_id", "mode", "success",
+                "seconds", "error_type", "build") if k in result}, "details_truncated": True}
+
+    @classmethod
+    def _prune(cls, directory):
+        # 成功、失败及中断日志共用数量上限；不读取正文或删除进行中任务。
+        try:
+            groups = {}
+            for path in directory.iterdir():
+                if re.fullmatch(r"task_\d{8}_\d{6}_[0-9a-f]{12}\.(json|jsonl)", path.name):
+                    groups.setdefault(path.stem, []).append(path)
+        except OSError:
+            return
+        history = []
+        for name, paths in groups.items():
             try:
-                if json.loads(path.read_text(encoding="utf-8")).get("schema") == "comparetool.task.v1":
-                    path.with_suffix(".jsonl").unlink(missing_ok=True)
-                    path.unlink()
-            except (OSError, ValueError):
+                if any(is_link_or_junction(str(p)) or not p.is_file() for p in paths):
+                    continue
+                event_path = directory / (name + ".jsonl")
+                with cls._active_lock:
+                    if os.path.abspath(event_path) in cls._active_logs:
+                        continue
+                summary_path = directory / (name + ".json")
+                probe = summary_path if summary_path in paths else event_path
+                with probe.open(encoding="utf-8") as stream:
+                    raw = stream.read(cls.MAX_SUMMARY_BYTES) if probe == summary_path else stream.readline(cls.MAX_SUMMARY_BYTES)
+                try:
+                    metadata = json.loads(raw) if raw.strip() else {}
+                except ValueError:
+                    # 强退可能留下半条 JSON；保留最近记录即可，不永久豁免。
+                    metadata = {}
+                if not isinstance(metadata, dict):
+                    metadata = {}
+                if metadata and metadata.get("schema") != "comparetool.task.v1":
+                    continue
+                if probe == event_path:
+                    pid = metadata.get("pid")
+                    if isinstance(pid, int) and pid != os.getpid() and pid_is_alive(pid):
+                        continue
+                history.append((name, paths))
+            except (OSError, ValueError, TypeError):
+                # 命名不等于所有权；无法识别的外来文件留给用户处理。
+                continue
+        for _name, paths in sorted(history)[:-cls.MAX_HISTORY]:
+            try:
+                for path in sorted(paths, key=lambda p: p.suffix, reverse=True):
+                    path.unlink(missing_ok=True)
+            except OSError:
                 pass
 
 

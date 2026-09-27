@@ -178,7 +178,7 @@ class ReviewFixTests(unittest.TestCase):
             open_new_tree_file(str(self.root), str(self.root / "longdi~1/unexpected.txt"))
         self.assertFalse((folder / "unexpected.txt").exists())
 
-    def test_real_git_normal_and_multi_alias_collision_preserves_previous_delivery(self):
+    def test_real_git_normal_and_multi_alias_collision_rejects_incomplete_delivery(self):
         self._require_short_names()
         repo = self.root / "repo"
         repo.mkdir()
@@ -214,8 +214,7 @@ class ReviewFixTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "别名"):
                     FileExporter(result, vcs).export(str(output / "old"), str(output / "new"))
                 for side in ("old", "new"):
-                    self.assertEqual(["sentinel.txt"], [p.name for p in (output / side).iterdir()])
-                    self.assertEqual(b"previous delivery", (output / side / "sentinel.txt").read_bytes())
+                    self.assertFalse((output / side).exists())
                 with self.assertRaisesRegex(RuntimeError, "别名"):
                     GitMultiVersionVCS(str(repo), [new])
             finally:

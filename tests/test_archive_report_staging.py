@@ -112,12 +112,12 @@ class ArchiveStagingTests(WorkflowCase):
             with mock.patch('main.enrich_archive_reports', tamper):
                 app, _, _ = self.generate(task, output=out)
             self.assertFalse(app._last_task_record['success'])
-            self.assertIn('包内分析前不一致', app._show_error.call_args.args[0])
-            self.assertEqual(original, tree_hashes(out)); self.assert_no_stages(out)
+            self.assertIn('包内分析', app._show_error.call_args.args[0])
+            self.assertEqual({}, tree_hashes(out)); self.assert_no_stages(out)
         app, _, _ = self.generate(task, output=out)
         self.assert_success(app); self.assert_no_stages(out)
 
-    def test_render_and_instruction_failures_preserve_all_old_outputs(self):
+    def test_render_and_instruction_failures_do_not_restore_old_outputs(self):
         task = self.folder_task()
         app, _, out = self.generate(task, enabled=False)
         self.assert_success(app); original = tree_hashes(out)
@@ -125,13 +125,13 @@ class ArchiveStagingTests(WorkflowCase):
             with mock.patch(target, side_effect=RuntimeError('injected write failure')):
                 app, _, _ = self.generate(task, output=out)
             self.assertFalse(app._last_task_record['success'])
-            self.assertEqual(original, tree_hashes(out)); self.assert_no_stages(out)
+            self.assertEqual({}, tree_hashes(out)); self.assert_no_stages(out)
 
-    def test_bound_stages_commit_and_rollback_still_work(self):
+    def test_bound_stages_publish_failure_and_retry_work(self):
         task = self.folder_task()
         app, _, out = self.generate(task, enabled=False)
         self.assert_success(app); original = tree_hashes(out)
-        real_replace = os.replace
+        real_replace = os.rename
         failed = []
         def replace(source, destination):
             if (not failed and '.comparetool_stage_' in str(source)
@@ -139,10 +139,10 @@ class ArchiveStagingTests(WorkflowCase):
                 failed.append(True)
                 raise OSError('injected install failure')
             return real_replace(source, destination)
-        with mock.patch('file_exporter.os.replace', replace):
+        with mock.patch('file_exporter.os.rename', replace):
             app, _, _ = self.generate(task, output=out)
         self.assertTrue(failed); self.assertFalse(app._last_task_record['success'])
-        self.assertEqual(original, tree_hashes(out)); self.assert_no_stages(out)
+        self.assertEqual({}, tree_hashes(out)); self.assert_no_stages(out)
         app, _, _ = self.generate(task, output=out)
         self.assert_success(app); self.assert_no_stages(out)
 

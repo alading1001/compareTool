@@ -178,8 +178,7 @@ class ArchiveComparisonRootTests(unittest.TestCase):
         write_archive(old, {"v1/a.txt": b"old"})
         write_archive(new, {"v2/a.txt": b"new"})
         with mock.patch("main._load_config", return_value={}), mock.patch("main._CONFIG_LOAD_FAILURE", None), \
-                mock.patch("main.CONFIG_DIR", str(self.root)), mock.patch("main.CONFIG_FILE", str(self.root / "config.json")), \
-                mock.patch("main.FileExporter.recover_transactions", return_value=[]):
+                mock.patch("main.CONFIG_DIR", str(self.root)), mock.patch("main.CONFIG_FILE", str(self.root / "config.json")):
             app = CompareToolApp()
             try:
                 app.root.withdraw()

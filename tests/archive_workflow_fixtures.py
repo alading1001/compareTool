@@ -16,6 +16,9 @@ from test_archive_report import zip_bytes, tar_bytes
 def tree_hashes(root):
     result = {}
     for path in sorted(Path(root).rglob('*')):
+        # 批次互斥锁不是交付文件；其有效性由输出锁专项测试覆盖。
+        if path.name == '.comparetool_output.lock' and path.parent == Path(root):
+            continue
         if path.is_file():
             digest = hashlib.sha256()
             with path.open('rb') as source:

@@ -1,16 +1,10 @@
 from task_progress import measured_phase, progress, advance
 import hashlib
-import hmac
 import json
 import os
-import re
-import secrets
 import shutil
 import stat
 import tempfile
-import threading
-import time
-import uuid
 from contextlib import contextmanager
 from diff_engine import DiffResult
 from logger import warn
@@ -22,38 +16,15 @@ from path_safety import (
     open_new_tree_file,
     regular_file_handle_identity,
     regular_file_path_identity,
-    safe_join,
     windows_path_key,
+    safe_join,
 )
-from stage_ownership import (
-    is_owned,
-    mark_owned,
-    ownership_is_abandoned,
-    remove_ownership_marker,
-)
+from stage_ownership import mark_owned, remove_ownership_marker
 from vcs.base import ChangeType
 
 
 class FileExporter:
-    """将变更文件导出到指定目录"""
-
-    TRANSACTION_PREFIX = ".comparetool_transaction_"
-    TRANSACTION_SUFFIX = ".json"
-    TRANSACTION_KEY_ENV = "COMPARETOOL_TRANSACTION_KEY_FILE"
-    TRANSACTION_HMAC_FIELD = "hmac_sha256"
-    MAX_TRANSACTION_JOURNAL_BYTES = 64 * 1024
-    MAX_TRANSACTION_STATES = 16
-    _ORPHAN_STAGE_PATTERNS = (
-        re.compile(r"^\.comparetool_stage_[A-Za-z0-9_-]{8,}$"),
-        re.compile(r"^\.comparetool_report_[A-Za-z0-9_-]{8,}\.html$"),
-        re.compile(r"^\.comparetool_delivery_[A-Za-z0-9_-]{8,}\.txt$"),
-    )
-    _MULTI_RUN_DIRECTORY_PATTERN = re.compile(
-        r"^multi_run_\d{8}_\d{6}_\d{3}(?:_[0-9a-f]{8})?$"
-    )
-    # 只用于当前进程的 finally 清理；跨进程恢复仍由签名日志独立授权。
-    _pending_stage_journals = {}
-    _pending_stage_lock = threading.Lock()
+    """确认覆盖后删除旧输出，生成完整新结果；不保留备份或回滚日志。"""
 
     def __init__(self, diff_result: DiffResult, vcs):
         self.diff_result = diff_result
@@ -67,28 +38,31 @@ class FileExporter:
         project_name: str = "",
         targets_are_staging_roots: bool = False,
     ):
-        """先在同盘临时目录完整导出，全部成功后再替换目标目录。"""
-        target_old = self._safe_join(old_dir, project_name) if project_name else old_dir
-        target_new = self._safe_join(new_dir, project_name) if project_name else new_dir
-        trusted_root = self._transaction_root([target_old, target_new])
-        expected_target_states = self.prepare_target_states(
-            [target_old, target_new], trusted_root=trusted_root
-        )
-        pairs = self.prepare_export(
-            old_dir,
-            new_dir,
-            project_name=project_name,
-            targets_are_staging_roots=targets_are_staging_roots,
-            trusted_root=trusted_root,
-        )
-        try:
-            self._replace_outputs(
-                pairs,
-                expected_target_states=expected_target_states,
+        targets = [self._safe_join(p, project_name) if project_name else p
+                   for p in (old_dir, new_dir)]
+        trusted_root = self._output_root(targets)
+
+        def write():
+            pairs = self.prepare_export(
+                old_dir, new_dir, project_name=project_name,
+                targets_are_staging_roots=targets_are_staging_roots,
                 trusted_root=trusted_root,
             )
-        finally:
-            self.cleanup_stages(pairs)
+            try:
+                self._replace_outputs(pairs, trusted_root=trusted_root)
+            finally:
+                self.cleanup_stages(pairs)
+
+        if targets_are_staging_roots:
+            # 多项目外层任务已持锁；内部暂存只允许写入尚不存在的项目。
+            self._validate_output_targets(targets, trusted_root)
+            if any(os.path.lexists(p) for p in targets):
+                raise RuntimeError("多项目暂存中出现重复项目输出")
+            write()
+        else:
+            with self.output_session(targets, trusted_root=trusted_root,
+                                     directory_targets=targets):
+                write()
 
     @measured_phase('output.export', '导出新旧变更文件')
     def prepare_export(
@@ -113,10 +87,10 @@ class FileExporter:
         # batch/multi_run 等更深目录；若这些子目录在耗时生成期间被替换为
         # junction，暂存源码仍不会跟随写出可信根，最终提交校验会安全拒绝。
         trusted_root = os.path.abspath(
-            trusted_root or self._transaction_root([old_dir, new_dir])
+            trusted_root or self._output_root([old_dir, new_dir])
         )
         if not trusted_root:
-            raise RuntimeError("无法确定项目导出的同盘事务暂存目录")
+            raise RuntimeError("无法确定项目导出的同盘暂存目录")
 
         self._validate_export_paths(old_dir, new_dir)
         old_ver = self.diff_result.old_version
@@ -164,13 +138,6 @@ class FileExporter:
     def _cleanup_stage(cls, stage: str):
         if not stage:
             return
-        stage_key = cls._target_state_key(stage)
-        with cls._pending_stage_lock:
-            journal = cls._pending_stage_journals.get(stage_key)
-            if journal and os.path.lexists(journal):
-                # 回滚未完成时不能让外层 finally 破坏可重试的事务状态。
-                return
-            cls._pending_stage_journals.pop(stage_key, None)
         parent = os.path.dirname(os.path.abspath(stage))
         owner = parent if os.path.basename(parent).startswith(".comparetool_stage_") else stage
         if os.path.lexists(stage):
@@ -333,33 +300,129 @@ class FileExporter:
             raise
 
     @classmethod
-    @measured_phase('output.baseline', '恢复旧事务并核验输出')
-    def prepare_target_states(cls, targets, trusted_root: str = "") -> dict:
-        """先恢复相关旧事务，再固定本次生成基线，避免恢复本身被误判为外部修改。"""
-        targets = [os.path.abspath(path) for path in targets]
-        root = cls._validate_trusted_paths(
-            trusted_root or cls._transaction_root(targets), targets, "输出目标路径"
-        )
-        with cls._transaction_lock(root, trusted_root=root):
-            cls.recover_transactions(
-                root, raise_on_error=True, acquire_locks=False,
-                trusted_root=root, relevant_targets=targets,
-            )
-            return cls.capture_target_states(targets, trusted_root=root)
+    def _validate_output_targets(cls, targets, trusted_root):
+        """只接受可信根下彼此独立的明确目标，包括真实 Windows 别名检查。"""
+        targets = [os.path.abspath(p) for p in targets]
+        root = cls._validate_trusted_paths(trusted_root, targets, "输出目标")
+        root_key = windows_path_key(os.path.realpath(root))
+        keys = []
+        for target in targets:
+            key = windows_path_key(os.path.realpath(target))
+            if key == root_key:
+                raise RuntimeError("不能清空整个输出根目录")
+            for previous in keys:
+                if (key == previous or key.startswith(previous + "\\")
+                        or previous.startswith(key + "\\")):
+                    raise RuntimeError("输出目标重复或互相包含")
+            keys.append(key)
+            current = root
+            for component in os.path.relpath(target, root).split(os.sep):
+                candidate = os.path.join(current, component)
+                if not os.path.lexists(candidate):
+                    break
+                with os.scandir(current) as entries:
+                    literal_exists = any(windows_path_key(e.name) == windows_path_key(component)
+                                         for e in entries)
+                if not literal_exists:
+                    raise RuntimeError("输出目标与实际 Windows 名称别名冲突: " + candidate)
+                current = candidate
+        return targets
 
     @classmethod
-    def capture_target_states(cls, targets, trusted_root: str = "") -> dict:
-        """在耗时生成前记录正式输出；提交锁内必须仍完全一致。"""
-        targets = [os.path.abspath(path) for path in targets]
-        cls._validate_trusted_paths(
-            trusted_root or cls._transaction_root(targets),
-            targets,
-            "输出目标路径",
-        )
-        return {
-            cls._target_state_key(path): cls._tree_identity(os.path.abspath(path))
-            for path in targets
-        }
+    @contextmanager
+    def output_session(cls, targets, *, trusted_root, directory_targets=()):
+        """持锁删除已确认的旧结果，再允许调用方生成；异常不恢复旧结果。"""
+        targets = cls._validate_output_targets(targets, trusted_root)
+        if not targets:
+            raise RuntimeError("缺少输出目标")
+        lock_root = cls._output_root(targets)
+        with cls._output_lock(lock_root, trusted_root=trusted_root):
+            yield cls._clear_outputs(targets, trusted_root, directory_targets)
+
+    @classmethod
+    @measured_phase('output.clear', '删除上次项目输出')
+    def _clear_outputs(cls, targets, trusted_root, directory_targets):
+        cls._validate_output_targets(targets, trusted_root)
+        directories = {cls._target_state_key(p) for p in directory_targets}
+        existing = []
+        # 完成所有目标的范围和类型检查后才开始删除，不读旧文件正文。
+        for target in targets:
+            if not os.path.lexists(target):
+                continue
+            metadata = os.lstat(target)
+            is_directory = cls._target_state_key(target) in directories
+            if not (stat.S_ISDIR(metadata.st_mode) if is_directory
+                    else stat.S_ISREG(metadata.st_mode)):
+                raise RuntimeError("输出目标类型不符，未开始删除: " + target)
+            existing.append(target)
+        for target in existing:
+            cls._validate_trusted_paths(trusted_root, [target], "旧输出删除路径")
+            try:
+                cls._remove_path(target)
+            except OSError as exc:
+                raise RuntimeError(
+                    "无法删除上次输出，请关闭占用文件的程序后重试。"
+                    "已删除的旧结果不会恢复：\n" + target + "\n" + str(exc)
+                ) from exc
+        return len(existing)
+
+    @classmethod
+    @measured_phase('output.commit', '发布本次完整输出')
+    def _replace_outputs(cls, pairs, trusted_root="", expected_stage_states=None):
+        """调用方已持锁并清空目标；只安装新结果，不备份或恢复旧结果。"""
+        pairs = [(os.path.abspath(s), os.path.abspath(t)) for s, t in pairs]
+        targets = [t for _s, t in pairs]
+        trusted_root = trusted_root or cls._output_root([p for pair in pairs for p in pair])
+        cls._validate_output_targets(targets, trusted_root)
+        stage_keys = {cls._target_state_key(s) for s, _t in pairs}
+        if len(stage_keys) != len(pairs):
+            raise RuntimeError("输出暂存项重复")
+        if expected_stage_states and not set(expected_stage_states).issubset(stage_keys):
+            raise RuntimeError("缺少已绑定的包内分析暂存项")
+        stage_identities = {}
+        for stage, target in pairs:
+            cls._validate_trusted_paths(trusted_root, [stage, target], "输出发布路径")
+            metadata = os.lstat(stage)
+            if not (stat.S_ISREG(metadata.st_mode) or stat.S_ISDIR(metadata.st_mode)):
+                raise RuntimeError("输出暂存项不是普通文件或目录: " + stage)
+            if any(os.path.commonpath([stage, t]) in (stage, t) for t in targets):
+                raise RuntimeError("输出暂存项与正式目标重叠")
+            if os.path.lexists(target):
+                raise RuntimeError("生成期间输出目标被重新创建，请检查后重试: " + target)
+            expected = (expected_stage_states or {}).get(cls._target_state_key(stage))
+            if expected is not None:
+                cls._assert_identity(stage, expected, "包内分析待交付内容")
+            stage_identities[stage] = (metadata.st_dev, metadata.st_ino)
+
+        installed = []
+        try:
+            for stage, target in pairs:
+                cls._validate_trusted_paths(trusted_root, [stage, target], "输出发布路径")
+                os.makedirs(os.path.dirname(target), exist_ok=True)
+                cls._validate_trusted_paths(trusted_root, [target], "输出发布路径")
+                if os.path.lexists(target):
+                    raise RuntimeError("生成期间输出目标被重新创建，请检查后重试: " + target)
+                # Windows rename 拒绝覆盖已有目标，不把并发创建的文件当作旧输出删除。
+                os.rename(stage, target)
+                installed.append((target, stage_identities[stage]))
+                expected = (expected_stage_states or {}).get(cls._target_state_key(stage))
+                if expected is not None:
+                    cls._assert_identity(target, expected, "包内分析已发布内容")
+        except BaseException:
+            # 只清理本次已安装的新结果；旧结果早已按覆盖确认删除。
+            for target, identity in reversed(installed):
+                try:
+                    cls._validate_trusted_paths(trusted_root, [target], "失败输出清理路径")
+                    metadata = os.lstat(target)
+                    if (metadata.st_dev, metadata.st_ino) != identity:
+                        warn("本次输出已被外部替换，保留该路径: " + target)
+                        continue
+                    cls._remove_path(target)
+                except FileNotFoundError:
+                    pass
+                except (OSError, RuntimeError) as exc:
+                    warn(f"清理本次未完成输出失败: {target}: {exc}")
+            raise
 
     @classmethod
     @measured_phase('archive.stage_bind', '固定包内分析的待交付内容')
@@ -402,7 +465,7 @@ class FileExporter:
         if not os.path.lexists(path):
             return {"kind": "missing"}
         if is_link_or_junction(path):
-            raise RuntimeError(f"事务对象不能是符号链接或联接点: {path}")
+            raise RuntimeError(f"待交付内容不能是符号链接或联接点: {path}")
 
         digest = hashlib.sha256()
 
@@ -432,7 +495,7 @@ class FileExporter:
             try:
                 metadata = os.lstat(current)
             except OSError as exc:
-                raise RuntimeError(f"无法读取事务对象身份: {current}: {exc}") from exc
+                raise RuntimeError(f"无法读取待交付内容身份: {current}: {exc}") from exc
             # Same-scan metadata only; later handle/path and transaction checks
             # remain independent observations.
             is_redirect = metadata_is_link_or_junction(metadata)
@@ -440,7 +503,7 @@ class FileExporter:
                 is_redirect = is_redirect or is_link_or_junction(current)
             if is_redirect:
                 raise RuntimeError(
-                    f"事务对象树包含符号链接或联接点: {current}"
+                    f"待交付内容树包含符号链接或联接点: {current}"
                 )
             if stat.S_ISREG(metadata.st_mode):
                 add_record(relative, "file", metadata)
@@ -457,25 +520,25 @@ class FileExporter:
                         closed_identity = regular_file_handle_identity(stream)
                 except (OSError, RuntimeError) as exc:
                     raise RuntimeError(
-                        f"无法读取事务对象内容身份: {current}: {exc}"
+                        f"无法读取待交付内容内容身份: {current}: {exc}"
                     ) from exc
                 if opened_identity != closed_identity:
                     raise RuntimeError(
-                        f"事务对象在计算内容身份期间发生变化: {current}"
+                        f"待交付内容在计算内容身份期间发生变化: {current}"
                     )
                 try:
                     final_identity = regular_file_path_identity(current)
                 except (OSError, RuntimeError) as exc:
                     raise RuntimeError(
-                        f"事务对象在计算内容身份后发生变化: {current}: {exc}"
+                        f"待交付内容在计算内容身份后发生变化: {current}: {exc}"
                     ) from exc
                 if final_identity != opened_identity:
                     raise RuntimeError(
-                        f"事务对象在计算内容身份期间被替换: {current}"
+                        f"待交付内容在计算内容身份期间被替换: {current}"
                     )
                 return
             if not stat.S_ISDIR(metadata.st_mode):
-                raise RuntimeError(f"事务对象树包含非普通文件: {current}")
+                raise RuntimeError(f"待交付内容树包含非普通文件: {current}")
             add_record(relative, "dir", metadata)
             try:
                 entries = sorted(
@@ -483,7 +546,7 @@ class FileExporter:
                     key=lambda item: (item.name.casefold(), item.name),
                 )
             except OSError as exc:
-                raise RuntimeError(f"无法遍历事务对象树: {current}: {exc}") from exc
+                raise RuntimeError(f"无法遍历待交付内容树: {current}: {exc}") from exc
             for entry in entries:
                 child_relative = (
                     entry.name if relative == "." else f"{relative}/{entry.name}"
@@ -510,770 +573,7 @@ class FileExporter:
             )
 
     @staticmethod
-    def _valid_identity(identity, allow_missing: bool = True) -> bool:
-        if not isinstance(identity, dict):
-            return False
-        kind = identity.get("kind")
-        if kind == "missing":
-            return allow_missing and set(identity) == {"kind"}
-        return (
-            kind in ("file", "dir")
-            and isinstance(identity.get("dev"), int)
-            and isinstance(identity.get("ino"), int)
-            and isinstance(identity.get("digest"), str)
-            and re.fullmatch(r"[0-9a-f]{64}", identity["digest"]) is not None
-        )
-
-    @classmethod
-    def _quarantine_paths(cls, state: dict, token: str = "") -> dict:
-        """从已签名的事务 token/路径确定性派生隔离路径。"""
-        overridden = state.get("_quarantine_paths")
-        if isinstance(overridden, dict):
-            return dict(overridden)
-        token = token or str(state.get("_token", ""))
-        if re.fullmatch(r"[0-9a-f]{32}", token) is None:
-            raise RuntimeError("事务隔离路径缺少有效标识")
-
-        def build(source: str, role: str) -> str:
-            source = os.path.abspath(source)
-            key = os.path.normcase(source).encode(
-                "utf-8", errors="surrogatepass"
-            )
-            suffix = hashlib.sha256(key).hexdigest()[:16]
-            return os.path.join(
-                os.path.dirname(source),
-                f".comparetool_quarantine_{token}_{role}_{suffix}",
-            )
-
-        return {
-            "stage": build(state["stage"], "stage"),
-            "installed": build(state["target"], "installed"),
-            "backup": build(state["backup"], "backup"),
-        }
-
-    @classmethod
-    def _discover_v4_quarantines(cls, state: dict, token: str):
-        """兼容 v4 随机隔离名；只接受唯一且身份仍匹配的旧隔离对象。"""
-        paths = cls._quarantine_paths(state, token)
-        pattern = re.compile(
-            r"^\.comparetool_quarantine_"
-            + re.escape(token)
-            + r"_[0-9a-f]{32}$"
-        )
-        candidates = []
-        for parent in {
-            os.path.dirname(state["stage"]),
-            os.path.dirname(state["target"]),
-            os.path.dirname(state["backup"]),
-        }:
-            try:
-                entries = list(os.scandir(parent))
-            except (FileNotFoundError, NotADirectoryError):
-                continue
-            except OSError as exc:
-                raise RuntimeError(
-                    f"无法扫描旧事务隔离目录: {parent}: {exc}"
-                ) from exc
-            candidates.extend(
-                entry.path for entry in entries if pattern.fullmatch(entry.name)
-            )
-
-        assigned = set()
-        assigned_candidates = []
-        for candidate in candidates:
-            if is_link_or_junction(candidate):
-                raise RuntimeError("旧事务隔离对象不能是链接或联接点")
-            matched_roles = []
-            for role, expected in (
-                ("installed", state["stage_identity"]),
-                ("backup", state["target_identity"]),
-            ):
-                try:
-                    cls._assert_quarantine_identity(
-                        candidate, expected, "旧事务隔离对象"
-                    )
-                except RuntimeError:
-                    continue
-                matched_roles.append(role)
-            if not matched_roles:
-                # 同一 v4 多目标事务在共享父目录下使用相同 token；该对象
-                # 可能属于另一 state，交给对应身份的 state 识别。
-                continue
-            if len(matched_roles) != 1:
-                raise RuntimeError("旧事务隔离对象身份不唯一或已变化")
-            role = matched_roles[0]
-            if role in assigned:
-                raise RuntimeError("旧事务存在多个同角色隔离对象")
-            assigned.add(role)
-            paths[role] = candidate
-            assigned_candidates.append(candidate)
-        state["_quarantine_paths"] = paths
-        state["_v4_scanned_candidates"] = candidates
-        state["_v4_assigned_candidates"] = assigned_candidates
-
-    @classmethod
-    def _assert_quarantine_identity(
-        cls, path: str, expected: dict, label: str
-    ):
-        """隔离目录允许上次删除中断后内容减少，但根对象必须仍是原对象。"""
-        current = cls._tree_identity(path)
-        if current == expected:
-            return
-        if (
-            expected.get("kind") == "dir"
-            and current.get("kind") == "dir"
-            and current.get("dev") == expected.get("dev")
-            and current.get("ino") == expected.get("ino")
-        ):
-            return
-        raise RuntimeError(
-            f"{label}的文件系统身份已变化，已停止自动处理: {path}"
-        )
-
-    @classmethod
-    def _recovery_state_phase(cls, state: dict) -> str:
-        stage_exists = os.path.lexists(state["stage"])
-        target_exists = os.path.lexists(state["target"])
-        backup_exists = os.path.lexists(state["backup"])
-        quarantines = cls._quarantine_paths(state)
-        stage_quarantine_exists = os.path.lexists(quarantines["stage"])
-        installed_quarantine_exists = os.path.lexists(
-            quarantines["installed"]
-        )
-        backup_quarantine_exists = os.path.lexists(quarantines["backup"])
-        if stage_exists:
-            cls._assert_identity(
-                state["stage"], state["stage_identity"], "恢复暂存项"
-            )
-        if backup_exists:
-            cls._assert_identity(
-                state["backup"], state["target_identity"], "恢复备份"
-            )
-
-        for exists, role, expected, label in (
-            (
-                stage_quarantine_exists,
-                "stage",
-                state["stage_identity"],
-                "恢复暂存项隔离区",
-            ),
-            (
-                installed_quarantine_exists,
-                "installed",
-                state["stage_identity"],
-                "恢复已安装输出隔离区",
-            ),
-            (
-                backup_quarantine_exists,
-                "backup",
-                state["target_identity"],
-                "恢复旧备份隔离区",
-            ),
-        ):
-            if exists:
-                cls._assert_quarantine_identity(
-                    quarantines[role], expected, label
-                )
-
-        if stage_exists and stage_quarantine_exists:
-            raise RuntimeError("事务暂存项与其隔离区同时存在")
-        if backup_exists and backup_quarantine_exists:
-            raise RuntimeError("旧备份与其隔离区同时存在")
-
-        target_role = "missing"
-        if target_exists:
-            current_target = cls._tree_identity(state["target"])
-            if current_target == state["stage_identity"]:
-                target_role = "new"
-            elif current_target == state["target_identity"]:
-                target_role = "old"
-            else:
-                raise RuntimeError(
-                    "恢复正式输出的文件系统身份或内容元数据已变化，"
-                    f"已停止自动处理: {state['target']}"
-                )
-
-        if backup_quarantine_exists:
-            if (
-                not stage_exists
-                and target_role == "new"
-                and not backup_exists
-                and not stage_quarantine_exists
-                and not installed_quarantine_exists
-            ):
-                return "installed"
-            raise RuntimeError("旧备份隔离状态与事务对象不一致")
-
-        if installed_quarantine_exists:
-            if stage_exists or stage_quarantine_exists:
-                raise RuntimeError("已安装输出隔离时仍存在暂存项")
-            if state["had_target"]:
-                if target_role == "missing" and backup_exists:
-                    return "rollback_target_detached"
-                if target_role == "old" and not backup_exists:
-                    return "rollback_old_restored"
-            elif target_role == "missing" and not backup_exists:
-                return "rollback_old_restored"
-            raise RuntimeError("已安装输出隔离状态与事务对象不一致")
-
-        if stage_quarantine_exists:
-            expected_target_role = "old" if state["had_target"] else "missing"
-            if (
-                not stage_exists
-                and target_role == expected_target_role
-                and not backup_exists
-                and not installed_quarantine_exists
-            ):
-                return "rollback_old_restored"
-            raise RuntimeError("暂存项隔离状态与事务对象不一致")
-
-        if state["had_target"]:
-            if stage_exists and not backup_exists and target_role == "old":
-                return "initial"
-            # 旧版 finally 可能已删掉 stage；完整且身份匹配的旧备份仍可恢复。
-            if backup_exists and target_role == "missing":
-                return "backed_up"
-            if not stage_exists and target_role == "new":
-                return "installed"
-            if (
-                not stage_exists
-                and target_role == "old"
-                and not backup_exists
-            ):
-                return "rolled_back"
-        else:
-            if backup_exists:
-                raise RuntimeError("无旧目标的事务出现了意外备份")
-            if stage_exists and target_role == "missing":
-                return "initial"
-            if not stage_exists and target_role == "new":
-                return "installed"
-            if not stage_exists and target_role == "missing":
-                return "rolled_back"
-        raise RuntimeError(
-            "事务对象的存在状态与日志记录不一致，已保留现场: "
-            f"{state['target']}"
-        )
-
-    @classmethod
-    def _move_verified(
-        cls,
-        source: str,
-        destination: str,
-        expected: dict,
-        label: str,
-        replace: bool = False,
-        trusted_root: str = "",
-    ):
-        """原子移走路径后验证被移动对象；不匹配时尽力原位恢复。"""
-        if trusted_root:
-            cls._validate_trusted_paths(
-                trusted_root, [source, destination], label
-            )
-        if os.path.lexists(destination):
-            raise RuntimeError(f"{label}目标已存在，已保留现场: {destination}")
-        if replace:
-            os.replace(source, destination)
-        else:
-            os.rename(source, destination)
-        try:
-            cls._assert_identity(destination, expected, label)
-            if trusted_root:
-                cls._validate_trusted_paths(
-                    trusted_root, [destination], label
-                )
-        except BaseException:
-            if not os.path.lexists(source) and os.path.lexists(destination):
-                try:
-                    os.rename(destination, source)
-                except OSError:
-                    pass
-            raise
-
-    @classmethod
-    def _detach_verified(
-        cls,
-        path: str,
-        expected: dict,
-        quarantine: str,
-        label: str,
-        trusted_root: str = "",
-    ) -> str:
-        cls._move_verified(
-            path,
-            quarantine,
-            expected,
-            label,
-            trusted_root=trusted_root,
-        )
-        return quarantine
-
-    @classmethod
-    def _delete_verified(
-        cls,
-        path: str,
-        expected: dict,
-        quarantine: str,
-        label: str,
-        trusted_root: str = "",
-    ):
-        if os.path.lexists(path):
-            if os.path.lexists(quarantine):
-                raise RuntimeError(
-                    f"{label}与其隔离区同时存在，已保留现场: {path}"
-                )
-            cls._detach_verified(
-                path,
-                expected,
-                quarantine,
-                label,
-                trusted_root=trusted_root,
-            )
-        elif not os.path.lexists(quarantine):
-            return
-        cls._finish_quarantine_delete(
-            quarantine, expected, label, trusted_root=trusted_root
-        )
-
-    @classmethod
-    def _finish_quarantine_delete(
-        cls,
-        quarantine: str,
-        expected: dict,
-        label: str,
-        trusted_root: str = "",
-    ):
-        if not os.path.lexists(quarantine):
-            return
-        if trusted_root:
-            cls._validate_trusted_paths(
-                trusted_root, [quarantine], label
-            )
-        cls._assert_quarantine_identity(quarantine, expected, label)
-        cls._remove_path(quarantine)
-
-    @classmethod
-    def _rollback_state(
-        cls,
-        state: dict,
-        phase: str,
-        token: str,
-        trusted_root: str = "",
-    ):
-        state["_token"] = token
-        quarantines = cls._quarantine_paths(state, token)
-        if phase == "installed":
-            if state["had_target"] and not os.path.lexists(state["backup"]):
-                raise RuntimeError(f"待回滚输出缺少旧备份: {state['target']}")
-            installed_quarantine = cls._detach_verified(
-                state["target"],
-                state["stage_identity"],
-                quarantines["installed"],
-                "待回滚已安装输出",
-                trusted_root=trusted_root,
-            )
-            try:
-                if state["had_target"]:
-                    cls._move_verified(
-                        state["backup"],
-                        state["target"],
-                        state["target_identity"],
-                        "待恢复旧输出备份",
-                        trusted_root=trusted_root,
-                    )
-                cls._finish_quarantine_delete(
-                    installed_quarantine,
-                    state["stage_identity"],
-                    "待删除已安装输出",
-                    trusted_root=trusted_root,
-                )
-            except BaseException:
-                if (
-                    not os.path.lexists(state["target"])
-                    and os.path.lexists(installed_quarantine)
-                ):
-                    try:
-                        os.rename(installed_quarantine, state["target"])
-                    except OSError:
-                        pass
-                raise
-        elif phase == "rollback_target_detached":
-            if state["had_target"]:
-                cls._move_verified(
-                    state["backup"],
-                    state["target"],
-                    state["target_identity"],
-                    "待恢复旧输出备份",
-                    trusted_root=trusted_root,
-                )
-            cls._finish_quarantine_delete(
-                quarantines["installed"],
-                state["stage_identity"],
-                "待删除已安装输出",
-                trusted_root=trusted_root,
-            )
-        elif phase == "rollback_old_restored":
-            for role in ("installed", "stage"):
-                quarantine = quarantines[role]
-                if os.path.lexists(quarantine):
-                    cls._finish_quarantine_delete(
-                        quarantine,
-                        state["stage_identity"],
-                        "待清理回滚隔离项",
-                        trusted_root=trusted_root,
-                    )
-        elif phase == "backed_up":
-            cls._move_verified(
-                state["backup"],
-                state["target"],
-                state["target_identity"],
-                "待恢复旧输出备份",
-                trusted_root=trusted_root,
-            )
-        if phase != "rolled_back" and os.path.lexists(state["stage"]):
-            cls._delete_verified(
-                state["stage"],
-                state["stage_identity"],
-                quarantines["stage"],
-                "待清理输出暂存项",
-                trusted_root=trusted_root,
-            )
-
-    @classmethod
-    @measured_phase('output.commit', '校验、提交输出并清理备份')
-    def _replace_outputs(
-        cls, pairs, expected_target_states=None, trusted_root: str = "",
-        expected_stage_states=None,
-    ):
-        pairs = [
-            (os.path.abspath(stage), os.path.abspath(target))
-            for stage, target in pairs
-        ]
-        targets = [os.path.abspath(target) for _stage, target in pairs]
-        transaction_root = cls._transaction_root(targets)
-        if not transaction_root:
-            raise RuntimeError("多个输出目标没有安全的共同事务目录")
-        anchor = cls._validate_trusted_paths(
-            trusted_root
-            or cls._transaction_root(
-                [*targets, *(stage for stage, _target in pairs)]
-            ),
-            [
-                transaction_root,
-                *targets,
-                *(stage for stage, _target in pairs),
-            ],
-            "输出事务路径",
-        )
-        # 所有暂存物和新事务日志都位于可信输出根，因此锁也提升到该根。
-        # 同根的不同 batch/run 可以短暂串行，但锁竞争只是等待条件，不能
-        # 让两个互不覆盖的正常交付任务在全部内容生成后突然失败。
-        with cls._transaction_lock_wait(anchor, trusted_root=anchor):
-            return cls._replace_outputs_locked(
-                pairs,
-                expected_target_states=expected_target_states,
-                trusted_root=anchor,
-                journal_root=anchor,
-                **({"expected_stage_states": expected_stage_states}
-                   if expected_stage_states is not None else {}),
-            )
-
-    @classmethod
-    def _replace_outputs_locked(
-        cls,
-        pairs,
-        expected_target_states=None,
-        trusted_root: str = "",
-        journal_root: str = "",
-        expected_stage_states=None,
-    ):
-        """成组替换文件或目录；任一步失败时恢复全部原有输出。"""
-        token = uuid.uuid4().hex
-        states = []
-        journal_path = ""
-        try:
-            target_keys = set()
-            normalized_pairs = []
-            for stage, target in pairs:
-                stage = os.path.abspath(stage)
-                target = os.path.abspath(target)
-                key = windows_path_key(target)
-                if key in target_keys:
-                    raise RuntimeError(f"事务中存在重复输出目标: {target}")
-                if not os.path.lexists(stage):
-                    raise RuntimeError(f"输出暂存项不存在: {stage}")
-                if is_link_or_junction(stage):
-                    raise RuntimeError(f"输出暂存项不能是符号链接或联接点: {stage}")
-                if os.path.lexists(target):
-                    if is_link_or_junction(target):
-                        raise RuntimeError(
-                            f"输出目标不能是符号链接或联接点: {target}"
-                        )
-                    stage_is_dir = os.path.isdir(stage)
-                    target_is_dir = os.path.isdir(target)
-                    if stage_is_dir != target_is_dir:
-                        raise RuntimeError(
-                            "输出目标类型与暂存项不一致，拒绝用文件替换目录或用目录替换文件：\n"
-                            f"暂存：{stage}\n目标：{target}"
-                        )
-                target_keys.add(key)
-                normalized_pairs.append((stage, target))
-
-            transaction_root = cls._transaction_root(
-                [target for _stage, target in normalized_pairs]
-            )
-            if not transaction_root:
-                raise RuntimeError("多个输出目标没有安全的共同事务目录")
-            trusted_root = cls._validate_trusted_paths(
-                trusted_root or transaction_root,
-                [
-                    transaction_root,
-                    *(stage for stage, _target in normalized_pairs),
-                    *(target for _stage, target in normalized_pairs),
-                    *(os.path.dirname(target) for _stage, target in normalized_pairs),
-                ],
-                "输出事务路径",
-            )
-            for _stage, target in normalized_pairs:
-                os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
-                cls._validate_trusted_paths(
-                    trusted_root, [target], "输出目标路径"
-                )
-            recovery_root = os.path.abspath(journal_root or trusted_root)
-            cls.recover_transactions(
-                recovery_root,
-                raise_on_error=True,
-                protected_stages=[stage for stage, _target in normalized_pairs],
-                acquire_locks=False,
-                trusted_root=trusted_root,
-                relevant_targets=[target for _stage, target in normalized_pairs],
-            )
-            verified_target_identities = {}
-            if expected_target_states is not None:
-                for _stage, target in normalized_pairs:
-                    key = cls._target_state_key(target)
-                    if key not in expected_target_states:
-                        raise RuntimeError(
-                            f"缺少输出目标的生成前状态，已中止提交: {target}"
-                        )
-                    current = cls._tree_identity(target)
-                    if current != expected_target_states[key]:
-                        raise RuntimeError(
-                            "输出目标在本次生成期间已被其它任务或用户修改，"
-                            f"为避免覆盖较新结果，已中止提交: {target}"
-                        )
-                    verified_target_identities[key] = current
-
-            # Bind every requested source stage BEFORE building rollback state
-            # or touching formal outputs. Reuse these identities in the journal.
-            verified_stage_identities = {}
-            if expected_stage_states is not None:
-                stage_keys = {cls._target_state_key(stage)
-                              for stage, _target in normalized_pairs}
-                if not isinstance(expected_stage_states, dict) or not set(expected_stage_states) <= stage_keys:
-                    raise RuntimeError("包内分析暂存基线包含未知或无效的暂存路径")
-                for stage, _target in normalized_pairs:
-                    key = cls._target_state_key(stage)
-                    if key not in expected_stage_states:
-                        continue  # Report/instructions keep their original rules.
-                    current = cls._tree_identity(stage)
-                    if current != expected_stage_states[key]:
-                        raise RuntimeError(
-                            "待交付暂存内容与包内分析前不一致，已拒绝提交: " + stage
-                        )
-                    verified_stage_identities[key] = current
-
-            for stage, target in normalized_pairs:
-                backup = f"{target}.comparetool_backup_{token}"
-                key = cls._target_state_key(target)
-                target_identity = verified_target_identities.get(key)
-                if target_identity is None:
-                    target_identity = cls._tree_identity(target)
-                had_target = target_identity.get("kind") != "missing"
-                cls._validate_trusted_paths(
-                    trusted_root, [backup], "输出备份路径"
-                )
-                stage_identity = verified_stage_identities.get(cls._target_state_key(stage))
-                if stage_identity is None:
-                    stage_identity = cls._tree_identity(stage)
-                states.append({
-                    "stage": stage,
-                    "target": target,
-                    "backup": backup,
-                    "had_target": had_target,
-                    "installed": False,
-                    "stage_identity": stage_identity,
-                    "target_identity": target_identity,
-                    "_token": token,
-                })
-
-            journal_path = cls._create_transaction_journal(
-                states, token, root=recovery_root
-            )
-
-            for state in states:
-                if state["had_target"]:
-                    cls._validate_trusted_paths(
-                        trusted_root,
-                        [state["target"], state["backup"]],
-                        "输出提交路径",
-                    )
-                    cls._assert_identity(
-                        state["target"], state["target_identity"], "正式输出"
-                    )
-                    cls._move_verified(
-                        state["target"],
-                        state["backup"],
-                        state["target_identity"],
-                        "正式输出备份",
-                        replace=True,
-                        trusted_root=trusted_root,
-                    )
-
-            for state in states:
-                cls._validate_trusted_paths(
-                    trusted_root,
-                    [state["stage"], state["target"]],
-                    "输出安装路径",
-                )
-                cls._assert_identity(
-                    state["stage"], state["stage_identity"], "输出暂存项"
-                )
-                cls._move_verified(
-                    state["stage"],
-                    state["target"],
-                    state["stage_identity"],
-                    "输出暂存项安装",
-                    replace=True,
-                    trusted_root=trusted_root,
-                )
-                state["installed"] = True
-        except BaseException as original_exc:
-            cls._mark_transaction(journal_path, "rollback")
-            rollback_errors = []
-            for state in reversed(states):
-                try:
-                    phase = cls._recovery_state_phase(state)
-                    cls._rollback_state(
-                        state, phase, token, trusted_root=trusted_root
-                    )
-                except (OSError, RuntimeError) as rollback_exc:
-                    rollback_errors.append(f"{state['target']}: {rollback_exc}")
-            if rollback_errors:
-                raise RuntimeError(
-                    "输出提交失败，且自动回滚未完全成功，请保留现场并检查备份目录：\n"
-                    + f"最初错误：{original_exc}\n回滚错误：\n"
-                    + "\n".join(rollback_errors)
-                ) from original_exc
-            cls._remove_journal(journal_path)
-            raise
-        else:
-            cls._mark_transaction(journal_path, "commit")
-            cleanup_failed = False
-            for state in states:
-                if state["had_target"] and os.path.lexists(state["backup"]):
-                    try:
-                        cls._assert_identity(
-                            state["backup"], state["target_identity"], "输出备份"
-                        )
-                        cls._delete_verified(
-                            state["backup"],
-                            state["target_identity"],
-                            cls._quarantine_paths(state, token)["backup"],
-                            "输出备份",
-                            trusted_root=trusted_root,
-                        )
-                    except (OSError, RuntimeError) as exc:
-                        cleanup_failed = True
-                        warn(f"输出已提交，但旧备份清理失败: {state['backup']}: {exc}")
-            if not cleanup_failed:
-                cls._remove_journal(journal_path)
-
-    @classmethod
-    def _create_transaction_journal(
-        cls, states, token: str, root: str = ""
-    ) -> str:
-        """在共同输出根目录写入恢复日志；无安全公共根时仍使用当前进程回滚。"""
-        targets = [state["target"] for state in states]
-        root = os.path.abspath(root) if root else cls._transaction_root(targets)
-        if not root:
-            return ""
-
-        os.makedirs(root, exist_ok=True)
-        journal_path = os.path.join(
-            root, f"{cls.TRANSACTION_PREFIX}{token}{cls.TRANSACTION_SUFFIX}"
-        )
-        for state in states:
-            state["_token"] = token
-            if "stage_identity" not in state:
-                state["stage_identity"] = cls._tree_identity(state["stage"])
-            if "target_identity" not in state:
-                state["target_identity"] = cls._tree_identity(state["target"])
-            if (
-                not cls._valid_identity(
-                    state["stage_identity"], allow_missing=False
-                )
-                or (
-                    state["target_identity"].get("kind") != "missing"
-                ) != bool(state["had_target"])
-            ):
-                raise RuntimeError("无法为不一致的事务对象创建恢复日志")
-            owner = cls._stage_owner(state["stage"])
-            if not is_owned(owner):
-                mark_owned(owner)
-        payload = {
-            "version": 5,
-            "token": token,
-            "states": [
-                {
-                    "stage": state["stage"],
-                    "target": state["target"],
-                    "backup": state["backup"],
-                    "had_target": state["had_target"],
-                    "stage_identity": state["stage_identity"],
-                    "target_identity": state["target_identity"],
-                }
-                for state in states
-            ],
-        }
-        key_path = os.path.realpath(cls._transaction_key_path())
-        for state in states:
-            target = os.path.realpath(state["target"])
-            overlaps_key = os.path.normcase(target) == os.path.normcase(key_path)
-            if not overlaps_key and os.path.isdir(state["stage"]):
-                try:
-                    overlaps_key = (
-                        os.path.normcase(os.path.commonpath([target, key_path]))
-                        == os.path.normcase(target)
-                    )
-                except ValueError:
-                    overlaps_key = False
-            if overlaps_key:
-                raise RuntimeError("正式输出目标不能覆盖输出事务签名私钥")
-        key = cls._load_transaction_key(root, create=True)
-        payload = cls._signed_payload(payload, key)
-        try:
-            mark_owned(journal_path)
-            with open(journal_path, "x", encoding="utf-8") as stream:
-                json.dump(payload, stream, ensure_ascii=False, indent=2)
-                stream.flush()
-                os.fsync(stream.fileno())
-        except BaseException:
-            cls._remove_journal(journal_path)
-            raise
-        with cls._pending_stage_lock:
-            for state in states:
-                cls._pending_stage_journals[cls._target_state_key(state["stage"])] = journal_path
-        return journal_path
-
-    @staticmethod
-    def _stage_owner(stage: str) -> str:
-        stage = os.path.abspath(stage)
-        parent = os.path.dirname(stage)
-        return parent if os.path.basename(parent).startswith(".comparetool_stage_") else stage
-
-    @staticmethod
-    def _transaction_root(targets) -> str:
+    def _output_root(targets) -> str:
         if not targets:
             return ""
         try:
@@ -1287,220 +587,23 @@ class FileExporter:
         return os.path.abspath(root)
 
     @classmethod
-    def _remove_journal(cls, journal_path: str):
-        if not journal_path:
-            return
-        try:
-            os.remove(journal_path)
-        except FileNotFoundError:
-            pass
-        except OSError as exc:
-            # 日志被占用时，决策和所有权标记也必须留下，供解除占用后续做。
-            warn(f"清理输出事务日志失败: {journal_path}: {exc}")
-            return
-        with cls._pending_stage_lock:
-            for stage, journal in list(cls._pending_stage_journals.items()):
-                if journal == journal_path:
-                    del cls._pending_stage_journals[stage]
-        for path in (f"{journal_path}.commit", f"{journal_path}.rollback"):
-            if not os.path.isfile(path):
-                continue
-            try:
-                os.remove(path)
-            except OSError as exc:
-                warn(f"清理输出事务日志失败: {path}: {exc}")
-        remove_ownership_marker(journal_path)
-
-    @classmethod
-    def _mark_transaction(cls, journal_path: str, decision: str):
-        if not journal_path:
-            return
-        marker = f"{journal_path}.{decision}"
-        try:
-            token = cls._token_from_journal_path(journal_path)
-            key = cls._load_transaction_key(os.path.dirname(journal_path), create=False)
-            payload = cls._signed_payload({
-                "version": 1,
-                "token": token,
-                "decision": decision,
-            }, key)
-            with open(marker, "x", encoding="utf-8") as stream:
-                json.dump(payload, stream, ensure_ascii=True, sort_keys=True)
-                stream.flush()
-                os.fsync(stream.fileno())
-        except FileExistsError:
-            return
-        except (OSError, RuntimeError, ValueError) as exc:
-            warn(f"写入输出事务 {decision} 标记失败: {marker}: {exc}")
-
-    @classmethod
-    def _transaction_key_path(cls) -> str:
-        configured = os.environ.get(cls.TRANSACTION_KEY_ENV, "").strip()
-        if configured:
-            return os.path.abspath(os.path.expanduser(os.path.expandvars(configured)))
-        if os.name == "nt":
-            base = (
-                os.environ.get("LOCALAPPDATA")
-                or os.environ.get("APPDATA")
-                or os.path.expanduser("~")
-            )
-        else:
-            base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(
-                os.path.expanduser("~"), ".config"
-            )
-        return os.path.abspath(os.path.join(base, "CompareTool", "transaction_hmac.key"))
-
-    @classmethod
-    def _load_transaction_key(cls, transaction_root: str, create: bool) -> bytes:
-        key_path = cls._transaction_key_path()
-        # 私钥是每用户固定配置，不是本次事务的 target/stage/journal。
-        # 当用户把输出根选为用户目录甚至盘符根时，任何本机文件式密钥都
-        # 可能在这个广义共同祖先之下；仅凭祖先关系拒绝会让旧版正常任务
-        # 无法生成。真正需要坚持的是：密钥本身是非链接普通文件、权限和
-        # 长度有效，并且正式输出目标绝不能指向它（后者由目标隔离校验）。
-
-        if create:
-            parent = os.path.dirname(key_path) or "."
-            os.makedirs(parent, exist_ok=True)
-            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-            flags |= getattr(os, "O_BINARY", 0)
-            fd = None
-            created = False
-            try:
-                fd = os.open(key_path, flags, 0o600)
-                created = True
-                key = secrets.token_bytes(32)
-                offset = 0
-                while offset < len(key):
-                    offset += os.write(fd, key[offset:])
-                os.fsync(fd)
-            except FileExistsError:
-                pass
-            except BaseException:
-                if fd is not None:
-                    os.close(fd)
-                    fd = None
-                if created:
-                    try:
-                        os.remove(key_path)
-                    except OSError:
-                        pass
-                raise
-            finally:
-                if fd is not None:
-                    os.close(fd)
-
-        if not os.path.exists(key_path):
-            raise RuntimeError("输出事务签名私钥不存在，无法安全恢复")
-        if is_link_or_junction(key_path):
-            raise RuntimeError("输出事务签名私钥不能是链接或联接点")
-        metadata = os.lstat(key_path)
-        if not stat.S_ISREG(metadata.st_mode):
-            raise RuntimeError("输出事务签名私钥不是普通文件")
-        if os.name != "nt" and stat.S_IMODE(metadata.st_mode) & 0o077:
-            raise RuntimeError("输出事务签名私钥权限过宽，必须仅当前用户可读写")
-        with open(key_path, "rb") as stream:
-            key = stream.read(33)
-        if len(key) != 32:
-            raise RuntimeError("输出事务签名私钥已损坏")
-        return key
-
-    @classmethod
-    def _signed_payload(cls, payload: dict, key: bytes) -> dict:
-        unsigned = dict(payload)
-        unsigned.pop(cls.TRANSACTION_HMAC_FIELD, None)
-        canonical = json.dumps(
-            unsigned,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        signed = dict(unsigned)
-        signed[cls.TRANSACTION_HMAC_FIELD] = hmac.new(
-            key, canonical, hashlib.sha256
-        ).hexdigest()
-        return signed
-
-    @classmethod
-    def _verify_signed_payload(cls, payload: dict, key: bytes) -> bool:
-        if not isinstance(payload, dict):
-            return False
-        supplied = payload.get(cls.TRANSACTION_HMAC_FIELD)
-        if not isinstance(supplied, str) or not re.fullmatch(r"[0-9a-f]{64}", supplied):
-            return False
-        expected = cls._signed_payload(payload, key)[cls.TRANSACTION_HMAC_FIELD]
-        return hmac.compare_digest(supplied, expected)
-
-    @classmethod
-    def _token_from_journal_path(cls, journal_path: str) -> str:
-        name = os.path.basename(journal_path)
-        match = re.fullmatch(
-            re.escape(cls.TRANSACTION_PREFIX)
-            + r"([0-9a-f]{32})"
-            + re.escape(cls.TRANSACTION_SUFFIX),
-            name,
-        )
-        if not match:
-            raise ValueError("事务日志标识无效")
-        return match.group(1)
-
-    @classmethod
-    def _read_decision_marker(
-        cls, journal_path: str, token: str, decision: str, key: bytes
-    ) -> bool:
-        marker = f"{journal_path}.{decision}"
-        if not os.path.exists(marker):
-            return False
-        if not os.path.isfile(marker) or os.path.getsize(marker) > 4096:
-            raise RuntimeError(f"输出事务 {decision} 决策标记签名无效")
-        try:
-            with open(marker, encoding="utf-8") as stream:
-                payload = json.load(stream)
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-            raise RuntimeError(f"输出事务 {decision} 决策标记签名无效") from exc
-        if (
-            not cls._verify_signed_payload(payload, key)
-            or payload.get("version") != 1
-            or payload.get("token") != token
-            or payload.get("decision") != decision
-        ):
-            raise RuntimeError(f"输出事务 {decision} 决策标记签名无效")
-        return True
-
-    @classmethod
     @contextmanager
-    def _transaction_lock_wait(cls, directory: str, trusted_root: str = ""):
-        """等待同一可信输出根的短暂提交锁，不把正常并发误判成失败。"""
-        while True:
-            entered = False
-            try:
-                with cls._transaction_lock(directory, trusted_root=trusted_root):
-                    entered = True
-                    yield
-                    return
-            except RuntimeError as exc:
-                if entered or "正在被另一个 CompareTool 实例使用" not in str(exc):
-                    raise
-                time.sleep(0.1)
-
-    @classmethod
-    @contextmanager
-    def _transaction_lock(cls, directory: str, trusted_root: str = ""):
-        """对一个输出批次加非阻塞进程锁，避免两个实例互相恢复/覆盖。"""
+    def _output_lock(cls, directory: str, trusted_root: str = ""):
+        """生成全程持有输出批次锁；进程退出自动释放，不需要恢复记录。"""
         directory = os.path.abspath(directory)
         anchor = cls._validate_trusted_paths(
-            trusted_root or directory, [directory], "输出事务锁目录"
+            trusted_root or directory, [directory], "输出锁目录"
         )
         os.makedirs(directory, exist_ok=True)
-        cls._validate_trusted_paths(anchor, [directory], "输出事务锁目录")
-        lock_path = os.path.join(directory, ".comparetool_transaction.lock")
+        cls._validate_trusted_paths(anchor, [directory], "输出锁目录")
+        lock_path = os.path.join(directory, ".comparetool_output.lock")
         flags = os.O_RDWR | getattr(os, "O_BINARY", 0)
         fd = None
         try:
             fd = os.open(lock_path, flags | os.O_CREAT | os.O_EXCL, 0o600)
             try:
                 if os.write(fd, b"0") != 1:
-                    raise OSError("无法完整初始化输出事务锁")
+                    raise OSError("无法完整初始化输出锁")
                 os.fsync(fd)
             except BaseException:
                 os.close(fd)
@@ -1512,14 +615,14 @@ class FileExporter:
                 raise
         except FileExistsError:
             if is_link_or_junction(lock_path):
-                raise RuntimeError(f"输出事务锁不能是链接或联接点: {lock_path}")
+                raise RuntimeError(f"输出锁不能是链接或联接点: {lock_path}")
             before = os.lstat(lock_path)
             if (
                 not stat.S_ISREG(before.st_mode)
                 or int(getattr(before, "st_nlink", 1)) != 1
                 or before.st_size != 1
             ):
-                raise RuntimeError(f"输出事务锁文件身份无效: {lock_path}")
+                raise RuntimeError(f"输出锁文件身份无效: {lock_path}")
             nofollow = getattr(os, "O_NOFOLLOW", 0)
             fd = os.open(lock_path, flags | nofollow)
         try:
@@ -1536,12 +639,12 @@ class FileExporter:
                 or int(getattr(metadata, "st_nlink", 1)) != 1
                 or metadata.st_size != 1
             ):
-                raise RuntimeError(f"输出事务锁文件身份无效: {lock_path}")
+                raise RuntimeError(f"输出锁文件身份无效: {lock_path}")
             handle_identity = regular_file_handle_identity(stream)
             path_identity = regular_file_path_identity(lock_path)
             if handle_identity != path_identity:
-                raise RuntimeError(f"输出事务锁文件在打开期间被替换: {lock_path}")
-            cls._validate_trusted_paths(anchor, [lock_path], "输出事务锁路径")
+                raise RuntimeError(f"输出锁文件在打开期间被替换: {lock_path}")
+            cls._validate_trusted_paths(anchor, [lock_path], "输出锁路径")
             stream.seek(0)
             try:
                 if os.name == "nt":
@@ -1569,513 +672,6 @@ class FileExporter:
                     pass
         finally:
             stream.close()
-
-    @classmethod
-    def recover_transactions(
-        cls,
-        output_root: str,
-        include_direct_children: bool = False,
-        raise_on_error: bool = False,
-        protected_stages=None,
-        acquire_locks: bool = True,
-        include_nested_multi_runs: bool = False,
-        trusted_root: str = "",
-        relevant_targets=None,
-    ):
-        """恢复上次非正常中断的输出事务。"""
-        if not output_root:
-            return []
-        root = os.path.abspath(output_root)
-        if not os.path.isdir(root) or is_link_or_junction(root):
-            return []
-        anchor = cls._validate_trusted_paths(
-            trusted_root or root, [root], "输出恢复目录"
-        )
-        directories = [root]
-        direct_children = []
-        if include_direct_children:
-            try:
-                direct_children = [
-                    entry.path for entry in os.scandir(root)
-                    if (
-                        entry.is_dir(follow_symlinks=False)
-                        and entry.name.casefold() not in ("oldversion", "newversion")
-                        and not is_link_or_junction(entry.path)
-                    )
-                ]
-                directories.extend(direct_children)
-            except OSError as exc:
-                warn(f"扫描输出事务日志失败: {root}: {exc}")
-        if include_nested_multi_runs:
-            # 配置输出根下可能先有批次目录，再有本次独立的 multi_run 目录。
-            # 只多扫这一层且严格校验内部目录名，绝不递归普通项目/源码树。
-            for child in direct_children:
-                try:
-                    directories.extend(
-                        entry.path for entry in os.scandir(child)
-                        if (
-                            entry.is_dir(follow_symlinks=False)
-                            and cls._MULTI_RUN_DIRECTORY_PATTERN.fullmatch(entry.name)
-                            and not is_link_or_junction(entry.path)
-                        )
-                    )
-                except OSError as exc:
-                    warn(f"扫描多项目输出事务日志失败: {child}: {exc}")
-
-        recovered = []
-        failures = []
-        protected = {
-            os.path.normcase(os.path.abspath(path))
-            for path in (protected_stages or [])
-        }
-        if acquire_locks:
-            directories = [
-                directory for directory in directories
-                if cls._has_recovery_candidates(directory)
-            ]
-            for directory in directories:
-                try:
-                    with cls._transaction_lock(directory, trusted_root=anchor):
-                        recovered.extend(cls.recover_transactions(
-                            directory,
-                            include_direct_children=False,
-                            include_nested_multi_runs=False,
-                            raise_on_error=raise_on_error,
-                            protected_stages=protected_stages,
-                            acquire_locks=False,
-                            trusted_root=anchor,
-                            relevant_targets=relevant_targets,
-                        ))
-                except RuntimeError as exc:
-                    if raise_on_error:
-                        raise
-                    warn(str(exc))
-            return recovered
-        for directory in directories:
-            directory_failed = False
-            try:
-                names = os.listdir(directory)
-            except OSError as exc:
-                warn(f"读取输出事务目录失败: {directory}: {exc}")
-                continue
-            for name in names:
-                if not (
-                    name.startswith(cls.TRANSACTION_PREFIX) and
-                    name.endswith(cls.TRANSACTION_SUFFIX)
-                ):
-                    continue
-                journal_path = os.path.join(directory, name)
-                if cls._is_recognizable_unsigned_v1_journal(
-                    journal_path, directory
-                ):
-                    # 早期版本的日志没有所有权标记和 HMAC，不能再把其中的
-                    # 路径当作删除/恢复授权。但它本身也不应永久阻断用户在
-                    # 同一输出目录生成一套新的完整结果；保留现场，只跳过。
-                    warn(
-                        "检测到旧版无签名输出事务日志，无法安全自动恢复，"
-                        f"已原样保留并跳过: {journal_path}"
-                    )
-                    continue
-                try:
-                    result = cls._recover_transaction_journal(
-                        journal_path, directory, trusted_root=anchor,
-                        relevant_targets=relevant_targets,
-                    )
-                    if result is False:
-                        # 不相关的有效事务原样保留，也不能把它的 stage 当孤儿清理。
-                        directory_failed = True
-                    else:
-                        recovered.append(journal_path)
-                except Exception as exc:
-                    warn(f"恢复输出事务失败，已保留日志: {journal_path}: {exc}")
-                    failures.append(f"{journal_path}: {exc}")
-                    directory_failed = True
-            if not directory_failed:
-                cls._cleanup_orphan_stages(directory, protected)
-        if failures and raise_on_error:
-            raise RuntimeError(
-                "存在无法自动恢复的上次输出事务，已中止新提交：\n"
-                + "\n".join(failures)
-            )
-        return recovered
-
-    @classmethod
-    def _has_recovery_candidates(cls, directory: str) -> bool:
-        """只读识别 CompareTool 自有恢复物，避免扫描时污染普通目录。"""
-        try:
-            entries = os.scandir(directory)
-        except OSError:
-            return False
-        with entries:
-            for entry in entries:
-                is_journal = (
-                    entry.name.startswith(cls.TRANSACTION_PREFIX)
-                    and entry.name.endswith(cls.TRANSACTION_SUFFIX)
-                )
-                is_stage = any(
-                    pattern.fullmatch(entry.name)
-                    for pattern in cls._ORPHAN_STAGE_PATTERNS
-                )
-                is_owned_candidate = (
-                    (is_journal or is_stage) and is_owned(entry.path)
-                )
-                is_legacy_journal = (
-                    is_journal
-                    and cls._is_recognizable_unsigned_v1_journal(
-                        entry.path, directory
-                    )
-                )
-                if is_owned_candidate or is_legacy_journal:
-                    return True
-        return False
-
-    @classmethod
-    def _is_recognizable_unsigned_v1_journal(
-        cls, journal_path: str, root: str
-    ) -> bool:
-        """只识别旧版精确结构；识别成功也绝不授权任何文件操作。"""
-        if is_owned(journal_path) or is_link_or_junction(journal_path):
-            return False
-        try:
-            file_stat = os.lstat(journal_path)
-            if (
-                not stat.S_ISREG(file_stat.st_mode)
-                or file_stat.st_size > cls.MAX_TRANSACTION_JOURNAL_BYTES
-            ):
-                return False
-            with open(journal_path, encoding="utf-8") as stream:
-                raw_payload = stream.read(cls.MAX_TRANSACTION_JOURNAL_BYTES + 1)
-            payload = json.loads(raw_payload)
-        except (OSError, UnicodeError, json.JSONDecodeError):
-            return False
-
-        if (
-            not isinstance(payload, dict)
-            or set(payload) != {"version", "token", "states"}
-            or type(payload.get("version")) is not int
-            or payload.get("version") != 1
-            or not isinstance(payload.get("states"), list)
-            or not payload["states"]
-            or len(payload["states"]) > cls.MAX_TRANSACTION_STATES
-        ):
-            return False
-
-        token = payload.get("token")
-        expected_name = f"{cls.TRANSACTION_PREFIX}{token}{cls.TRANSACTION_SUFFIX}"
-        if (
-            not isinstance(token, str)
-            or not re.fullmatch(r"[0-9a-f]{32}", token)
-            or os.path.basename(journal_path) != expected_name
-        ):
-            return False
-
-        root = os.path.abspath(root)
-        for raw in payload["states"]:
-            if (
-                not isinstance(raw, dict)
-                or set(raw) != {
-                    "stage", "target", "backup", "had_target"
-                }
-                or not all(
-                    isinstance(raw.get(field), str) and raw.get(field)
-                    for field in ("stage", "target", "backup")
-                )
-                or type(raw.get("had_target")) is not bool
-            ):
-                return False
-            stage = os.path.abspath(raw["stage"])
-            target = os.path.abspath(raw["target"])
-            backup = os.path.abspath(raw["backup"])
-            try:
-                inside = os.path.commonpath(
-                    [root, stage, target, backup]
-                ) == root
-            except ValueError:
-                inside = False
-            stage_name = os.path.basename(stage)
-            stage_parent_name = os.path.basename(os.path.dirname(stage))
-            valid_stage_layout = (
-                os.path.dirname(stage) == os.path.dirname(target)
-                and stage_name.startswith((
-                    ".comparetool_stage_",
-                    ".comparetool_report_",
-                    ".comparetool_delivery_",
-                ))
-            ) or (
-                stage_parent_name.startswith(".comparetool_stage_")
-                and windows_path_key(stage_name)
-                == windows_path_key(os.path.basename(target))
-            )
-            if (
-                not inside
-                or not valid_stage_layout
-                or backup != os.path.abspath(
-                    f"{target}.comparetool_backup_{token}"
-                )
-            ):
-                return False
-        return True
-
-    @classmethod
-    def _cleanup_orphan_stages(cls, directory: str, protected=None):
-        """清理尚未创建事务日志就强退留下的内部暂存物。"""
-        protected = protected or set()
-        try:
-            entries = list(os.scandir(directory))
-        except OSError as exc:
-            warn(f"扫描遗留输出暂存物失败: {directory}: {exc}")
-            return
-        for entry in entries:
-            if not any(pattern.fullmatch(entry.name) for pattern in cls._ORPHAN_STAGE_PATTERNS):
-                continue
-            if not is_owned(entry.path):
-                warn(f"跳过没有 CompareTool 所有权标记的同名前缀路径: {entry.path}")
-                continue
-            if not ownership_is_abandoned(entry.path):
-                warn(f"跳过仍由存活 CompareTool 进程持有的暂存路径: {entry.path}")
-                continue
-            entry_path = os.path.normcase(os.path.abspath(entry.path))
-            protects_current_work = entry_path in protected
-            if not protects_current_work:
-                for protected_path in protected:
-                    try:
-                        if os.path.commonpath([entry_path, protected_path]) == entry_path:
-                            protects_current_work = True
-                            break
-                    except ValueError:
-                        continue
-            if protects_current_work:
-                continue
-            if is_link_or_junction(entry.path):
-                warn(f"跳过疑似遗留但实际为链接的暂存路径: {entry.path}")
-                continue
-            try:
-                cls._remove_path(entry.path)
-                remove_ownership_marker(entry.path)
-                warn(f"已清理上次强退遗留的输出暂存物: {entry.path}")
-            except OSError as exc:
-                warn(f"清理遗留输出暂存物失败: {entry.path}: {exc}")
-
-    @classmethod
-    def _recover_transaction_journal(
-        cls, journal_path: str, root: str, trusted_root: str = "",
-        relevant_targets=None,
-    ):
-        if not is_owned(journal_path):
-            raise RuntimeError("事务日志缺少 CompareTool 所有权标记")
-        if (
-            not os.path.isfile(journal_path)
-            or os.path.getsize(journal_path) > cls.MAX_TRANSACTION_JOURNAL_BYTES
-        ):
-            raise RuntimeError("事务日志过大或不是普通文件")
-        try:
-            with open(journal_path, encoding="utf-8") as stream:
-                raw_payload = stream.read(cls.MAX_TRANSACTION_JOURNAL_BYTES + 1)
-            payload = json.loads(raw_payload)
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-            raise RuntimeError("事务日志无法解析") from exc
-
-        root = os.path.abspath(root)
-        anchor = cls._validate_trusted_paths(
-            trusted_root or root, [root, journal_path], "事务日志路径"
-        )
-        try:
-            ensure_no_link_components(anchor, journal_path, "事务日志路径")
-        except ValueError as exc:
-            raise RuntimeError(str(exc)) from exc
-        key = cls._load_transaction_key(root, create=False)
-        if not cls._verify_signed_payload(payload, key):
-            raise RuntimeError("事务日志缺少有效 HMAC 签名，已保留现场")
-        journal_version = payload.get("version")
-        if journal_version not in (4, 5) or not isinstance(payload.get("states"), list):
-            raise RuntimeError("事务日志格式不支持")
-        if len(payload["states"]) > cls.MAX_TRANSACTION_STATES:
-            raise RuntimeError("事务日志状态过多")
-
-        token = payload.get("token", "")
-        expected_name = f"{cls.TRANSACTION_PREFIX}{token}{cls.TRANSACTION_SUFFIX}"
-        if not re.fullmatch(r"[0-9a-f]{32}", str(token)) or os.path.basename(journal_path) != expected_name:
-            raise RuntimeError("事务日志标识不一致")
-
-        root_real = os.path.realpath(root)
-        states = []
-        for raw in payload["states"]:
-            if not isinstance(raw, dict):
-                raise RuntimeError("事务日志状态无效")
-            stage = os.path.abspath(raw.get("stage", ""))
-            target = os.path.abspath(raw.get("target", ""))
-            backup = os.path.abspath(raw.get("backup", ""))
-            stage_identity = raw.get("stage_identity")
-            target_identity = raw.get("target_identity")
-            try:
-                inside = os.path.commonpath([root, stage, target, backup]) == root
-                real_inside = os.path.commonpath([
-                    root_real,
-                    os.path.realpath(stage),
-                    os.path.realpath(target),
-                    os.path.realpath(backup),
-                ]) == root_real
-            except ValueError:
-                inside = False
-                real_inside = False
-            stage_name = os.path.basename(stage)
-            stage_parent_name = os.path.basename(os.path.dirname(stage))
-            stage_prefixes = (
-                ".comparetool_stage_",
-                ".comparetool_report_",
-                ".comparetool_delivery_",
-            )
-            valid_stage_layout = (
-                os.path.dirname(stage) == os.path.dirname(target) and
-                stage_name.startswith(stage_prefixes)
-            ) or (
-                os.path.normcase(os.path.dirname(stage)) == os.path.normcase(root)
-                and stage_name.startswith(stage_prefixes)
-            ) or (
-                stage_parent_name.startswith(".comparetool_stage_") and
-                os.path.normcase(os.path.dirname(os.path.dirname(stage))) ==
-                os.path.normcase(root) and
-                windows_path_key(stage_name) ==
-                windows_path_key(os.path.basename(target))
-            )
-            has_link = any(
-                os.path.lexists(path) and is_link_or_junction(path)
-                for path in (stage, target, backup)
-            )
-            try:
-                for label, path in (
-                    ("事务暂存路径", stage),
-                    ("事务目标路径", target),
-                    ("事务备份路径", backup),
-                ):
-                    ensure_no_link_components(anchor, path, label)
-            except ValueError as exc:
-                raise RuntimeError(str(exc)) from exc
-            if (
-                not inside
-                or not real_inside
-                or not valid_stage_layout
-                or has_link
-            ):
-                raise RuntimeError("事务日志路径越界")
-            if backup != os.path.abspath(f"{target}.comparetool_backup_{token}"):
-                raise RuntimeError("事务备份路径无效")
-            had_target = bool(raw.get("had_target"))
-            if (
-                not cls._valid_identity(stage_identity, allow_missing=False)
-                or not cls._valid_identity(target_identity, allow_missing=True)
-                or (target_identity.get("kind") != "missing") != had_target
-            ):
-                raise RuntimeError("事务对象身份记录无效")
-            state = {
-                "stage": stage,
-                "target": target,
-                "backup": backup,
-                "had_target": had_target,
-                "stage_identity": stage_identity,
-                "target_identity": target_identity,
-                "_token": token,
-                "_journal_version": journal_version,
-            }
-            if journal_version == 4:
-                cls._discover_v4_quarantines(state, token)
-            quarantine_paths = cls._quarantine_paths(state, token)
-            try:
-                for role, path in quarantine_paths.items():
-                    ensure_no_link_components(
-                        anchor, path, f"事务隔离路径({role})"
-                    )
-            except ValueError as exc:
-                raise RuntimeError(str(exc)) from exc
-            states.append(state)
-
-        if journal_version == 4:
-            scanned = {
-                os.path.normcase(os.path.abspath(path)): path
-                for state in states
-                for path in state.get("_v4_scanned_candidates", [])
-            }
-            claims = {}
-            for state in states:
-                for path in state.get("_v4_assigned_candidates", []):
-                    key_path = os.path.normcase(os.path.abspath(path))
-                    claims[key_path] = claims.get(key_path, 0) + 1
-            if any(claims.get(key_path, 0) != 1 for key_path in scanned):
-                raise RuntimeError("旧事务隔离对象身份无法唯一归属")
-
-        commit_marker = cls._read_decision_marker(
-            journal_path, token, "commit", key
-        )
-        rollback_marker = cls._read_decision_marker(
-            journal_path, token, "rollback", key
-        )
-        if commit_marker and rollback_marker:
-            raise RuntimeError("事务决策标记冲突")
-        if relevant_targets is not None and not cls._transaction_overlaps_targets(
-            states, relevant_targets
-        ):
-            return False
-        phases = [cls._recovery_state_phase(state) for state in states]
-        inferred_commit = bool(states) and all(
-            phase == "installed" for phase in phases
-        )
-        committed = commit_marker or (not rollback_marker and inferred_commit)
-        if committed:
-            if not all(phase == "installed" for phase in phases):
-                raise RuntimeError("已提交事务未完整安装全部正式输出")
-            for state in states:
-                if os.path.lexists(state["backup"]):
-                    cls._delete_verified(
-                        state["backup"],
-                        state["target_identity"],
-                        cls._quarantine_paths(state, token)["backup"],
-                        "恢复事务旧备份",
-                        trusted_root=anchor,
-                    )
-                else:
-                    cls._finish_quarantine_delete(
-                        cls._quarantine_paths(state, token)["backup"],
-                        state["target_identity"],
-                        "恢复事务旧备份隔离区",
-                        trusted_root=anchor,
-                    )
-        else:
-            for state, phase in reversed(list(zip(states, phases))):
-                cls._rollback_state(
-                    state, phase, token, trusted_root=anchor
-                )
-        for state in states:
-            stage_parent = os.path.dirname(state["stage"])
-            if os.path.basename(stage_parent).startswith(".comparetool_stage_"):
-                try:
-                    os.rmdir(stage_parent)
-                except OSError:
-                    pass
-                remove_ownership_marker(stage_parent)
-            else:
-                remove_ownership_marker(state["stage"])
-        cls._remove_journal(journal_path)
-
-    @classmethod
-    def _transaction_overlaps_targets(cls, states, targets) -> bool:
-        """有效日志才可按范围跳过；包含备份/暂存/隔离路径及真实短别名路径。"""
-        def keys(path):
-            return {
-                cls._target_state_key(value).rstrip("\\")
-                for value in (path, os.path.realpath(path))
-            }
-
-        requested = {key for target in targets for key in keys(target)}
-        for state in states:
-            paths = [state["target"], state["backup"], state["stage"],
-                     cls._stage_owner(state["stage"]),
-                     *cls._quarantine_paths(state).values()]
-            for path in paths:
-                for key in keys(path):
-                    if any(key == target or key.startswith(target + "\\")
-                           or target.startswith(key + "\\") for target in requested):
-                        return True
-        return False
 
     @staticmethod
     def _remove_path(path: str):

@@ -73,8 +73,8 @@ class ArchiveIntegrationTests(unittest.TestCase):
             app._do_generate_multi(tasks, str(out/'multi.html'),
                 str(out/'old'), str(out/'new'), str(out))
             self.assertFalse(app._last_task_record['success'])
-            self.assertEqual(before, (out/'multi.html').read_bytes())
-        html = (out/'multi.html').read_text(encoding='utf-8')
+            self.assertFalse((out/'multi.html').exists())
+        html = before.decode('utf-8')
         self.assertIn('archive-member-template', html)
         self.assertIn('不单独交付', html)
 
@@ -101,7 +101,7 @@ class ArchiveIntegrationTests(unittest.TestCase):
         instructions = next(out.glob('*_上线操作说明.txt')).read_text(encoding='utf-8')
         self.assertNotIn('removed.txt', instructions)
 
-    def test_nested_failure_keeps_previous_delivery(self):
+    def test_nested_failure_does_not_restore_previous_delivery(self):
         self.source({'a.zip': zip_bytes({'a.txt': b'old'})},
                     {'a.zip': zip_bytes({'a.txt': b'new'})})
         app = self.app(); out = self.root/'out'; out.mkdir()
@@ -113,8 +113,8 @@ class ArchiveIntegrationTests(unittest.TestCase):
         before = (out/'report.html').read_bytes(), (out/'newVersion/Demo/a.zip').read_bytes()
         (self.new/'a.zip').write_bytes(b'broken archive')
         run(); self.assertFalse(app._last_task_record['success'])
-        self.assertEqual(before, ((out/'report.html').read_bytes(),
-                                 (out/'newVersion/Demo/a.zip').read_bytes()))
+        self.assertFalse((out/'report.html').exists())
+        self.assertFalse((out/'newVersion/Demo').exists())
 
     def test_html_source_text_is_escaped(self):
         vcs, result = self.source({}, {'a.zip': zip_bytes({'a.txt': b'<script>bad()</script>'})})
@@ -138,8 +138,7 @@ class ArchiveIntegrationTests(unittest.TestCase):
         with mock.patch("main._load_config", return_value={}), \
                 mock.patch("main._CONFIG_LOAD_FAILURE", None), \
                 mock.patch("main.CONFIG_DIR", str(self.root)), \
-                mock.patch("main.CONFIG_FILE", str(self.root/"config.json")), \
-                mock.patch("main.FileExporter.recover_transactions", return_value=[]):
+                mock.patch("main.CONFIG_FILE", str(self.root/"config.json")):
             app = CompareToolApp()
             try:
                 app.root.withdraw(); app.vcs_var.set("folder")

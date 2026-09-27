@@ -261,7 +261,7 @@ class ExportIntegrityTests(unittest.TestCase):
             files=files,
         )
 
-    def test_read_failure_keeps_previous_exports_and_raises(self):
+    def test_read_failure_discards_previous_exports_and_raises(self):
         with project_temp_dir() as root:
             old_dir = os.path.join(root, "old")
             new_dir = os.path.join(root, "new")
@@ -280,8 +280,8 @@ class ExportIntegrityTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "已中止导出"):
                 FileExporter(result, vcs).export(old_dir, new_dir)
 
-            self.assertTrue(os.path.isfile(os.path.join(old_dir, "keep.txt")))
-            self.assertTrue(os.path.isfile(os.path.join(new_dir, "keep.txt")))
+            self.assertFalse(os.path.exists(old_dir))
+            self.assertFalse(os.path.exists(new_dir))
             self.assertFalse(os.path.exists(os.path.join(new_dir, "missing.bin")))
 
     def test_relative_path_escape_is_rejected(self):
@@ -338,46 +338,6 @@ class ExportIntegrityTests(unittest.TestCase):
                 self.assertEqual(b"old", f.read())
             with open(os.path.join(new_dir, "changed.txt"), "rb") as f:
                 self.assertEqual(b"new", f.read())
-
-    def test_second_install_failure_rolls_back_both_directories(self):
-        with project_temp_dir() as root:
-            old_target = os.path.join(root, "old")
-            new_target = os.path.join(root, "new")
-            old_stage = os.path.join(root, "old-stage")
-            new_stage = os.path.join(root, "new-stage")
-            for path, content in (
-                (old_target, "old-original"),
-                (new_target, "new-original"),
-                (old_stage, "old-staged"),
-                (new_stage, "new-staged"),
-            ):
-                os.makedirs(path)
-                with open(os.path.join(path, "value.txt"), "w", encoding="utf-8") as f:
-                    f.write(content)
-
-            real_replace = os.replace
-            replace_count = 0
-
-            def fail_fourth_replace(src, dst):
-                nonlocal replace_count
-                replace_count += 1
-                if replace_count == 4:
-                    raise OSError("simulated second install failure")
-                return real_replace(src, dst)
-
-            with mock.patch("file_exporter.os.replace", side_effect=fail_fourth_replace):
-                with self.assertRaisesRegex(OSError, "simulated"):
-                    FileExporter._replace_outputs([
-                        (old_stage, old_target),
-                        (new_stage, new_target),
-                    ])
-
-            for target, expected in (
-                (old_target, "old-original"),
-                (new_target, "new-original"),
-            ):
-                with open(os.path.join(target, "value.txt"), encoding="utf-8") as f:
-                    self.assertEqual(expected, f.read())
 
 
 class VCSParsingTests(unittest.TestCase):

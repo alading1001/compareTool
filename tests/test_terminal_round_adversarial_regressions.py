@@ -186,25 +186,8 @@ class TerminalVCSAndReportTests(unittest.TestCase):
                 self.assertEqual(b"existing", stream.read())
 
 
-class TerminalTransactionTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls._old_key_path = os.environ.get(FileExporter.TRANSACTION_KEY_ENV)
-        os.makedirs(".tmp", exist_ok=True)
-        cls._key_temp = tempfile.TemporaryDirectory(dir=".tmp")
-        os.environ[FileExporter.TRANSACTION_KEY_ENV] = os.path.join(
-            cls._key_temp.name, "transaction_hmac.key"
-        )
+class TerminalOutputTests(unittest.TestCase):
 
-    @classmethod
-    def tearDownClass(cls):
-        if cls._old_key_path is None:
-            os.environ.pop(FileExporter.TRANSACTION_KEY_ENV, None)
-        else:
-            os.environ[FileExporter.TRANSACTION_KEY_ENV] = cls._old_key_path
-        cls._key_temp.cleanup()
-        super().tearDownClass()
 
     def test_hardlinked_lock_is_rejected_without_modifying_external_file(self):
         with project_temp_dir() as root:
@@ -212,11 +195,11 @@ class TerminalTransactionTests(unittest.TestCase):
             output = os.path.join(root, "output")
             os.makedirs(output)
             write_bytes(external, b"")
-            lock_path = os.path.join(output, ".comparetool_transaction.lock")
+            lock_path = os.path.join(output, ".comparetool_output.lock")
             os.link(external, lock_path)
 
             with self.assertRaisesRegex(RuntimeError, "锁文件身份无效"):
-                with FileExporter._transaction_lock(output):
+                with FileExporter._output_lock(output):
                     pass
             with open(external, "rb") as stream:
                 self.assertEqual(b"", stream.read())
@@ -227,7 +210,7 @@ class TerminalTransactionTests(unittest.TestCase):
             stage = os.path.join(root, "stage.txt")
             target = os.path.join(batch, "target.txt")
             write_bytes(stage, b"stage")
-            lock_path = os.path.join(batch, ".comparetool_transaction.lock")
+            lock_path = os.path.join(batch, ".comparetool_output.lock")
 
             def reject_alias(anchor, path, label):
                 if os.path.abspath(path) == os.path.abspath(batch):
@@ -238,9 +221,8 @@ class TerminalTransactionTests(unittest.TestCase):
                 side_effect=reject_alias,
             ):
                 with self.assertRaisesRegex(RuntimeError, "ancestor junction"):
-                    FileExporter._replace_outputs(
-                        [(stage, target)], trusted_root=root
-                    )
+                    with FileExporter.output_session([target], trusted_root=root):
+                        pass
             self.assertFalse(os.path.exists(lock_path))
 
     def test_tree_identity_hashes_same_size_same_mtime_content(self):
@@ -287,168 +269,6 @@ class TerminalTransactionTests(unittest.TestCase):
             finally:
                 FileExporter._cleanup_stage(stage)
                 FileExporter._cleanup_stage(report_stage)
-
-    def _installed_transaction(self, root: str, token: str):
-        stage = os.path.join(root, ".comparetool_report_probe.html")
-        target = os.path.join(root, "report.html")
-        backup = f"{target}.comparetool_backup_{token}"
-        write_bytes(stage, b"new-data")
-        write_bytes(target, b"old-data")
-        state = {
-            "stage": stage,
-            "target": target,
-            "backup": backup,
-            "had_target": True,
-            "stage_identity": FileExporter._tree_identity(stage),
-            "target_identity": FileExporter._tree_identity(target),
-        }
-        journal = FileExporter._create_transaction_journal([state], token)
-        os.replace(target, backup)
-        os.replace(stage, target)
-        return state, journal
-
-    def test_recovery_quarantines_then_rejects_postcheck_user_replacement(self):
-        with project_temp_dir() as root:
-            token = "a" * 32
-            state, journal = self._installed_transaction(root, token)
-            FileExporter._mark_transaction(journal, "rollback")
-            original_phase = FileExporter._recovery_state_phase
-            changed = False
-
-            def change_after_check(item):
-                nonlocal changed
-                phase = original_phase(item)
-                if not changed:
-                    changed = True
-                    write_bytes(item["target"], b"user-new")
-                return phase
-
-            with mock.patch.object(
-                FileExporter,
-                "_recovery_state_phase",
-                side_effect=change_after_check,
-            ):
-                with self.assertRaisesRegex(RuntimeError, "内容元数据已变化"):
-                    FileExporter.recover_transactions(root, raise_on_error=True)
-            with open(state["target"], "rb") as stream:
-                self.assertEqual(b"user-new", stream.read())
-            self.assertTrue(os.path.isfile(journal))
-
-    def test_signed_commit_journal_recovers_without_stage_owner_marker(self):
-        with project_temp_dir() as root:
-            token = "b" * 32
-            state, journal = self._installed_transaction(root, token)
-            FileExporter._mark_transaction(journal, "commit")
-            remove_ownership_marker(FileExporter._stage_owner(state["stage"]))
-
-            FileExporter.recover_transactions(root, raise_on_error=True)
-
-            with open(state["target"], "rb") as stream:
-                self.assertEqual(b"new-data", stream.read())
-            self.assertFalse(os.path.lexists(state["backup"]))
-            self.assertFalse(os.path.exists(journal))
-
-    def test_rollback_recovery_resumes_deterministic_quarantine_cleanup(self):
-        with project_temp_dir() as root:
-            token = "c" * 32
-            state, journal = self._installed_transaction(root, token)
-            FileExporter._mark_transaction(journal, "rollback")
-            quarantine = FileExporter._quarantine_paths(
-                state, token
-            )["installed"]
-            real_remove = FileExporter._remove_path
-            failed = False
-
-            def fail_once(path):
-                nonlocal failed
-                if os.path.abspath(path) == os.path.abspath(quarantine) and not failed:
-                    failed = True
-                    raise PermissionError("sharing violation")
-                return real_remove(path)
-
-            with mock.patch.object(
-                FileExporter, "_remove_path", side_effect=fail_once
-            ):
-                with self.assertRaisesRegex(RuntimeError, "sharing violation"):
-                    FileExporter.recover_transactions(root, raise_on_error=True)
-
-            self.assertTrue(os.path.exists(journal))
-            self.assertTrue(os.path.lexists(quarantine))
-            self.assertFalse(os.path.lexists(state["backup"]))
-            with open(state["target"], "rb") as stream:
-                self.assertEqual(b"old-data", stream.read())
-
-            FileExporter.recover_transactions(root, raise_on_error=True)
-            self.assertFalse(os.path.lexists(quarantine))
-            self.assertFalse(os.path.exists(journal))
-            with open(state["target"], "rb") as stream:
-                self.assertEqual(b"old-data", stream.read())
-
-    def test_commit_recovery_resumes_deterministic_quarantine_cleanup(self):
-        with project_temp_dir() as root:
-            token = "d" * 32
-            state, journal = self._installed_transaction(root, token)
-            FileExporter._mark_transaction(journal, "commit")
-            quarantine = FileExporter._quarantine_paths(
-                state, token
-            )["backup"]
-            real_remove = FileExporter._remove_path
-            failed = False
-
-            def fail_once(path):
-                nonlocal failed
-                if os.path.abspath(path) == os.path.abspath(quarantine) and not failed:
-                    failed = True
-                    raise PermissionError("sharing violation")
-                return real_remove(path)
-
-            with mock.patch.object(
-                FileExporter, "_remove_path", side_effect=fail_once
-            ):
-                with self.assertRaisesRegex(RuntimeError, "sharing violation"):
-                    FileExporter.recover_transactions(root, raise_on_error=True)
-
-            self.assertTrue(os.path.exists(journal))
-            self.assertTrue(os.path.lexists(quarantine))
-            self.assertFalse(os.path.lexists(state["backup"]))
-            with open(state["target"], "rb") as stream:
-                self.assertEqual(b"new-data", stream.read())
-
-            FileExporter.recover_transactions(root, raise_on_error=True)
-            self.assertFalse(os.path.lexists(quarantine))
-            self.assertFalse(os.path.exists(journal))
-            with open(state["target"], "rb") as stream:
-                self.assertEqual(b"new-data", stream.read())
-
-    def test_v4_random_quarantine_is_recovered_compatibly(self):
-        with project_temp_dir() as root:
-            token = "e" * 32
-            state, journal = self._installed_transaction(root, token)
-            FileExporter._mark_transaction(journal, "rollback")
-
-            with open(journal, encoding="utf-8") as stream:
-                payload = json.load(stream)
-            payload["version"] = 4
-            payload = FileExporter._signed_payload(
-                payload,
-                FileExporter._load_transaction_key(root, create=False),
-            )
-            with open(journal, "w", encoding="utf-8") as stream:
-                json.dump(payload, stream)
-                stream.flush()
-                os.fsync(stream.fileno())
-
-            legacy_quarantine = os.path.join(
-                root, f".comparetool_quarantine_{token}_{'f' * 32}"
-            )
-            os.replace(state["target"], legacy_quarantine)
-            os.replace(state["backup"], state["target"])
-
-            FileExporter.recover_transactions(root, raise_on_error=True)
-            self.assertFalse(os.path.lexists(legacy_quarantine))
-            self.assertFalse(os.path.exists(journal))
-            with open(state["target"], "rb") as stream:
-                self.assertEqual(b"old-data", stream.read())
 
 
 if __name__ == "__main__":

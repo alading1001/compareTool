@@ -227,7 +227,7 @@ def ensure_no_link_components(root: str, path: str, label: str = "路径") -> No
     except ValueError:
         inside = False
     if not inside:
-        raise ValueError(f"{label}越出事务根: {path}")
+        raise ValueError(f"{label}越出指定根目录: {path}")
 
     current = root
     components = [] if os.path.normcase(path) == os.path.normcase(root) else os.path.relpath(

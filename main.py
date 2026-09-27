@@ -1,3 +1,4 @@
+from contextlib import ExitStack
 from task_progress import measured_phase, task_failure, defer_completion, observe_job, project_progress
 import json
 import os
@@ -183,13 +184,6 @@ class CompareToolApp(TaskProgressUI):
         if self._config.get("vcs_type", "git") not in SUPPORTED_VCS_TYPES:
             warn(f"配置中的 VCS 类型无效，已回退到 Git: {self._config.get('vcs_type')}")
             self._config["vcs_type"] = "git"
-        recovered = FileExporter.recover_transactions(
-            self._config.get("output_dir", ""),
-            include_direct_children=True,
-            include_nested_multi_runs=True,
-        )
-        if recovered:
-            warn(f"已自动恢复 {len(recovered)} 个上次中断的输出事务")
         self._default_exclude_rules = self._load_default_exclude_rules()
         raw_exclude_rules = self._config.get("project_exclude_rules", {})
         raw_display_options = self._config.get("project_display_options", {})
@@ -1951,14 +1945,14 @@ class CompareToolApp(TaskProgressUI):
             msg = (
                 f"本次输出批次名称：{batch_name}\n\n"
                 f"实际输出目录：\n{effective_output_dir}\n\n"
-                "若实际输出目录下已有同名报告或同项目导出内容，将自动覆盖/清空并重新生成。\n\n"
+                "若实际输出目录下已有同名报告或同项目导出内容，确认后会先删除这些旧结果，再重新生成；生成失败也不恢复旧结果。\n\n"
                 "请确认批次是否正确，是否继续生成？"
             )
         else:
             msg = (
                 "本次未设置输出批次名称，将直接输出到：\n"
                 f"{effective_output_dir}\n\n"
-                "若实际输出目录下已有同名报告或同项目导出内容，将自动覆盖/清空并重新生成。\n\n"
+                "若实际输出目录下已有同名报告或同项目导出内容，确认后会先删除这些旧结果，再重新生成；生成失败也不恢复旧结果。\n\n"
                 "是否继续生成？"
             )
         return messagebox.askyesno("确认输出批次", msg)
@@ -2319,6 +2313,7 @@ class CompareToolApp(TaskProgressUI):
             ignore_archive_root=False, recursive_archives=False):
         cleanup_vcs = None  # 持有引用以便 finally 清理临时目录
         detail_store = None
+        output_stack = ExitStack()
         try:
             trusted_output_root = (
                 trusted_output_root
@@ -2349,7 +2344,7 @@ class CompareToolApp(TaskProgressUI):
                 [report_path, instruction_target],
                 allow_descendant_outputs=vcs_type not in ("folder", "archive"),
             )
-            expected_target_states = FileExporter.prepare_target_states(
+            overwrite_count = output_stack.enter_context(FileExporter.output_session(
                 [
                     FileExporter._safe_join(old_export, project_name),
                     FileExporter._safe_join(new_export, project_name),
@@ -2357,9 +2352,10 @@ class CompareToolApp(TaskProgressUI):
                     instruction_target,
                 ],
                 trusted_root=trusted_output_root,
-            )
-            if isinstance(expected_target_states, dict):
-                task_metrics(overwrite_targets=sum(s.get("kind") != "missing" for s in expected_target_states.values()))
+                directory_targets=[FileExporter._safe_join(old_export, project_name),
+                                   FileExporter._safe_join(new_export, project_name)],
+            ))
+            task_metrics(overwrite_targets=overwrite_count)
             info(f"=== 开始生成比对报告 ===")
             info(f"project_path={project_path}, vcs_type={vcs_type}, old={old_version}, new={new_version}")
 
@@ -2474,10 +2470,9 @@ class CompareToolApp(TaskProgressUI):
                 )
                 FileExporter._replace_outputs(
                     export_pairs + [
-                        (report_stage, report_path),
                         (instruction_stage, instruction_target),
+                        (report_stage, report_path),
                     ],
-                    expected_target_states=expected_target_states,
                     trusted_root=trusted_output_root,
                     **({"expected_stage_states": expected_stage_states}
                        if expected_stage_states is not None else {}),
@@ -2499,14 +2494,17 @@ class CompareToolApp(TaskProgressUI):
             defer_completion(self, "_show_error", msg)
         finally:
             try:
-                if cleanup_vcs:
-                    cleanup_vcs.cleanup()
+                try:
+                    if cleanup_vcs:
+                        cleanup_vcs.cleanup()
+                finally:
+                    if detail_store is not None:
+                        try:
+                            detail_store.close()
+                        except OSError as exc:
+                            warn(f"清理 HTML 明细临时文件失败: {exc}")
             finally:
-                if detail_store is not None:
-                    try:
-                        detail_store.close()
-                    except OSError as exc:
-                        warn(f"清理 HTML 明细临时文件失败: {exc}")
+                output_stack.close()
 
     @observe_job("multi")
     def _do_generate_multi(
@@ -2514,6 +2512,7 @@ class CompareToolApp(TaskProgressUI):
     ):
         project_results = []
         detail_store = None
+        output_stack = ExitStack()
         stage_old_root = ""
         stage_new_root = ""
         report_stage = ""
@@ -2541,12 +2540,12 @@ class CompareToolApp(TaskProgressUI):
                         "folder", "archive"
                     ),
                 )
-            expected_target_states = FileExporter.prepare_target_states(
+            overwrite_count = output_stack.enter_context(FileExporter.output_session(
                 [old_export, new_export, report_path, instruction_target],
                 trusted_root=trusted_output_root,
-            )
-            if isinstance(expected_target_states, dict):
-                task_metrics(overwrite_targets=sum(s.get("kind") != "missing" for s in expected_target_states.values()))
+                directory_targets=[old_export, new_export],
+            ))
+            task_metrics(overwrite_targets=overwrite_count)
             task_metrics(project_count=len(tasks))
             info("=== 开始生成多项目总报告 ===")
             report_budget = {} if DiffEngine.report_limits_enabled() else None
@@ -2630,12 +2629,11 @@ class CompareToolApp(TaskProgressUI):
             export_pairs = [
                 (stage_old_root, old_export),
                 (stage_new_root, new_export),
-                (report_stage, report_path),
                 (instruction_stage, instruction_target),
+                (report_stage, report_path),
             ]
             FileExporter._replace_outputs(
                 export_pairs,
-                expected_target_states=expected_target_states,
                 trusted_root=trusted_output_root,
                 **({"expected_stage_states": expected_stage_states}
                    if expected_stage_states is not None else {}),
@@ -2651,21 +2649,24 @@ class CompareToolApp(TaskProgressUI):
             task_failure(e)
             defer_completion(self, "_show_error", msg)
         finally:
-            if detail_store is not None:
-                try:
-                    detail_store.close()
-                except OSError as exc:
-                    warn(f"清理 HTML 明细临时文件失败: {exc}")
-            for stage_root in (stage_old_root, stage_new_root):
-                FileExporter._cleanup_stage(stage_root)
-            FileExporter._cleanup_stage(report_stage)
-            FileExporter._cleanup_stage(instruction_stage)
-            for item in project_results:
-                if item.get("cleanup_needed"):
+            try:
+                if detail_store is not None:
                     try:
-                        item["vcs"].cleanup()
-                    except Exception:
-                        pass
+                        detail_store.close()
+                    except OSError as exc:
+                        warn(f"清理 HTML 明细临时文件失败: {exc}")
+                for stage_root in (stage_old_root, stage_new_root):
+                    FileExporter._cleanup_stage(stage_root)
+                FileExporter._cleanup_stage(report_stage)
+                FileExporter._cleanup_stage(instruction_stage)
+                for item in project_results:
+                    if item.get("cleanup_needed"):
+                        try:
+                            item["vcs"].cleanup()
+                        except Exception:
+                            pass
+            finally:
+                output_stack.close()
 
     def _on_complete(self, report_path, summary):
         self.progress.stop()

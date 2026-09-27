@@ -5,6 +5,7 @@
 import os
 import sys
 import datetime
+import threading
 
 # 日志文件路径：与配置 JSON 同目录
 if getattr(sys, 'frozen', False):
@@ -14,20 +15,31 @@ else:
 
 LOG_FILE = os.path.join(_LOG_DIR, "compareTool.log")
 _MAX_SIZE = 512 * 1024  # 512KB 后轮转
+_MAX_ENTRY_SIZE = 64 * 1024
+_write_lock = threading.Lock()
 
 
 def _write(level: str, msg: str):
     try:
-        # 超过大小限制则轮转
-        if os.path.isfile(LOG_FILE) and os.path.getsize(LOG_FILE) > _MAX_SIZE:
-            bak = LOG_FILE + ".bak"
-            if os.path.isfile(bak):
-                os.remove(bak)
-            os.rename(LOG_FILE, bak)
-
         ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        with open(LOG_FILE, "a", encoding="utf-8") as f:
-            f.write(f"[{ts}] [{level}] {msg}\n")
+        payload = f"[{ts}] [{level}] {msg}\n".encode("utf-8", errors="replace")
+        if len(payload) > _MAX_ENTRY_SIZE:
+            note = "\n[日志过长，已截断]\n".encode("utf-8")
+            payload = payload[:_MAX_ENTRY_SIZE - len(note)].decode("utf-8", errors="ignore").encode("utf-8") + note
+        with _write_lock:
+            # 在写入前轮转，单条超长报错也不能突破单文件限制。
+            if os.path.isfile(LOG_FILE) and os.path.getsize(LOG_FILE) + len(payload) > _MAX_SIZE:
+                backup = LOG_FILE + ".bak"
+                os.replace(LOG_FILE, backup)
+                if os.path.getsize(backup) > _MAX_SIZE:
+                    # 兼容旧版可能产生的超大单条日志，只保留末尾的诊断内容。
+                    with open(backup, "rb") as stream:
+                        stream.seek(-_MAX_SIZE, os.SEEK_END)
+                        tail = stream.read().decode("utf-8", errors="ignore").encode("utf-8")
+                    with open(backup, "wb") as stream:
+                        stream.write(tail)
+            with open(LOG_FILE, "ab") as f:
+                f.write(payload)
     except Exception:
         pass  # 日志写入失败不抛异常
 

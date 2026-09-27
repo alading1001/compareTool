@@ -345,48 +345,6 @@ class SnapshotAndTransactionTests(unittest.TestCase):
             with open(target, "rb") as stream:
                 self.assertEqual(b"original", stream.read())
 
-    def test_optimistic_target_state_prevents_stale_writer_overwrite(self):
-        with project_temp_dir() as root:
-            target = os.path.join(root, "output")
-            stage = os.path.join(root, ".comparetool_stage_stale")
-            write_bytes(os.path.join(target, "value.txt"), b"original")
-            write_bytes(os.path.join(stage, "value.txt"), b"stale")
-            expected = FileExporter.capture_target_states([target])
-            write_bytes(os.path.join(target, "value.txt"), b"newer")
-
-            with self.assertRaisesRegex(RuntimeError, "生成期间已被.*修改"):
-                FileExporter._replace_outputs(
-                    [(stage, target)], expected_target_states=expected
-                )
-            with open(os.path.join(target, "value.txt"), "rb") as stream:
-                self.assertEqual(b"newer", stream.read())
-
-    def test_recovery_identity_mismatch_preserves_user_replacement(self):
-        with project_temp_dir() as root:
-            token = "f" * 32
-            target = os.path.join(root, "output")
-            stage = tempfile.mkdtemp(prefix=".comparetool_stage_", dir=root)
-            write_bytes(os.path.join(target, "value.txt"), b"original")
-            write_bytes(os.path.join(stage, "value.txt"), b"staged")
-            state = {
-                "stage": stage,
-                "target": target,
-                "backup": f"{target}.comparetool_backup_{token}",
-                "had_target": True,
-                "installed": False,
-            }
-            journal = FileExporter._create_transaction_journal([state], token)
-            os.replace(target, state["backup"])
-            os.replace(stage, target)
-            write_bytes(os.path.join(target, "value.txt"), b"user replacement")
-
-            with self.assertRaisesRegex(RuntimeError, "身份或内容元数据已变化"):
-                FileExporter.recover_transactions(root, raise_on_error=True)
-            with open(os.path.join(target, "value.txt"), "rb") as stream:
-                self.assertEqual(b"user replacement", stream.read())
-            self.assertTrue(os.path.exists(state["backup"]))
-            self.assertTrue(os.path.exists(journal))
-
 
 if __name__ == "__main__":
     unittest.main()

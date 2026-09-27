@@ -858,60 +858,12 @@ class ArchiveAndTransactionTests(unittest.TestCase):
             finally:
                 vcs.cleanup()
 
-    def test_unowned_internal_looking_path_is_not_deleted(self):
-        with project_temp_dir() as root:
-            path = os.path.join(root, ".comparetool_stage_abcdefgh")
-            os.makedirs(path)
-            FileExporter._cleanup_orphan_stages(root)
-            self.assertTrue(os.path.isdir(path))
-
-    def test_startup_recovery_does_not_write_locks_into_unrelated_directories(self):
-        with project_temp_dir() as root:
-            unrelated = os.path.join(root, "unrelated-project")
-            os.makedirs(unrelated)
-            FileExporter.recover_transactions(root, include_direct_children=True)
-            self.assertEqual([], os.listdir(unrelated))
-            self.assertFalse(os.path.exists(
-                os.path.join(root, ".comparetool_transaction.lock")
-            ))
-
-    def test_startup_recovery_scans_only_strict_nested_multi_run_directories(self):
-        with project_temp_dir() as root:
-            batch = os.path.join(root, "20260828")
-            run_dir = os.path.join(batch, "multi_run_20260828_010203_456")
-            unrelated = os.path.join(batch, "user-project")
-            os.makedirs(run_dir)
-            os.makedirs(unrelated)
-
-            nested_orphan = tempfile.mkdtemp(
-                prefix=".comparetool_stage_", dir=run_dir
-            )
-            unrelated_orphan = tempfile.mkdtemp(
-                prefix=".comparetool_stage_", dir=unrelated
-            )
-            mark_owned(nested_orphan, owner_pid=-1)
-            mark_owned(unrelated_orphan, owner_pid=-1)
-
-            FileExporter.recover_transactions(
-                root,
-                include_direct_children=True,
-                include_nested_multi_runs=True,
-            )
-
-            self.assertFalse(os.path.exists(nested_orphan))
-            self.assertTrue(os.path.isdir(unrelated_orphan))
-            self.assertFalse(os.path.exists(os.path.join(
-                unrelated, ".comparetool_transaction.lock"
-            )))
-            self.assertFalse(os.path.exists(os.path.join(
-                batch, ".comparetool_transaction.lock"
-            )))
 
     def test_transaction_lock_rejects_second_writer(self):
         with project_temp_dir() as root:
-            with FileExporter._transaction_lock(root):
+            with FileExporter._output_lock(root):
                 with self.assertRaisesRegex(RuntimeError, "另一个 CompareTool"):
-                    with FileExporter._transaction_lock(root):
+                    with FileExporter._output_lock(root):
                         pass
 
     def test_archive_source_cannot_be_an_output_target(self):
