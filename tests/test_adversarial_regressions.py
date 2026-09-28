@@ -198,7 +198,7 @@ class ArchiveBoundaryTests(unittest.TestCase):
 
             self.assertFalse(os.path.exists(os.path.join(dest, "safe.txt")))
 
-    def test_zip_duplicate_file_target_is_rejected_before_writing(self):
+    def test_zip_conflicting_duplicate_never_overwrites_first_member(self):
         with project_temp_dir() as root:
             archive = os.path.join(root, "duplicate.zip")
             dest = os.path.join(root, "dest")
@@ -210,10 +210,11 @@ class ArchiveBoundaryTests(unittest.TestCase):
                     zf.writestr("same.txt", b"second")
 
             instance = ArchiveVCS.__new__(ArchiveVCS)
-            with self.assertRaisesRegex(ValueError, "同一 Windows 路径"):
+            with self.assertRaisesRegex(ValueError, "同名成员.*不一致"):
                 instance._extract_zip(archive, dest)
 
-            self.assertEqual([], os.listdir(dest))
+            with open(os.path.join(dest, "same.txt"), "rb") as extracted:
+                self.assertEqual(b"first", extracted.read())
 
     def test_zip_case_collision_is_rejected_before_writing(self):
         with project_temp_dir() as root:

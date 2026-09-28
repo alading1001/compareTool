@@ -203,7 +203,8 @@ class _Inspector:
                 # Only the rendered details are retained; these are not exports.
                 member.old_content = member.new_content = ''
             return dict(status='compared', members=result.files,
-                        counts=result.summary, filtered=bool(self.patterns))
+                        counts=result.summary, filtered=bool(self.patterns),
+                        duplicate_members=vcs.duplicate_members)
         finally:
             vcs.cleanup()
 

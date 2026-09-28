@@ -8,6 +8,14 @@
       格式变化 {{ detail.counts.format_changed_files }}，删除 {{ detail.counts.deleted_files }}，
       重命名 {{ detail.counts.renamed_files }}。嵌套包的内部数量单独显示。</div>
     {% if detail.filtered %}<p class="archive-note">包内按当前排除规则逐层筛选；不检查被排除成员。排除只影响本明细，不改写交付压缩包。</p>{% endif %}
+    {% if detail.duplicate_members %}
+    <p class="archive-note">以下同名重复成员已逐份读取并校验内容及文件属性一致，每个路径按一份比较；交付压缩包保持原样。</p>
+    {% for side, entries in detail.duplicate_members.items() %}
+      {% for name, count in entries.items() %}
+    <p class="archive-note">{{ '旧侧' if side == 'old' else '新侧' }}：{{ name }}（{{ count }} 份）</p>
+      {% endfor %}
+    {% endfor %}
+    {% endif %}
     {% if not detail.members %}<p class="archive-note">本层未发现可展示的成员差异；原始包的新增、删除、属性或字节变化仍然有效。</p>{% endif %}
     {% for member in detail.members %}
     <details class="archive-member">

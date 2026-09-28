@@ -5,6 +5,7 @@ import os
 import shutil
 import stat
 import tempfile
+import time
 from contextlib import contextmanager
 from diff_engine import DiffResult
 from logger import warn
@@ -402,10 +403,12 @@ class FileExporter:
                 cls._validate_trusted_paths(trusted_root, [target], "输出发布路径")
                 if os.path.lexists(target):
                     raise RuntimeError("生成期间输出目标被重新创建，请检查后重试: " + target)
-                # Windows rename 拒绝覆盖已有目标，不把并发创建的文件当作旧输出删除。
-                os.rename(stage, target)
-                installed.append((target, stage_identities[stage]))
                 expected = (expected_stage_states or {}).get(cls._target_state_key(stage))
+                cls._rename_output_with_retry(
+                    stage, target, trusted_root=trusted_root,
+                    stage_identity=stage_identities[stage], expected_state=expected,
+                )
+                installed.append((target, stage_identities[stage]))
                 if expected is not None:
                     cls._assert_identity(target, expected, "包内分析已发布内容")
         except BaseException:
@@ -423,6 +426,41 @@ class FileExporter:
                 except (OSError, RuntimeError) as exc:
                     warn(f"清理本次未完成输出失败: {target}: {exc}")
             raise
+
+    @classmethod
+    def _rename_output_with_retry(cls, stage, target, *, trusted_root,
+                                  stage_identity, expected_state=None):
+        """仅重试 Windows 发布时的短暂占用，不重新生成或覆盖外部目标。"""
+        delays = (0.1, 0.2, 0.4, 0.8)
+        for attempt in range(len(delays) + 1):
+            if attempt:
+                time.sleep(delays[attempt - 1])
+                # 等待扩大了外部改动窗口：重新核对路径和同一暂存对象，
+                # 递归报告仍沿用分析前的内容基线，不能接受新的基线。
+                cls._validate_trusted_paths(trusted_root, [stage, target], "输出发布路径")
+                metadata = os.lstat(stage)
+                if (metadata.st_dev, metadata.st_ino) != stage_identity:
+                    raise RuntimeError("等待发布期间输出暂存项已被替换: " + stage)
+                if os.path.lexists(target):
+                    raise RuntimeError("生成期间输出目标被重新创建，请检查后重试: " + target)
+                if expected_state is not None:
+                    cls._assert_identity(stage, expected_state, "包内分析待交付内容")
+            try:
+                # Windows rename 拒绝覆盖已有目标；禁止改为覆盖或复制回退。
+                os.rename(stage, target)
+            except OSError as exc:
+                if os.name != "nt" or getattr(exc, "winerror", None) not in (5, 32, 33):
+                    raise
+                if attempt == len(delays):
+                    raise RuntimeError(
+                        "无法发布本次输出：Windows 拒绝访问或文件被占用，"
+                        "短暂重试 4 次后仍失败。请关闭占用输出目录的程序后重试；"
+                        "若仍失败，请检查目录权限。\n目标：" + target + "\n原始错误：" + str(exc)
+                    ) from exc
+            else:
+                if attempt:
+                    warn(f"发布输出遇到 Windows 短暂访问错误，重试 {attempt} 次后成功: {target}")
+                return
 
     @classmethod
     @measured_phase('archive.stage_bind', '固定包内分析的待交付内容')

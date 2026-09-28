@@ -95,6 +95,8 @@ class ArchiveVCS(BaseVCS):
         self.old_root_prefix = ""
         self.new_root_prefix = ""
         self.comparison_note = ""
+        self.duplicate_members = {}
+        self._duplicate_members_by_source = {}
         self._preflighted_sources = set()
         self._tar_preflight_plans = {}
         self._sparse_patterns = (tuple(p.strip() for p in extraction_excludes if p.strip())
@@ -178,6 +180,15 @@ class ArchiveVCS(BaseVCS):
                         f"新比较根：{self.new_root_prefix}/。"
                         "报告、导出和排除规则均相对于上述目录。"
                     )
+                for side, archive in (("old", old_archive), ("new", new_archive)):
+                    duplicates = self._duplicate_members_by_source.get(os.path.abspath(archive), {})
+                    if duplicates:
+                        self.duplicate_members[side] = duplicates
+                        self.comparison_note += (
+                            f"{'旧' if side == 'old' else '新'}包有 {len(duplicates)} 个路径含同名重复成员，"
+                            f"共 {sum(count - 1 for count in duplicates.values())} 个额外副本；"
+                            "已完整校验内容及文件属性一致，每个路径按一份比较。"
+                        )
                 self._folder = FolderVCS(
                     old_root, new_root, snapshot=False
                 )
@@ -401,6 +412,8 @@ class ArchiveVCS(BaseVCS):
         decisions = {}
         retained = 0
         for relative, size in leaves:
+            if relative in decisions:
+                continue
             compared = relative[len(prefix)+1:] if prefix else relative
             keep = not any(self._match_glob_pattern(compared, rule, True)
                            for rule in self._sparse_patterns)
@@ -422,7 +435,7 @@ class ArchiveVCS(BaseVCS):
         # Overridden only by report inspection to share the expansion budget.
         pass
 
-    def _copy_archive_payload(self, source, target, size, archive_source, dest, path):
+    def _copy_archive_payload(self, source, target, size, archive_source, dest, path, *, digest=None):
         plan = getattr(self, "_sparse_plans", {}).get(self._archive_source_name(archive_source))
         keep = True
         if plan is not None:
@@ -434,11 +447,45 @@ class ArchiveVCS(BaseVCS):
         for block in iter(lambda: source.read(1024 * 1024), b""):
             count += len(block)
             self._consume_archive_bytes(len(block))
-            if keep and target.write(block) != len(block):
+            if digest is not None:
+                digest.update(block)
+            if keep and target is not None and target.write(block) != len(block):
                 raise OSError("压缩包成员写入不完整")
         if count != size:
             raise ValueError("压缩包成员实际读取长度与声明不一致")
         # Excluded targets intentionally remain empty until owned-tree cleanup.
+
+    def _extract_file_member(self, source, size, archive_source, dest, target,
+                             directory_cache, name, attributes, duplicates, seen):
+        """只对重名候选流式摘要；每份正文仍读取一次并计入展开预算。"""
+        previous = seen.get(name)
+        if previous is not None:
+            old_size, old_attributes, old_digest, count, actual_target = previous
+            if (size, attributes) != (old_size, old_attributes):
+                raise ValueError("压缩包同名成员内容长度或文件属性不一致，已拒绝解压: " + name)
+            digest = hashlib.sha256()
+            self._copy_archive_payload(source, None, size, archive_source, dest, actual_target,
+                                       digest=digest)
+            if digest.digest() != old_digest:
+                raise ValueError("压缩包同名成员内容不一致，已拒绝解压: " + name)
+            seen[name] = (old_size, old_attributes, old_digest, count + 1, actual_target)
+            return actual_target
+        digest = hashlib.sha256() if name in duplicates else None
+        target, dst = self._open_archive_member_target(dest, target, directory_cache)
+        with dst:
+            self._copy_archive_payload(source, dst, size, archive_source, dest, target,
+                                       digest=digest)
+        if digest is not None:
+            seen[name] = (size, attributes, digest.digest(), 1, target)
+        return target
+
+    def _remember_duplicate_members(self, source, seen):
+        # Direct extractor callers need not have run __init__.
+        if not hasattr(self, "_duplicate_members_by_source"):
+            self._duplicate_members_by_source = {}
+        self._duplicate_members_by_source[self._archive_source_name(source)] = {
+            name: entry[3] for name, entry in seen.items() if entry[3] > 1
+        }
 
     def _preflight_archive_size(self, source) -> int:
         # All members remain subject to safety preflight, even if their bodies
@@ -493,11 +540,12 @@ class ArchiveVCS(BaseVCS):
                 decoded_members = [
                     (info, self._fix_zip_filename(info)) for info in members
                 ]
-                self._validate_archive_targets(
+                duplicates = self._validate_archive_targets(
                     dest,
                     [(name, info.is_dir()) for info, name in decoded_members],
                 )
                 directory_cache = {}
+                seen = {}
                 for info, name in decoded_members:
                     unix_mode = info.external_attr >> 16
                     file_type = stat.S_IFMT(unix_mode)
@@ -517,12 +565,11 @@ class ArchiveVCS(BaseVCS):
                         # 先确认成员流可读，再创建目标。若加密/损坏 ZIP 在
                         # zf.open() 抛错，不能遗留未关闭的目标句柄和空文件。
                         with zf.open(info) as src:
-                            target, dst = self._open_archive_member_target(
-                                dest, target, directory_cache
+                            target = self._extract_file_member(
+                                src, info.file_size, source, dest, target, directory_cache,
+                                name, (info.create_system, info.external_attr, info.internal_attr),
+                                duplicates, seen,
                             )
-                            with dst:
-                                self._copy_archive_payload(src, dst, info.file_size,
-                                                           source, dest, target)
                         unix_mode = info.external_attr >> 16
                         file_type = stat.S_IFMT(unix_mode)
                         if (
@@ -534,6 +581,7 @@ class ArchiveVCS(BaseVCS):
                                 "mode": f"{stat.S_IMODE(unix_mode):04o}",
                                 "executable": bool(unix_mode & 0o111),
                             }
+                self._remember_duplicate_members(source, seen)
         finally:
             source.seek(0)
 
@@ -567,7 +615,7 @@ class ArchiveVCS(BaseVCS):
         if total_size != planned_size:
             raise ValueError("TAR 预检展开大小与成员计划不一致")
         self._ensure_free_space(dest, self._storage_needed(source, total_size))
-        self._validate_archive_targets(dest, [(m.name, m.is_dir) for m in members])
+        duplicates = self._validate_archive_targets(dest, [(m.name, m.is_dir) for m in members])
         if total_size / archive_size > self.MAX_COMPRESSION_RATIO:
             raise ValueError(f"压缩包展开比例过高，已拒绝解压: {path}")
         mode = 'r:gz' if path.lower().endswith(('.gz', '.tgz')) else (
@@ -576,6 +624,7 @@ class ArchiveVCS(BaseVCS):
         try:
             with tarfile.open(fileobj=_BorrowedBinaryStream(source), mode=mode) as tf:
                 directory_cache = {}
+                seen = {}
                 index = 0
                 # Read each header and immediately consume its body. The same
                 # gzip/bzip2 reader as before now moves forward only; getmembers
@@ -604,15 +653,17 @@ class ArchiveVCS(BaseVCS):
                     if src is None:
                         raise ValueError(f"无法读取压缩包成员: {member.name}")
                     with src:
-                        target, dst = self._open_archive_member_target(dest, target, directory_cache)
-                        with dst:
-                            self._copy_archive_payload(src, dst, member.size,
-                                                       source, dest, target)
+                        target = self._extract_file_member(
+                            src, member.size, source, dest, target, directory_cache,
+                            member.name, (stat.S_IMODE(member.mode), member.uid, member.gid,
+                                          member.uname, member.gname), duplicates, seen,
+                        )
                     relative = os.path.relpath(target, dest).replace("\\", "/")
                     metadata[relative] = {"mode": f"{stat.S_IMODE(member.mode):04o}",
                                           "executable": bool(member.mode & 0o111)}
                 if index != len(members):
                     raise ValueError("TAR 提取提前结束，缺少预检成员")
+                self._remember_duplicate_members(source, seen)
         finally:
             source.seek(0)
 
@@ -643,11 +694,12 @@ class ArchiveVCS(BaseVCS):
                     check_member_ratio=False,
                 )
                 self._ensure_free_space(dest, total_size)
-                self._validate_archive_targets(
+                duplicates = self._validate_archive_targets(
                     dest,
                     [(member.name, member.isdir()) for member in members],
                 )
                 directory_cache = {}
+                seen = {}
                 for member in members:
                     if self._is_root_directory(member.name, member.isdir()):
                         continue
@@ -672,16 +724,18 @@ class ArchiveVCS(BaseVCS):
                     src = tf.extractfile(member)
                     if src is None:
                         raise ValueError(f"无法读取压缩包成员: {member.name}")
-                    target, dst = self._open_archive_member_target(
-                        dest, target, directory_cache
-                    )
-                    with src, dst:
-                        self._copy_archive_payload(src, dst, member.size, source, dest, target)
+                    with src:
+                        target = self._extract_file_member(
+                            src, member.size, source, dest, target, directory_cache,
+                            member.name, (stat.S_IMODE(member.mode), member.uid, member.gid,
+                                          member.uname, member.gname), duplicates, seen,
+                        )
                     relative = os.path.relpath(target, dest).replace("\\", "/")
                     metadata[relative] = {
                         "mode": f"{stat.S_IMODE(member.mode):04o}",
                         "executable": bool(member.mode & 0o111),
                     }
+                self._remember_duplicate_members(source, seen)
         finally:
             source.seek(0)
 
@@ -1168,8 +1222,9 @@ class ArchiveVCS(BaseVCS):
 
     @classmethod
     def _validate_archive_targets(cls, dest: str, members):
-        """在写盘前拒绝重复、大小写碰撞和文件/目录前缀冲突。"""
+        """拒绝路径碰撞；返回名称逐字一致、还需核对正文的重复文件候选。"""
         targets = {}
+        duplicates = set()
         for name, is_dir in members:
             if cls._is_root_directory(name, is_dir):
                 continue
@@ -1181,6 +1236,9 @@ class ArchiveVCS(BaseVCS):
             if previous is not None:
                 previous_name, previous_is_dir, previous_normalized = previous
                 if is_dir and previous_is_dir and normalized_name == previous_normalized:
+                    continue
+                if not is_dir and not previous_is_dir and name == previous_name:
+                    duplicates.add(name)
                     continue
                 raise ValueError(
                     "压缩包成员会写入同一 Windows 路径，已拒绝解压: "
@@ -1198,6 +1256,7 @@ class ArchiveVCS(BaseVCS):
                     "压缩包成员存在文件/目录前缀冲突，已拒绝解压: "
                     f"{name} / {other_name}"
                 )
+        return frozenset(duplicates)
 
     @classmethod
     def _validate_archive_limits(cls, path: str, members, check_member_ratio: bool = True):
