@@ -837,6 +837,14 @@ class ArchiveVCS(BaseVCS):
                 effective = dict(global_pax)
                 effective.update(pending_pax)
                 name = effective.get("path") or pending_name or member.name
+                plan_name = name
+                if member.isdir():
+                    # 与 tarfile 的目录名解析一致：PAX 去除全部末尾斜杠，
+                    # GNU 长名称只去除一个；原名称仍用于路径安全校验。
+                    if effective.get("path"):
+                        plan_name = name.rstrip("/")
+                    elif pending_name is not None:
+                        plan_name = name.removesuffix("/")
                 pending_name = None
                 pending_pax = {}
                 if "size" in effective:
@@ -864,7 +872,7 @@ class ArchiveVCS(BaseVCS):
                         )
                 targets.append((name, is_dir))
                 if member_plan is not None:
-                    member_plan.append(_TarMemberPlan(name, size, member.type,
+                    member_plan.append(_TarMemberPlan(plan_name, size, member.type,
                                                       stat.S_IMODE(member.mode),
                                                       member.type == tarfile.GNUTYPE_SPARSE
                                                       or any(k.startswith("GNU.sparse.") for k in effective)))

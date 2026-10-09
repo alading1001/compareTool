@@ -69,6 +69,55 @@ class ArchiveStreamingTests(WorkflowCase):
             with self.assertRaisesRegex(ValueError,'预检不一致'):
                 ArchiveVCS(*paths)
 
+    def test_long_tar_directories_preserve_comparison_and_export_bytes(self):
+        directory = 'ODS供数程序源码/' + 'long-directory/' * 5 + '20260910/'
+        name = directory + 'value.sh'
+        for archive_format in (tarfile.GNU_FORMAT, tarfile.PAX_FORMAT, tarfile.USTAR_FORMAT):
+            for suffix, mode in (('.tar', 'w'), ('.tar.gz', 'w:gz'),
+                                 ('.tgz', 'w:gz'), ('.tar.bz2', 'w:bz2'),
+                                 ('.tbz2', 'w:bz2')):
+                with self.subTest(format=archive_format, suffix=suffix):
+                    paths = []
+                    for side, data in (('old', b'old\n'), ('new', b'new\n')):
+                        path = self.root / (side + suffix)
+                        paths.append(str(path))
+                        with tarfile.open(path, mode, format=archive_format) as archive:
+                            # 真实故障来自扩展长目录名的末尾斜杠；空目录和多个
+                            # 末尾斜杠也须按标准库语义解析，文件正文仍保持原字节。
+                            for folder in (directory, directory + 'empty///'):
+                                item = tarfile.TarInfo(folder)
+                                item.type = tarfile.DIRTYPE
+                                item.mode = 0o755
+                                archive.addfile(item)
+                            item = tarfile.TarInfo(name)
+                            item.size, item.mode = len(data), 0o755
+                            archive.addfile(item, io.BytesIO(data))
+                    vcs, result = self.result(paths, [])
+                    self.assertEqual([name], [item.file_path for item in result.files])
+                    self.assertEqual('0755', result.files[0].new_mode)
+                    self.assertTrue((Path(vcs._tmp_new) / directory / 'empty').is_dir())
+                    output = self.root / f'export-{archive_format}-{suffix[1:]}'
+                    FileExporter(result, vcs).export(str(output / 'old'), str(output / 'new'))
+                    self.assertEqual(b'old\n', (output / 'old' / name).read_bytes())
+                    self.assertEqual(b'new\n', (output / 'new' / name).read_bytes())
+
+    def test_extended_directory_names_are_validated_before_normalization(self):
+        for archive_format in (tarfile.GNU_FORMAT, tarfile.PAX_FORMAT):
+            with self.subTest(format=archive_format):
+                path = self.root / f'unsafe-directory-{archive_format}.tar'
+                with tarfile.open(path, 'w', format=archive_format) as archive:
+                    if archive_format == tarfile.GNU_FORMAT:
+                        extension = tarfile.TarInfo('././@LongLink')
+                        extension.type, extension.size = tarfile.GNUTYPE_LONGNAME, 2
+                        archive.addfile(extension, io.BytesIO(b'/\0'))
+                    directory = tarfile.TarInfo('placeholder')
+                    directory.type = tarfile.DIRTYPE
+                    if archive_format == tarfile.PAX_FORMAT:
+                        directory.pax_headers = {'path': '/'}
+                    archive.addfile(directory)
+                with self.assertRaisesRegex(ValueError, '不安全路径'):
+                    ArchiveVCS(str(path), str(path))
+
     def test_discard_keeps_names_and_all_visible_exports_identical(self):
         for suffix in ('.zip','.tar','.tar.gz','.tar.bz2'):
             paths=self.archives({'ignored/A.class':b'old'*1000,'keep.txt':b'old'},

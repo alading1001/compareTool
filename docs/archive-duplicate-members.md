@@ -1,6 +1,6 @@
-# 同名且内容相同的归档成员兼容
+# 同名且内容相同的归档成员兼容（2026-09-28 验证记录）
 
-日期：2026-09-28。修改覆盖共用归档解包器及报告说明；不修改业务项目的构建配置或原始交付包。已完成源码回归、正式重新打包及新 EXE 窗口验证；构建身份和范围见文末。用户安装目录中的 EXE 未替换。
+本文记录 2026-09-28 的同名成员兼容实现及当时的发布状态。修改覆盖共用归档解包器及报告说明；不修改业务项目的构建配置或原始交付包。当时已完成源码回归、正式重新打包及新 EXE 窗口验证，尚未替换用户安装副本。后续 TAR 长目录修复及 2026-10-09 安装更新见 [TAR 目录名兼容](tar-directory-compatibility.md)。
 
 ## 实际触发样本
 
@@ -69,4 +69,4 @@
 
 上述小样本计时仅证明打包程序能完成实际流程，不是性能基准。Windows 短暂占用及持续占用的注入验证仍以 [发布重试源码测试](output-regeneration.md#发布短暂占用重试2026-09-28) 为证据，本次 EXE 没有人工注入文件占用，也没有重跑历史 EXE 的全部六模式矩阵。
 
-发布证据在 `.tmp/closeout_20260928_jar/`：`build.log`、`release-verification.json`、`exe-single-dialog.txt`、`exe-multi-dialog.txt`、`exe-task-logs/` 和 `output/`。构建工具的条件/可选模块告警保留在构建目录，不影响本轮已验证的启动和生成流程。旧正式包已归档到 `dist/archive/20260928_085648_release_build_smi_893s/`。`D:\java\applications\CompareTool\CompareTool.exe` 仍为用户安装副本；本次只更新正式 `dist` 交付物，不自动替换安装目录。后续 Git 提交不会改写这份 EXE 的构建父提交和 dirty 字段，以源码指纹确定实际代码内容。
+当时的发布证据在 `.tmp/closeout_20260928_jar/`：`build.log`、`release-verification.json`、`exe-single-dialog.txt`、`exe-multi-dialog.txt`、`exe-task-logs/` 和 `output/`。构建工具的条件/可选模块告警保留在构建目录，不影响该轮已验证的启动和生成流程。旧正式包归档到 `dist/archive/20260928_085648_release_build_smi_893s/`。该轮只更新正式 `dist` 交付物，未替换用户安装副本。后续 Git 提交不会改写该份 EXE 的构建父提交和 dirty 字段，以源码指纹确定实际代码内容。
