@@ -44,6 +44,8 @@
 | 文档 | changed-and-verified | README、合同、端点规格、包内文档和说明书统一；历史记录保留日期边界 |
 | 规则 | changed-and-verified | AGENTS.md 为项目规则源，CLAUDE.md 通过 `@AGENTS.md` 同源，无重复规则副本 |
 | 记忆 | out-of-scope | generated-read-only；只用作旧安装路径线索，没有写入生成记忆 |
-| 工作区 | verified-current | 单工作树；本次证据、构建归档及临时验证副本已盘点并保留 |
+| 工作区 | changed-and-verified | 单工作树；用户确认后按白名单清场，必要证据、交付物及旧版归档保留 |
 
-清场仍为 pending：`.tmp/review_fixes_20261013/`、审查证据及前阶段验证现场保留供复核；依 neat-freak 的最终汇报后确认规则，未自动删除。历史构建归档属于回退交付物，不列为删除候选。未消除的验证 warning 仅为前阶段的 Windows 符号链接权限跳过。
+2026-10-13 用户在最终汇报后明确确认清场，已按 26 项白名单删除 1,285 个临时文件，共 196,215,519 字节；验证源码以 6 份逐文件核验的压缩快照保留，连同清场凭证约 53 MB，净减少约 137 MiB。删除前后 1,592 个保留文件的 SHA-256 一致，包含正式交付物、旧版归档、配置、报告、日志、截图及压缩快照。此次随后只补写本段清场状态及清场凭证，应用源码和构建不变。
+
+安装版仍在运行的 `.tmp/review_fixes_20261013/installed-launch-temp/` 属于当前运行依赖，保留供程序正常退出时回收。没有清理更早的验收现场或历史构建归档。清场清单、源码快照与完整摘要位于 `.tmp/cleanup_20261013_best_effort/`，摘要结果见 [清场凭证](../artifacts/export-best-effort-cleanup-20261013.json)。前述发布凭证中的 pending 状态保留为发布时快照，以本节后续清场结果为准。未消除的验证 warning 仅为前阶段的 Windows 符号链接权限跳过。

@@ -1,0 +1,96 @@
+{
+  "status": "PASS",
+  "date": "2026-10-13",
+  "authorized_targets": 26,
+  "deleted_files": 1285,
+  "deleted_bytes": 196215519,
+  "retained_files_verified": 1592,
+  "retained_hashes_unchanged": true,
+  "source_snapshots": 6,
+  "source_snapshots_verified": true,
+  "compressed_evidence_and_receipt_bytes": 53037917,
+  "approximate_net_reduction_bytes": 143177602,
+  "application_build": "aa91230da5",
+  "application_source_unchanged": true,
+  "installed_application_and_config_preserved": true,
+  "old_archives_preserved": true,
+  "active_extraction_preserved": "D:\\AI\\project\\compareTool_myself\\.tmp\\review_fixes_20261013\\installed-launch-temp",
+  "pre_cleanup_commit": "5dac52f5c61ada2239e4a1c229538b962d74f43e",
+  "cleanup_evidence_directory": "D:\\AI\\project\\compareTool_myself\\.tmp\\cleanup_20261013_best_effort",
+  "deleted_paths": [
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\best_effort_full_20261012\\source",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\best_effort_full_20261012\\runtime",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\best_effort_verify_20261012\\final",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\best_effort_verify_20261012\\source0",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\best_effort_verify_20261012\\source1",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\best_effort_verify_20261012\\source2",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\best_effort_verify_20261012\\runtime0",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\best_effort_verify_20261012\\runtime1",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\best_effort_verify_20261012\\runtime2",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\best_effort_verify_20261012\\runtime_final",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\review_fixes_20261013\\source",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\review_fixes_20261013\\exe-smoke",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\review_fixes_20261013\\smoke-launch-temp",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\best_effort_preview_20261013\\edge-profile",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\best_effort_preview_20261013\\edge-profile-absolute",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\best_effort_preview_20261013\\runtime",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\best_effort_atmv_20261012\\runtime",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\best_effort_test_runtime",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\best_effort_workflow_runtime",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\release_build_q5mgpsr9",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\release_build_s4s_66wp",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\review_fixes_20261013\\release-packaged.pyz",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\review_fixes_20261013\\smoke-launch.png",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\review_fixes_20261013\\commit_message.txt",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\best_effort_docs.py",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\closeout_docs_20261013.py"
+  ],
+  "source_archives": [
+    {
+      "source": "D:\\AI\\project\\compareTool_myself\\.tmp\\best_effort_full_20261012\\source",
+      "archive": "D:\\AI\\project\\compareTool_myself\\.tmp\\cleanup_20261013_best_effort\\best_effort_full_20261012__source.zip",
+      "archive_sha256": "2345d2432f235c2d83e9c3ca87b83b26c055db0d1948fc0761bb1a3857f5c4c6",
+      "files": 177,
+      "bytes": 8743982
+    },
+    {
+      "source": "D:\\AI\\project\\compareTool_myself\\.tmp\\best_effort_verify_20261012\\final",
+      "archive": "D:\\AI\\project\\compareTool_myself\\.tmp\\cleanup_20261013_best_effort\\best_effort_verify_20261012__final.zip",
+      "archive_sha256": "e282efedf5c3417c8c88404717fcaaae00e0109ec7cf42fc3b453aafd82e7dec",
+      "files": 176,
+      "bytes": 8750901
+    },
+    {
+      "source": "D:\\AI\\project\\compareTool_myself\\.tmp\\best_effort_verify_20261012\\source0",
+      "archive": "D:\\AI\\project\\compareTool_myself\\.tmp\\cleanup_20261013_best_effort\\best_effort_verify_20261012__source0.zip",
+      "archive_sha256": "440f974f0c651a1de956776ad26a73fafb4fde330227713912670a03775eb2cb",
+      "files": 151,
+      "bytes": 8525003
+    },
+    {
+      "source": "D:\\AI\\project\\compareTool_myself\\.tmp\\best_effort_verify_20261012\\source1",
+      "archive": "D:\\AI\\project\\compareTool_myself\\.tmp\\cleanup_20261013_best_effort\\best_effort_verify_20261012__source1.zip",
+      "archive_sha256": "de402f7fcd65501f65d1a347106f958d7e46f6fa6e30950110d672993c79d1cf",
+      "files": 151,
+      "bytes": 8476901
+    },
+    {
+      "source": "D:\\AI\\project\\compareTool_myself\\.tmp\\best_effort_verify_20261012\\source2",
+      "archive": "D:\\AI\\project\\compareTool_myself\\.tmp\\cleanup_20261013_best_effort\\best_effort_verify_20261012__source2.zip",
+      "archive_sha256": "b6022ec10f9a075b84c9b7755dd8bbe05e1c014d0b61e9c46bf155c8c47a8b34",
+      "files": 149,
+      "bytes": 8486244
+    },
+    {
+      "source": "D:\\AI\\project\\compareTool_myself\\.tmp\\review_fixes_20261013\\source",
+      "archive": "D:\\AI\\project\\compareTool_myself\\.tmp\\cleanup_20261013_best_effort\\review_fixes_20261013__source.zip",
+      "archive_sha256": "44f269dbef5f0e557784bd324ffce57e3db952f1cd6e0d073d1daaa69d02087d",
+      "files": 173,
+      "bytes": 9153578
+    }
+  ],
+  "authorization": "可以清场了，把这次不需要的临时文件清理掉，必要的验证证据、交付物和旧版归档保留。",
+  "post_audit_documentation_update": "docs/export-best-effort-verification.md cleanup status; original publication evidence remains unchanged",
+  "retained_documentation_before_sha256": "ad072a1d960661aa651d233210fd3ca9086521b4727e49aad73c50334e025a8a",
+  "retained_documentation_after_sha256": "2c5e4b6cb22d590519d11496d2b1793cd026c225477fa182371f08dc25ed2a31"
+}
