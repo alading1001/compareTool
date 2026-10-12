@@ -167,7 +167,7 @@ class OutputRegenerationTests(unittest.TestCase):
             pass
         self.assertEqual(b'must survive', saved.read_bytes())
 
-    def test_real_worker_deletes_before_comparison_and_failure_leaves_no_report(self):
+    def test_real_worker_deletes_before_comparison_and_failure_outputs_diagnostic_report(self):
         old, new = self.root / 'input-old', self.root / 'input-new'
         old.mkdir()
         new.mkdir()
@@ -180,8 +180,11 @@ class OutputRegenerationTests(unittest.TestCase):
             app._do_generate(str(new), 'folder', str(old), str(new), 'Demo', [], True, True,
                              str(self.targets[-1]), str(self.output / 'oldVersion'),
                              str(self.output / 'newVersion'), str(self.output))
-        self.assertFalse(app._last_task_record['success'])
-        self.assertTrue(all(not p.exists() for p in self.targets))
+        self.assertTrue(app._last_task_record['success'])
+        self.assertEqual('partial', app._last_task_record['status'])
+        self.assertIn('comparison failed after clear', self.targets[-1].read_text(encoding='utf-8'))
+        self.assertTrue(all(p.is_dir() and not list(p.iterdir()) for p in self.targets[:2]))
+        self.assertIn('交付未完成', self.targets[2].read_text(encoding='utf-8-sig'))
 
 
 if __name__ == '__main__':

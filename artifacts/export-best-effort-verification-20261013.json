@@ -1,0 +1,147 @@
+{
+  "date": "2026-10-13",
+  "scope": "Windows source verification; no EXE build or install",
+  "tests": {
+    "unique": 576,
+    "passed": 575,
+    "skipped": 1,
+    "remaining_failures": 0,
+    "full_run_logs": [
+      "D:\\AI\\project\\compareTool_myself\\.tmp\\best_effort_verify_20261012\\group0.log",
+      "D:\\AI\\project\\compareTool_myself\\.tmp\\best_effort_verify_20261012\\group1.log",
+      "D:\\AI\\project\\compareTool_myself\\.tmp\\best_effort_verify_20261012\\group2.log"
+    ],
+    "final_targeted_count": 60,
+    "final_targeted_log": "D:\\AI\\project\\compareTool_myself\\.tmp\\best_effort_verify_20261012\\final_targeted.log",
+    "skipped_reason": "Windows does not grant the test process permission to create a file symbolic link"
+  },
+  "atmv": {
+    "success": true,
+    "seconds": 233.1,
+    "summary": {
+      "issue_count": 0,
+      "delivery_incomplete": false,
+      "failed_items": 0,
+      "total_files": 153,
+      "added_files": 81,
+      "modified_files": 9,
+      "format_changed_files": 0,
+      "deleted_files": 62,
+      "renamed_files": 1,
+      "required_directory_deletions": 0,
+      "total_added_lines": 3124,
+      "total_deleted_lines": 22,
+      "line_counts_complete": false,
+      "skipped_line_count_files": 127,
+      "report_omitted_files": 0,
+      "manifest_listed_files": 153,
+      "manifest_omitted_files": 0
+    },
+    "note": "重命名身份不确定的 1 个文件组已降级：按组内首次选中变更之前和末次选中变更之后的真实路径比较，旧路径删除、新路径新增，同路径按修改处理；未猜测重命名。",
+    "checked_jar_endpoints": 131,
+    "new_xerces": [
+      "hn_shepherd_app/WEB-INF/lib/xercesImpl-2.12.0.SP05.jar",
+      "hn_shepherd_web/WEB-INF/lib/xercesImpl-2.12.0.SP05.jar",
+      "koala/koala_web/WEB-INF/lib/xercesImpl-2.12.0.SP05.jar"
+    ],
+    "report": "D:\\AI\\project\\compareTool_myself\\.tmp\\best_effort_atmv_20261012\\output\\report.html"
+  },
+  "atmv_byte_evidence": "D:\\AI\\project\\compareTool_myself\\.tmp\\best_effort_atmv_20261012\\verification.json",
+  "browser": {
+    "input": "D:\\AI\\project\\compareTool_myself\\.tmp\\best_effort_preview_20261013\\output\\report.html",
+    "checks": {
+      "partialBanner": true,
+      "escapedReason": true,
+      "onlyDeliveredFiles": true,
+      "detailsOpen": true
+    },
+    "scope": "Real headless Edge. CDP keyboard/mouse events; snapshots are not whole-system peak memory.",
+    "browser": {
+      "Browser": "Edg/155.0.4283.45",
+      "Protocol-Version": "1.3",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36 Edg/155.0.0.0",
+      "V8-Version": "15.5.9.4",
+      "WebKit-Version": "537.36 (@50f24ef2aa5369a074b8888b7db82d9c0652d642)",
+      "webSocketDebuggerUrl": "ws://127.0.0.1:49261/devtools/browser/95e1e3ae-7288-424f-9b9b-cf8f1d6f4f0a"
+    },
+    "state": {
+      "files": [
+        "good.txt"
+      ],
+      "banner": "Demo：已导出，含交付未完成项\n\n以下未完成项不计入已交付文件清单，不生成对应上线操作。请补齐后再按完整版本上线。\n\n未完成 · 文件导出 unavailable.jar：验证样例：该文件无法读取 <detail & reason>",
+      "bounds": {
+        "x": 0,
+        "y": 112,
+        "width": 1250,
+        "height": 84,
+        "top": 112,
+        "right": 1250,
+        "bottom": 196,
+        "left": 0
+      },
+      "bodyHeight": 805,
+      "viewport": 805
+    },
+    "success": true
+  },
+  "manual": {
+    "pages": 17,
+    "bookmarks": 17,
+    "toc_links": 11,
+    "missing_glyphs": [],
+    "embedded_fonts": {
+      "/AAAAAA+MicrosoftYaHei-0": true,
+      "/AAAAAB+MicrosoftYaHei-0": true,
+      "/AAAAAC+MicrosoftYaHei-0": true,
+      "/AAAAAA+MicrosoftYaHei-Bold-0": true,
+      "/AAAAAB+MicrosoftYaHei-Bold-0": true
+    },
+    "out_of_bounds_characters": 0,
+    "bytes": 483534,
+    "sha256": "b5d7e3c1f8f77a93a35e3641ac6588d394a07251625d77dedaf74990f5ce8df4"
+  },
+  "visual_manual_pages": [
+    3,
+    4,
+    6,
+    7,
+    16,
+    17
+  ],
+  "source_sha256": {
+    "app_version.py": "699f3d8ae489c646e5dad3157ffcb38a6a984a53a9093f883834b3e3d7e10571",
+    "archive_endpoints.py": "7b0739ad4ab6ffa34b516b07e4011e17678b449335998d25c70f14e4dd291058",
+    "archive_report.py": "aebe5698ee96bd91e5220a0291360b4965b48263563f646110339523d6d17c83",
+    "delivery_instructions.py": "14a6e45e46e517ea7bb841313e118ee20cd27a1bf3e702a1cc18b36f5bb02803",
+    "diff_engine.py": "089218181b6ed18c73355740b979417ec1ea541ede77cbb73736e126b445f29c",
+    "file_exporter.py": "351b40fd25886d1192d423361bf23413c00d9a60602509f593d2cf5e6815127f",
+    "html_details.py": "1b0c13e07fa7e7188dc6bbf972708cdebfd9bd3cbcce335c50a6487ccac7e325",
+    "logger.py": "8e683db696c101111d917914dc1526305a6d29b03e7a1745e9f5e9ce95c91926",
+    "main.py": "d325410ecaedf5eee7dd230e05b73f0ec03aedc180ddd3bd47047542f9441f18",
+    "path_safety.py": "3e5829d0436eb7b3fea2712061d26f71f3d163df924997ca1da7774ac10e6ae3",
+    "report_generator.py": "9ae1fbc7760760f21d073c0b2a1e4ec70c70bf35d1f2126b5ddd2df8c7189fcf",
+    "stable_diff.py": "86802ac128926313105b909a22acb8050eca41c84eafa5fc4577abdf67ca2d43",
+    "stage_ownership.py": "cd24ca3a26d48f3637005387f0ddf0a980b33911c09db1f4d2b759c4a0f8b787",
+    "task_progress.py": "6fec0ef94cdfa865475a5877338129574206f24232032647b3cb050b8ec753ae",
+    "templates/archive_details.html": "d108d33a12e7fa3d4cb16abc135df955472613cb1c4816b23ff07c00d7766d8e",
+    "templates/archive_script.html": "ecd2ae5d8bd844294d636282fa0a70f3bbb85006a1d0f070d68a2364db8cd1ef",
+    "templates/archive_style.html": "785b7a3e8a15f66979bc60792918017bad7ed4246ae695da09ad015a8650c8a4",
+    "templates/file_detail.html": "71997345869e21bcc964dca2d0a0b9584972ec208178db86a36cef3d4108adad",
+    "templates/multi_report.html": "9e1bfccb747dc6379e8c31f92a4808ae632592eb23e921369ab2439cf4fa18af",
+    "templates/report.html": "539395aecf3f914ceac01fe3882fa9d0eeb1be5cd1057730c4b76d9ba56d1fb4",
+    "templates/result_issues.html": "d1a1f92b6e2bfcd0f761744dbdaff4273740798aded428ef7c8c22f04550683b",
+    "ui_progress.py": "743f4917a187f00145c94d78640daaca21577c13a368923f486d59c2bf8a865a",
+    "vcs/__init__.py": "8fb86391432641e7b720313b271eecf44f5f994a4491288fd2b9c78ccb754f86",
+    "vcs/archive_vcs.py": "831ddae34674e0d80c2dd943fea196af17cd6527891415f6f2d52847b05cf41b",
+    "vcs/base.py": "a2ba203dcfc67ce6f41a1f1be0e28000ee19eae1e6c7c2e27c8dc1da70dfccea",
+    "vcs/folder_vcs.py": "2ca600e407bbd6b9a33fa5802621a2190419016da87b910bcfe3279ba2637023",
+    "vcs/git_batch.py": "1eec47f4dd0cf72c9004a0db6a3608b0ad9fb81751a0e0c7e817f5383a091e69",
+    "vcs/git_checkout.py": "213ba2ca165aa34487a2fe85dbb6643366c9156e475047b2404b859f7115b092",
+    "vcs/git_probe_batch.py": "ebd05e0cef9a02ba6abeb2f4611acdfd39ffa32e36b912b2417cb1197756ddd4",
+    "vcs/git_vcs.py": "081f2c3c6c0581b6455118e62dd93175a981102389a59357e032c6be3466ae3c",
+    "vcs/multi_version_vcs.py": "f3165ff8985fb3cf335481d152a9e49129c2a8f0a0b9edee09d894fcc4c3cc3b",
+    "vcs/raw_cache.py": "b6333fa9fde388c503ff17a35130a1532a3354f94227db05c989e95db3efe8c3",
+    "vcs/svn_vcs.py": "211b8fd2415f1de5753f0b8afeca37af869cd1312330387cda09bfdba6e0c69b",
+    "vcs/temp_storage.py": "a0be4ba7bf89a34a3eabdda4234db8724922a9e557e69eb4149d55a75287b5d7"
+  }
+}

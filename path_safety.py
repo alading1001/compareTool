@@ -72,9 +72,35 @@ WINDOWS_SHORT_ALIAS_RE = re.compile(
 WINDOWS_REPARSE_NAME_SURROGATE = 0x20000000
 
 
+class TreePathCollision(ValueError):
+    """实际落盘名称碰撞，保留已存在方供调用方排除整个冲突组。"""
+
+    def __init__(self, message, existing_path):
+        super().__init__(message)
+        self.existing_path = os.path.realpath(existing_path)
+
+
 def windows_path_key(value: str) -> str:
     """返回 Windows 路径等价键，不做会扩展字符的 Unicode casefold。"""
     return ntpath.normcase(os.fspath(value))
+
+
+def windows_path_conflict_indices(records):
+    """找出同一侧同名及文件/目录前缀碰撞的所有条目，双方都不得写入。"""
+    entries, conflicts = {}, set()
+    for side, path, index in records:
+        entries.setdefault((side, windows_path_key(path)), []).append(index)
+    for (side, key), indices in entries.items():
+        if len(indices) > 1:
+            conflicts.update(indices)
+        parent = ntpath.dirname(key)
+        while parent and parent != ntpath.dirname(parent):
+            previous = entries.get((side, parent))
+            if previous:
+                conflicts.update(indices)
+                conflicts.update(previous)
+            parent = ntpath.dirname(parent)
+    return conflicts
 
 
 def windows_directories_replaced_by_files(directories, file_paths):
@@ -193,11 +219,11 @@ def ensure_tree_directory(root: str, directory: str, cache=None, label="输出")
             current = existing
             continue
         if os.path.lexists(desired):
-            raise ValueError(f"{label}目录与现有 Windows 别名冲突: {desired}")
+            raise TreePathCollision(f"{label}目录与现有 Windows 别名冲突: {desired}", desired)
         try:
             os.mkdir(desired)
         except FileExistsError as exc:
-            raise ValueError(f"{label}目录发生 Windows 名称碰撞: {desired}") from exc
+            raise TreePathCollision(f"{label}目录发生 Windows 名称碰撞: {desired}", desired) from exc
         if is_link_or_junction(desired) or not os.path.isdir(desired):
             raise ValueError(f"{label}目录创建后身份异常: {desired}")
         known[key] = desired
@@ -228,12 +254,12 @@ def open_new_tree_file(root: str, target: str, cache=None, label="输出"):
     known = _tree_directory_entries(parent, cache, label)
     key = windows_path_key(os.path.basename(target))
     if key in known:
-        raise ValueError(f"{label}文件与现有 Windows 路径或短名称别名冲突: {target}")
+        raise TreePathCollision(f"{label}文件与现有 Windows 路径或短名称别名冲突: {target}", known[key])
     try:
         stream = open(target, "xb")
     except FileExistsError as exc:
-        raise ValueError(
-            f"{label}文件与现有 Windows 路径或短名称别名冲突: {target}"
+        raise TreePathCollision(
+            f"{label}文件与现有 Windows 路径或短名称别名冲突: {target}", target
         ) from exc
     known[key] = target
     return target, stream

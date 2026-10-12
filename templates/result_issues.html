@@ -1,0 +1,7 @@
+{% if result is defined and result.issues %}
+<aside style="background:#fff4dd;border-bottom:1px solid #d4a045;padding:10px 24px;max-height:{{ 'none' if multi_issues else '150px' }};overflow:auto;flex-shrink:0" aria-label="处理说明和未完成项">
+  <strong>{{ result.project_name }}：{{ '已导出，含交付未完成项' if result.delivery_incomplete else '已导出，含处理说明' }}</strong>
+  {% if result.delivery_incomplete %}<p>以下未完成项不计入已交付文件清单，不生成对应上线操作。请补齐后再按完整版本上线。</p>{% endif %}
+  <ul>{% for issue in result.issues %}<li><b>{{ '未完成' if issue.delivery else '说明' }} · {{ issue.stage }}</b> {{ issue.path }}：{{ issue.message }}</li>{% endfor %}</ul>
+</aside>
+{% endif %}

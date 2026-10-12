@@ -103,7 +103,7 @@ class AllVCSArchiveTests(WorkflowCase):
             self.assertEqual(first['diff_result'].summary, second['diff_result'].summary)
         self.assert_no_stages(out)
 
-    def test_mixed_last_project_failure_never_publishes_partial_result(self):
+    def test_mixed_inner_analysis_failure_keeps_all_original_packages(self):
         from file_exporter import FileExporter
         tasks = [dict(t, recursive_archives=True) for t in self.six_tasks()]
         out = self.root/'failed-mixed'; out.mkdir()
@@ -123,9 +123,11 @@ class AllVCSArchiveTests(WorkflowCase):
             app._do_generate_multi(tasks, str(out/'report.html'), str(out/'oldVersion'),
                                    str(out/'newVersion'), str(out))
         self.assertEqual(1, len(captured))
-        self.assertFalse(app._last_task_record['success'])
-        self.assertIn('archive', app._show_error.call_args.args[0])
-        self.assertEqual({}, tree_hashes(out)); self.assert_no_stages(out)
+        self.assert_success(app)
+        app._show_error.assert_not_called()
+        self.assertIn('包内分析未完成', (out/'report.html').read_text(encoding='utf-8'))
+        self.assertEqual(b'broken', (out/'newVersion/archive/app.jar').read_bytes())
+        self.assert_no_stages(out)
 
     def test_git_multi_unselected_rename_keeps_old_and_new_paths(self):
         repo = Repository(self, 'git', 'multi-rename')
@@ -257,9 +259,11 @@ class AllVCSArchiveTests(WorkflowCase):
                          (out/'newVersion/Demo/a.jar').read_bytes())
         self.assertIsNotNone(next(f for f in result.files if f.file_path=='a.jar').archive_details)
         broken = repo.commit({'a.jar': package(b'newline\ninside')})
-        app, _, _ = self.generate(repo.task(second, broken), output=self.root/'bad-conversion')
-        self.assertFalse(app._last_task_record['success'])
-        self.assertIn('压缩包内部比较失败', app._show_error.call_args.args[0])
+        app, result, out = self.generate(repo.task(second, broken), output=self.root/'bad-conversion')
+        self.assert_success(app)
+        self.assertFalse(result.delivery_incomplete)
+        self.assertEqual('error', result.files[0].archive_details['status'])
+        self.assertTrue((out/'newVersion/Demo/a.jar').is_file())
 
     def test_git_lfs_and_filter_fail_without_downloading_or_running_filter(self):
         repo = Repository(self, 'git', 'lfs')
@@ -267,15 +271,18 @@ class AllVCSArchiveTests(WorkflowCase):
         pointer = ('version https://git-lfs.github.com/spec/v1\n'
                    'oid sha256:'+'b'*64+'\nsize 999\n').encode()
         second = repo.commit({'a.jar': pointer})
-        app, _, _ = self.generate(repo.task(first, second))
-        self.assertFalse(app._last_task_record['success'])
-        self.assertIn('LFS 指针', app._show_error.call_args.args[0])
+        app, result, out = self.generate(repo.task(first, second))
+        self.assert_success(app)
+        self.assertIn('LFS 指针', result.issues[0]['message'])
+        self.assertEqual(pointer, (out/'newVersion/Demo/a.jar').read_bytes())
         filtered = repo.commit({'.gitattributes': b'*.jar filter=check -text\n',
                                 'a.jar': package(b'NEW')})
         marker = self.root/'filter-ran'
         repo.cmd('config', 'filter.check.smudge', 'echo unexpected > '+str(marker))
-        app, _, _ = self.generate(repo.task(first, filtered), output=self.root/'filter-output')
-        self.assertFalse(app._last_task_record['success']); self.assertFalse(marker.exists())
+        app, result, out = self.generate(repo.task(first, filtered), output=self.root/'filter-output')
+        self.assert_success(app); self.assertFalse(marker.exists())
+        self.assertTrue(result.delivery_incomplete)
+        self.assertFalse((out/'newVersion/Demo/a.jar').exists())
 
     def test_multi_root_add_and_net_zero_remain_correct(self):
         for kind in ('git', 'svn'):
@@ -316,7 +323,7 @@ class AllVCSArchiveTests(WorkflowCase):
             self.assertFalse((out/'oldVersion/Demo/added.jar').exists())
             self.assertFalse((out/'newVersion/Demo/delete.jar').exists())
 
-    def test_partial_history_export_failure_leaves_no_formal_output(self):
+    def test_partial_history_export_failure_outputs_diagnostic_without_half_files(self):
         for repo, cls in zip(self.repositories('failure'), (GitVCS, SVNVCS)):
             task = repo.task(repo.refs[0], repo.refs[1])
             app, _, out = self.generate(task, False, self.root/(repo.kind+'_failure_out'))
@@ -325,6 +332,10 @@ class AllVCSArchiveTests(WorkflowCase):
                 Path(target_path).write_bytes(b'partial')
                 raise RuntimeError('injected historical content read failure')
             with mock.patch.object(cls, 'export_raw_file_to_path', partial):
-                app, _, _ = self.generate(task, output=out)
-            self.assertFalse(app._last_task_record['success'])
-            self.assertEqual({}, tree_hashes(out)); self.assert_no_stages(out)
+                app, result, _ = self.generate(task, output=out)
+            self.assert_success(app)
+            self.assertTrue(result.delivery_incomplete)
+            self.assertEqual([], result.files)
+            self.assertEqual({}, tree_hashes(out/'oldVersion/Demo'))
+            self.assertEqual({}, tree_hashes(out/'newVersion/Demo'))
+            self.assertTrue((out/'report.html').is_file()); self.assert_no_stages(out)

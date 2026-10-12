@@ -14,9 +14,12 @@ from xml.etree import ElementTree
 
 from path_safety import (
     open_new_tree_file,
+    TreePathCollision,
+    regular_file_path_identity,
     safe_join,
     windows_directories_replaced_by_files,
     windows_path_key,
+    windows_path_conflict_indices,
 )
 from .base import BaseVCS, ChangedFile, ChangeType
 from .folder_vcs import FolderVCS
@@ -275,6 +278,8 @@ class _LogicalFile:
     new_version: str = ""
     new_path: Optional[str] = None
     last_selected_step: int = 0
+    first_selected_step: int = 0
+    paths: set = field(default_factory=set)
 
 
 class _EndpointPlanner:
@@ -288,6 +293,9 @@ class _EndpointPlanner:
         self._change_count = 0
         self._path_bytes = 0
         self._deleted_paths_sorted = None
+        self._conflicts = []
+        self._conflict_parents = {}
+        self._potential_groups = []
 
     # 默认不按历史规模预测拒绝任务；数值仅作为显式策略/测试注入点。
     MAX_HISTORY_STEPS = None
@@ -369,10 +377,10 @@ class _EndpointPlanner:
                     remember_before(entity, old_path)
                 existing = self._active.get(path)
                 if existing is not None and existing is not entity:
-                    raise RuntimeError(
-                        "多版本历史出现无法唯一追踪的重命名目标，已中止生成：\n"
-                        f"{old_path} -> {path}"
-                    )
+                    existing.paths.add(path)
+                    self.mark_conflict([entity, existing])
+                    remember_before(existing, path)
+                    remember_after(existing, None)
                 self._active[path] = entity
                 self._deleted.pop(path, None)
                 remember_after(entity, path)
@@ -428,18 +436,99 @@ class _EndpointPlanner:
 
             raise RuntimeError(f"暂不支持的多版本历史变更类型 {action}: {path}")
 
+        for change, entity, _was_selected in resolved:
+            entity.paths.add(change.path)
+            if change.old_path:
+                entity.paths.add(change.old_path)
         if not selected:
             return resolved
 
         for entity, new_path in after_paths.items():
             if not entity.selected:
                 entity.selected = True
+                entity.first_selected_step = step
                 entity.old_version = old_version
                 entity.old_path = before_paths.get(entity)
             entity.new_version = new_version
             entity.new_path = new_path
             entity.last_selected_step = step
         return resolved
+
+    def mark_conflict(self, entities):
+        group = set(entities)
+        if len(group) > 1 and not self.same_conflict(group):
+            self._conflicts.append(group)
+            roots = [self._conflict_root(item) for item in group]
+            for item in roots[1:]:
+                self._conflict_parents[item] = roots[0]
+
+    def _conflict_root(self, item):
+        parents = self._conflict_parents
+        parents.setdefault(item, item)
+        while parents[item] is not item:
+            parents[item] = parents[parents[item]]
+            item = parents[item]
+        return item
+
+    def same_conflict(self, entities):
+        return len({self._conflict_root(item) for item in entities}) == 1
+
+    def delivery_plan(self, exists):
+        """身份不确定的连通组改按路径的真实首尾状态比较，不猜测 rename。"""
+        if not self._conflicts:
+            return self.selected_entities, 0
+        parents = {}
+        def root(item):
+            parents.setdefault(item, item)
+            while parents[item] is not item:
+                parents[item] = parents[parents[item]]
+                item = parents[item]
+            return item
+        def union(items):
+            items = iter(items)
+            first = root(next(items))
+            for item in items:
+                parents[root(item)] = first
+        for group in self._conflicts:
+            union(group)
+        # 同一个 D/A 竞争结构里的其它候选也属于组；否则未选中的后续
+        # 新路径会被遗漏，而首次选版的中间旧路径仍可能留在交付中。
+        for group in self._potential_groups:
+            union(group)
+        # 关闭路径生命周期：同一路径在不同实体间复用时一起重新规划。
+        by_path = {}
+        for entity in self._entities:
+            for path in entity.paths:
+                previous = by_path.setdefault(path, entity)
+                if previous is not entity:
+                    union((previous, entity))
+        conflict_roots = {root(entity) for group in self._conflicts for entity in group}
+        groups = {}
+        for entity in self._entities:
+            key = root(entity)
+            if key in conflict_roots:
+                groups.setdefault(key, []).append(entity)
+        replaced = {entity for group in groups.values() for entity in group}
+        result = [entity for entity in self.selected_entities if entity not in replaced]
+        number = len(self._entities)
+        count = 0
+        for group in groups.values():
+            selected = [entity for entity in group if entity.selected]
+            if not selected:
+                continue
+            first = min(selected, key=lambda item: item.first_selected_step)
+            last = max(selected, key=lambda item: item.last_selected_step)
+            for path in sorted({path for entity in group for path in entity.paths}):
+                old_path = path if exists(first.old_version, path) else None
+                new_path = path if exists(last.new_version, path) else None
+                if old_path is None and new_path is None:
+                    continue
+                number += 1
+                result.append(_LogicalFile(number, selected=True,
+                    old_version=first.old_version, old_path=old_path,
+                    new_version=last.new_version, new_path=new_path))
+            count += 1
+        return result, count
 
     @property
     def selected_entities(self) -> List[_LogicalFile]:
@@ -490,6 +579,8 @@ class _MultiVersionFolderDelegate(BaseVCS):
         if not selected_versions:
             raise ValueError("请选择至少一个版本")
         self.source_project_path = source_project_path
+        self.best_effort = getattr(self, 'best_effort', False)
+        self.issues = getattr(self, 'issues', [])
         self.selected_versions = selected_versions
         self.selected_versions_label = ", ".join(selected_versions)
         self.old_version_label = self.selected_versions_label
@@ -537,114 +628,167 @@ class _MultiVersionFolderDelegate(BaseVCS):
                 continue
             effective.append((entity, old_path, new_path))
 
+        if self.best_effort:
+            conflicts = windows_path_conflict_indices(
+                (side, path, index) for index, (_entity, old, new) in enumerate(effective)
+                for side, path in (('old', old), ('new', new)) if path is not None)
+            for index in sorted(conflicts):
+                _entity, old, new = effective[index]
+                self.issues.append(dict(stage='端点路径', path=new or old,
+                    message='Windows 文件路径重名或文件/目录碰撞，冲突各方均未导出', delivery=True))
+            effective = [item for index, item in enumerate(effective) if index not in conflicts]
+
         prepare_reads = getattr(self, "_prepare_endpoint_reads", None)
         if prepare_reads is not None:
             prepare_reads(effective)
         self._reserve_endpoint_budget(effective)
         self._endpoint_written_bytes = 0
 
+        captured_files = {}
         for entity, old_path, new_path in effective:
-            metadata = self._compare_endpoint_metadata(
-                entity.old_version,
-                old_path,
-                entity.new_version,
-                new_path,
-            )
-            metadata_changes = list(metadata.get("changes", []))
-            metadata_kwargs = {
-                "metadata_changes": metadata_changes,
-                "old_executable": metadata.get("old_executable"),
-                "new_executable": metadata.get("new_executable"),
-                "old_mode": metadata.get("old_mode", ""),
-                "new_mode": metadata.get("new_mode", ""),
-            }
+            old_target = new_target = old_raw_target = new_raw_target = None
+            planned_count = len(self._planned_files)
+            try:
+                metadata = self._compare_endpoint_metadata(
+                    entity.old_version,
+                    old_path,
+                    entity.new_version,
+                    new_path,
+                )
+                metadata_changes = list(metadata.get("changes", []))
+                metadata_kwargs = {
+                    "metadata_changes": metadata_changes,
+                    "old_executable": metadata.get("old_executable"),
+                    "new_executable": metadata.get("new_executable"),
+                    "old_mode": metadata.get("old_mode", ""),
+                    "new_mode": metadata.get("new_mode", ""),
+                }
 
-            old_target = self._reserve_endpoint_target(
-                self._old_dir, old_path, old_targets
-            )
-            new_target = self._reserve_endpoint_target(
-                self._new_dir, new_path, new_targets
-            )
-            old_raw_target = self._reserve_endpoint_target(
-                self._old_raw_dir, old_path, old_raw_targets
-            )
-            new_raw_target = self._reserve_endpoint_target(
-                self._new_raw_dir, new_path, new_raw_targets
-            )
-            if derive_writer is None:
-                self._write_endpoint_file(
-                    content_writer,
-                    entity.old_version,
-                    old_path,
-                    old_target,
-                    "旧版本",
+                old_target = self._reserve_endpoint_target(
+                    self._old_dir, old_path, old_targets
                 )
-                self._write_endpoint_file(
-                    content_writer,
-                    entity.new_version,
-                    new_path,
-                    new_target,
-                    "新版本",
+                new_target = self._reserve_endpoint_target(
+                    self._new_dir, new_path, new_targets
                 )
-                self._write_endpoint_file(
-                    raw_content_writer,
-                    entity.old_version,
-                    old_path,
-                    old_raw_target,
-                    "旧版本原始字节",
+                old_raw_target = self._reserve_endpoint_target(
+                    self._old_raw_dir, old_path, old_raw_targets
                 )
-                self._write_endpoint_file(
-                    raw_content_writer,
-                    entity.new_version,
-                    new_path,
-                    new_raw_target,
-                    "新版本原始字节",
+                new_raw_target = self._reserve_endpoint_target(
+                    self._new_raw_dir, new_path, new_raw_targets
                 )
-            else:
-                for version, path, raw_target, target, label in (
-                    (entity.old_version, old_path, old_raw_target, old_target, "旧版本"),
-                    (entity.new_version, new_path, new_raw_target, new_target, "新版本"),
-                ):
-                    self._write_endpoint_file(raw_content_writer, version, path,
-                                              raw_target, label + "原始字节")
+                if derive_writer is None:
                     self._write_endpoint_file(
-                        lambda v, p, t: derive_writer(v, p, raw_target, t),
-                        version, path, target, label,
+                        content_writer,
+                        entity.old_version,
+                        old_path,
+                        old_target,
+                        "旧版本",
                     )
+                    self._write_endpoint_file(
+                        content_writer,
+                        entity.new_version,
+                        new_path,
+                        new_target,
+                        "新版本",
+                    )
+                    self._write_endpoint_file(
+                        raw_content_writer,
+                        entity.old_version,
+                        old_path,
+                        old_raw_target,
+                        "旧版本原始字节",
+                    )
+                    self._write_endpoint_file(
+                        raw_content_writer,
+                        entity.new_version,
+                        new_path,
+                        new_raw_target,
+                        "新版本原始字节",
+                    )
+                else:
+                    for version, path, raw_target, target, label in (
+                        (entity.old_version, old_path, old_raw_target, old_target, "旧版本"),
+                        (entity.new_version, new_path, new_raw_target, new_target, "新版本"),
+                    ):
+                        self._write_endpoint_file(raw_content_writer, version, path,
+                                                  raw_target, label + "原始字节")
+                        self._write_endpoint_file(
+                            lambda v, p, t: derive_writer(v, p, raw_target, t),
+                            version, path, target, label,
+                        )
 
-            if (
-                old_path is not None
-                and new_path is not None
-                and old_path == new_path
-                and FolderVCS._same_file_content(old_target, new_target)
-                and FolderVCS._same_file_content(old_raw_target, new_raw_target)
-                and not metadata_changes
-            ):
-                for target in (
-                    old_target, new_target, old_raw_target, new_raw_target
+                if (
+                    old_path is not None
+                    and new_path is not None
+                    and old_path == new_path
+                    and FolderVCS._same_file_content(old_target, new_target)
+                    and FolderVCS._same_file_content(old_raw_target, new_raw_target)
+                    and not metadata_changes
                 ):
-                    os.remove(target)
-                continue
+                    for target in (
+                        old_target, new_target, old_raw_target, new_raw_target
+                    ):
+                        os.remove(target)
+                    continue
 
-            if old_path is None:
-                self._planned_files.append(ChangedFile(
-                    new_path, ChangeType.ADDED, **metadata_kwargs
-                ))
-            elif new_path is None:
-                self._planned_files.append(ChangedFile(
-                    old_path, ChangeType.DELETED, **metadata_kwargs
-                ))
-            elif old_path != new_path:
-                self._planned_files.append(ChangedFile(
-                    new_path,
-                    ChangeType.RENAMED,
-                    old_path=old_path,
-                    **metadata_kwargs,
-                ))
-            else:
-                self._planned_files.append(ChangedFile(
-                    new_path, ChangeType.MODIFIED, **metadata_kwargs
-                ))
+                if old_path is None:
+                    self._planned_files.append(ChangedFile(
+                        new_path, ChangeType.ADDED, **metadata_kwargs
+                    ))
+                elif new_path is None:
+                    self._planned_files.append(ChangedFile(
+                        old_path, ChangeType.DELETED, **metadata_kwargs
+                    ))
+                elif old_path != new_path:
+                    self._planned_files.append(ChangedFile(
+                        new_path,
+                        ChangeType.RENAMED,
+                        old_path=old_path,
+                        **metadata_kwargs,
+                    ))
+                else:
+                    self._planned_files.append(ChangedFile(
+                        new_path, ChangeType.MODIFIED, **metadata_kwargs
+                    ))
+                if self.best_effort:
+                    change = self._planned_files[-1]
+                    captured_files[id(change)] = (change, [
+                        (target, regular_file_path_identity(target))
+                        for target in (old_target, new_target, old_raw_target, new_raw_target)
+                        if target is not None])
+
+            except Exception as exc:
+                if not self.best_effort:
+                    raise
+                del self._planned_files[planned_count:]
+                for target in (old_target, new_target, old_raw_target, new_raw_target):
+                    if target is not None and os.path.lexists(target):
+                        os.remove(target)
+                collision = exc
+                while collision is not None and not isinstance(collision, TreePathCollision):
+                    collision = collision.__cause__
+                if collision is not None:
+                    conflict_key = windows_path_key(collision.existing_path)
+                    removed = set()
+                    for change_id, (change, targets) in captured_files.items():
+                        if not any(windows_path_key(target) == conflict_key or
+                                   windows_path_key(target).startswith(conflict_key + '\\')
+                                   for target, _identity in targets):
+                            continue
+                        for target, identity in targets:
+                            if regular_file_path_identity(target) != identity:
+                                raise RuntimeError('多版本端点在碰撞清理前被替换，已停止生成') from exc
+                            os.remove(target)
+                        removed.add(change_id)
+                        self.issues.append(dict(stage='端点路径', path=change.path,
+                            old_path=change.old_path or '',
+                            message='实际 Windows 名称碰撞，冲突各方均未导出', delivery=True))
+                    self._planned_files = [change for change in self._planned_files if id(change) not in removed]
+                    for change_id in removed:
+                        del captured_files[change_id]
+                self.issues.append(dict(stage='文件端点', path=new_path or old_path,
+                                        old_path=old_path or '',
+                                        message=str(exc), delivery=True))
 
         self._folder = FolderVCS(self._old_dir, self._new_dir, snapshot=False)
         self._raw_folder = FolderVCS(
@@ -888,11 +1032,15 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
         project_path: str,
         selected_versions: List[str],
         exclude_patterns: Optional[List[str]] = None,
+        *, best_effort=False,
     ):
+        self.best_effort = best_effort
+        self.issues = []
         self._git_exe = GitVCS._find_git()
         self._content_vcs = GitVCS(project_path)
         self._content_vcs._git = self._git_exe
         self._git_mode_cache = {}
+        self._git_mode_errors = {}
         super().__init__(
             project_path,
             selected_versions,
@@ -989,6 +1137,7 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
         latest_index = min(history_index[commit] for commit in resolved)
         linear_history = list(reversed(history[latest_index:earliest_index + 1]))
         selected = set(resolved)
+        contiguous_selection = len(selected) == len(linear_history)
         planner = _EndpointPlanner()
         ambiguous_candidate_sets = []
         deferred_permissive_sets = []
@@ -1007,6 +1156,12 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
             resolved_changes = planner.apply(
                 changes, commit in selected, parent, commit
             )
+            if contiguous_selection:
+                # 每一步均被选中，删除/新增的最后真实状态都会进入端点计划，
+                # 不会因未选中的移动留下早期路径。无需再猜测不同实体之间的
+                # 对应关系；保留原生 rename 和明确的 D/A 即可生成净结果。
+                # 仍逐提交规划，以保留文件各自首尾版本的属性、模式和字节。
+                continue
             if ambiguous_path_pairs:
                 sources = {}
                 targets = {}
@@ -1196,208 +1351,107 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
                     "已中止生成。请缩小所选版本范围或增加排除规则。"
                 )
 
-        suspicious = []
-        for (
-            commit,
-            event_step,
-            include_same_step,
-            candidates,
-            matrix_candidates,
-        ) in ambiguous_candidate_sets:
-            ambiguous_pairs = [
-                (source_path, target_path)
-                for (
-                    source_path,
-                    source_entity,
-                    was_selected,
-                    target_path,
-                    target_entity,
-                ) in candidates
-                if (
-                    was_selected
-                    and (
-                        target_entity.last_selected_step > event_step
-                        or (
-                            include_same_step
-                            and target_entity.last_selected_step == event_step
-                        )
-                    )
-                    and source_entity is not target_entity
-                )
-            ]
-            matrix_witnesses = []
-            for sources, targets, excluded_pairs in matrix_candidates:
-                eligible_sources = [
-                    (source_path, source_entity)
-                    for source_path, source_entity, was_selected in sources
-                    if was_selected
-                ]
-                eligible_targets = [
-                    (target_path, target_entity)
-                    for target_path, target_entity in targets
-                    if (
-                        target_entity.last_selected_step > event_step
-                        or (
-                            include_same_step
-                            and target_entity.last_selected_step == event_step
-                        )
-                    )
-                ]
-                witness = None
-                for source_path, source_entity in eligible_sources:
-                    for target_path, target_entity in eligible_targets:
-                        if (
-                            source_entity is not target_entity
-                            and (source_path, target_path) not in excluded_pairs
-                        ):
-                            witness = (source_path, target_path)
-                            break
-                    if witness is not None:
-                        break
-                if witness is not None:
-                    matrix_witnesses.append((
-                        witness,
-                        len(eligible_sources),
-                        len(eligible_targets),
-                    ))
-            if ambiguous_pairs or matrix_witnesses:
-                pair_lines = "\n".join(
-                    f"  {source_path} -> {target_path}"
-                    for source_path, target_path in ambiguous_pairs
-                )
-                matrix_lines = "\n".join(
-                    "  候选矩阵 "
-                    f"{source_count}×{target_count}，示例：{witness[0]} -> {witness[1]}"
-                    for witness, source_count, target_count in matrix_witnesses
-                )
-                suspicious.append(
-                    f"提交 {commit}\n"
-                    + "\n".join(
-                        text for text in (pair_lines, matrix_lines) if text
-                    )
-                )
+        # 保存所有冲突组，不能在首个命中后退出，否则后面的旧路径仍可能漏清。
+        for commit, step, same_step, candidates, matrices in ambiguous_candidate_sets:
+            for source, entity, was_selected, target, other in candidates:
+                if was_selected and other.last_selected_step >= step + (not same_step):
+                    planner.mark_conflict((entity, other))
+            for sources, targets, excluded in matrices:
+                planner._potential_groups.append(
+                    {entity for _path, entity, _selected in sources}
+                    | {entity for _path, entity in targets})
+                eligible = self._eligible_candidate_groups([(sources, targets)], step, same_step)
+                for source_map, target_map in eligible:
+                    # 矩阵只有 native rename 的自身配对需要排除；组保持紧凑。
+                    witness = any(entity is not other and (source, target) not in excluded
+                        for source, entity in source_map.items()
+                        for target, other in target_map.items())
+                    if witness:
+                        planner.mark_conflict(set(source_map.values()) | set(target_map.values()))
 
-        # 低阈值整仓 diff 也推迟到文件级端点确定之后；没有相关的不同实体
-        # 时，第二遍 1% diff 的结果不可能影响报告与源码端点，直接跳过。
-        if not suspicious:
-            for (
-                commit,
-                parent,
-                event_step,
-                permissive_groups,
-                reliable_renames,
-            ) in deferred_permissive_sets:
-                witness = self._permissive_rename_witness(
-                    commit,
-                    parent,
-                    event_step,
-                    permissive_groups,
-                    reliable_renames,
-                )
-                if witness is not None:
-                    self._reserve_stored_ambiguous_candidates(1)
-                    suspicious.append(
-                        f"提交 {commit}\n  {witness[0]} -> {witness[1]}"
-                    )
-                    break
-
-        # 隔离 blob 评分同样先按事件时刻的源 selected 状态和目标最后选中步
-        # 过滤；same-entity 组合无需导出 blob 或启动 Git，首个命中即可失败。
-        if not suspicious:
-            for (
-                commit,
-                parent,
-                event_step,
-                include_same_step,
-                scored_groups,
-            ) in deferred_scoring_sets:
-                witness = self._scored_rename_witness(
-                    commit,
-                    parent,
-                    event_step,
-                    scored_groups,
-                    include_same_step=include_same_step,
-                )
-                if witness is not None:
-                    self._reserve_stored_ambiguous_candidates(1)
-                    suspicious.append(
-                        f"提交 {commit}\n  {witness[0]} -> {witness[1]}"
-                    )
-                    break
-
-        # 跨提交候选以删除活动区间和目标事件保存，不在历史遍历期间展开
-        # pending×target。按步数维护活动集合，仅对最终关联选中端点的组合评分。
-        if not suspicious and cross_target_events:
-            intervals = sorted(
-                enumerate(delete_intervals),
-                key=lambda item: item[1]["start_step"],
-            )
-            active_intervals = {}
-            expirations = []
-            interval_index = 0
-            cross_witness = None
-            cross_commit = ""
-            for commit, event_step, targets in cross_target_events:
-                while (
-                    interval_index < len(intervals)
-                    and intervals[interval_index][1]["start_step"] < event_step
-                ):
-                    number, interval = intervals[interval_index]
-                    active_intervals[number] = interval
-                    if interval["end_step"] is not None:
-                        heapq.heappush(
-                            expirations, (interval["end_step"], number)
-                        )
-                    interval_index += 1
-                while expirations and expirations[0][0] < event_step:
-                    _end_step, number = heapq.heappop(expirations)
-                    active_intervals.pop(number, None)
-
-                eligible_targets = [
-                    (target_path, target_entity)
-                    for target_path, target_entity in targets
-                    if target_entity.last_selected_step >= event_step
-                ]
-                if not eligible_targets:
+        for commit, parent, step, groups, reliable in deferred_permissive_sets:
+            for group in groups:
+                eligible = self._eligible_candidate_groups([group], step)
+                members = {entity for sources, targets in eligible
+                           for entity in (*sources.values(), *targets.values())}
+                if members and planner.same_conflict(members):
                     continue
-                for interval in active_intervals.values():
-                    if not interval["was_selected"]:
+                try:
+                    witness = self._permissive_rename_witness(commit, parent, step, [group], reliable)
+                except (OSError, RuntimeError):
+                    # 辅助 rename 检测失败只降低身份判断，端点读取仍独立校验。
+                    witness = True
+                if witness:
+                    for sources, targets in self._eligible_candidate_groups([group], step):
+                        planner.mark_conflict(set(sources.values()) | set(targets.values()))
+        for commit, parent, step, same_step, groups in deferred_scoring_sets:
+            for group in groups:
+                eligible = self._eligible_candidate_groups([group], step)
+                members = {entity for sources, targets in eligible
+                           for entity in (*sources.values(), *targets.values())}
+                if members and planner.same_conflict(members):
+                    continue
+                try:
+                    witness = self._scored_rename_witness(commit, parent, step, [group],
+                                                         include_same_step=same_step)
+                except (OSError, RuntimeError):
+                    witness = True
+                if witness:
+                    for sources, targets in self._eligible_candidate_groups([group], step, same_step):
+                        planner.mark_conflict(set(sources.values()) | set(targets.values()))
+
+        intervals = sorted(enumerate(delete_intervals), key=lambda item: item[1]['start_step'])
+        active, expirations, cursor = {}, [], 0
+        for commit, step, targets in cross_target_events:
+            while cursor < len(intervals) and intervals[cursor][1]['start_step'] < step:
+                number, interval = intervals[cursor]
+                active[number] = interval
+                if interval['end_step'] is not None:
+                    heapq.heappush(expirations, (interval['end_step'], number))
+                cursor += 1
+            while expirations and expirations[0][0] < step:
+                _, number = heapq.heappop(expirations)
+                active.pop(number, None)
+            for interval in active.values():
+                if not interval['was_selected']:
+                    continue
+                for target, entity in targets:
+                    if (entity is interval['entity'] or entity.last_selected_step < step
+                            or planner.same_conflict((interval['entity'], entity))):
                         continue
-                    for target_path, target_entity in eligible_targets:
-                        if interval["entity"] is target_entity:
-                            continue
-                        if self._git_rename_candidate(
-                            interval["source_version"],
-                            interval["path"],
-                            commit,
-                            target_path,
-                        ):
-                            cross_witness = (interval["path"], target_path)
-                            cross_commit = commit
-                            break
-                    if cross_witness is not None:
-                        break
-                if cross_witness is not None:
-                    self._reserve_stored_ambiguous_candidates(1)
-                    suspicious.append(
-                        f"提交 {cross_commit}\n  "
-                        f"{cross_witness[0]} -> {cross_witness[1]}"
-                    )
-                    break
-        if suspicious:
-            raise RuntimeError(
-                "Git 检测到无法唯一确认的删除/新增/重命名候选，且候选两侧都"
-                "关联选中变更，无法排除彻底改写或同内容文件造成的错误配对。"
-                "本次未生成报告和源码包。\n"
-                + "\n".join(suspicious)
-            )
+                    try:
+                        possible = self._git_rename_candidate(interval['source_version'],
+                            interval['path'], commit, target)
+                    except (OSError, RuntimeError):
+                        possible = True
+                    if possible:
+                        planner.mark_conflict((interval['entity'], entity))
+        entities, conflict_count = planner.delivery_plan(self._git_path_exists)
+        if conflict_count:
+            self.comparison_note = (f'重命名身份不确定的 {conflict_count} 个文件组已降级：'
+                '按组内首次选中变更之前和末次选中变更之后的真实路径比较，'
+                '旧路径删除、新路径新增，同路径按修改处理；未猜测重命名。')
 
         self._finish_plan(
-            planner.selected_entities,
+            entities,
             self._write_git_endpoint,
             self._write_git_raw_endpoint,
             derive_writer=self._derive_git_endpoint,
         )
+
+    def _git_path_exists(self, version, path):
+        if not version:
+            return False
+        repository_path = self._content_vcs._repo_path(path)
+        raw = self._git_bytes('--literal-pathspecs', 'ls-tree', '-z', '--full-tree',
+                              version, '--', repository_path)
+        if not raw:
+            return False
+        if not raw.endswith(b'\0'):
+            raise RuntimeError('Git 路径存在性查询返回不完整')
+        # 目录也视为存在，让原有普通文件校验明确拒绝，不能当作空文件。
+        return any(record.split(b'\t', 1)[-1].decode('utf-8', 'surrogateescape') == repository_path
+                   for record in raw.split(b'\0') if record)
 
     @staticmethod
     def _eligible_candidate_groups(groups, event_step: int, include_same_step=False):
@@ -1872,14 +1926,22 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
                     if repository_path not in requested or repository_path in found:
                         raise RuntimeError("Git 端点 mode 查询路径超出请求或重复")
                     if mode not in (b"100644", b"100755") or kind != b"blob":
-                        raise RuntimeError(f"Git 多版本端点不是普通文件，已中止生成: {repository_path}@{version}")
+                        message = f"Git 多版本端点不是普通文件: {repository_path}@{version}"
+                        if not self.best_effort:
+                            raise RuntimeError(message)
+                        self._git_mode_errors[(version, paths[repository_path])] = message
                     if not re.fullmatch(rb"[0-9a-f]{40}|[0-9a-f]{64}", oid):
                         raise RuntimeError("Git 端点 mode 查询对象标识无效")
                     found[repository_path] = mode.decode("ascii")
                 if set(found) != requested:
-                    raise RuntimeError("Git 固定端点缺少所需文件，已中止生成")
+                    if not self.best_effort:
+                        raise RuntimeError("Git 固定端点缺少所需文件，已中止生成")
+                    for missing in requested - set(found):
+                        self._git_mode_errors[(version, paths[missing])] = 'Git 固定端点缺少所需文件: ' + missing
                 for repository_path, mode in found.items():
-                    self._git_mode_cache[(version, paths[repository_path])] = mode
+                    key = (version, paths[repository_path])
+                    if key not in self._git_mode_errors:
+                        self._git_mode_cache[key] = mode
             for path in sorted(paths):
                 cost = len(path.encode("utf-16-le", "surrogatepass")) // 2 + 4
                 if chunk and units + cost > 8000:
@@ -1890,6 +1952,8 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
 
     def _validate_git_endpoint_mode(self, version: str, path: str):
         cache_key = (str(version), path)
+        if cache_key in self._git_mode_errors:
+            raise RuntimeError(self._git_mode_errors[cache_key])
         if cache_key in self._git_mode_cache:
             return self._git_mode_cache[cache_key]
         mode_line = self._git_bytes("ls-tree", "-z", version, "--", self._content_vcs._repo_path(path))
@@ -2028,7 +2092,10 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         selected_versions: List[str],
         svn_path: str = "",
         exclude_patterns: Optional[List[str]] = None,
+        *, best_effort=False,
     ):
+        self.best_effort = best_effort
+        self.issues = []
         self._svn = svn_path or SVNVCS._find_svn()
         super().__init__(
             project_path,
@@ -2154,12 +2221,18 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
             )
             planner.apply(changes, is_selected, str(revision - 1), str(revision))
 
+        entities, conflicts = planner.delivery_plan(self._svn_path_exists)
+        if conflicts:
+            self.comparison_note = f'重命名身份不确定的 {conflicts} 个文件组已按真实路径降级为删除、新增或同路径修改。'
         self._finish_plan(
-            planner.selected_entities,
+            entities,
             self._write_svn_endpoint,
             self._write_svn_raw_endpoint,
             derive_writer=self._derive_svn_endpoint,
         )
+
+    def _svn_path_exists(self, version, path):
+        return self._svn_node_exists(path, int(version))
 
     def _parse_revisions(self) -> List[int]:
         revisions = []

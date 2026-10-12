@@ -153,7 +153,7 @@ class HtmlDetailTests(WorkflowCase):
         self.assertGreaterEqual(store.fragments, 3)
         self.assertTrue(all(f.side_by_side_html == '' for f in result.files))
 
-    def test_worker_fragment_write_and_read_failure_cleans_outputs(self):
+    def test_worker_fragment_write_and_read_failure_keeps_verified_delivery(self):
         task = self.folder_task()
         out = self.root/'delivery'
         app, _, out = self.generate(task, True, out)
@@ -168,9 +168,10 @@ class HtmlDetailTests(WorkflowCase):
                                    **({'autospec': True} if callable(failure) else {})) as patched:
                 if callable(failure): patched.side_effect = failure
                 app, _, _ = self.generate(task, True, out)
-            self.assertFalse(app._last_task_record['success'])
-            self.assertIn('injected fragment', app._show_error.call_args.args[0])
-            self.assertEqual({}, tree_hashes(out))
+            self.assert_success(app)
+            app._show_error.assert_not_called()
+            self.assertIn('injected fragment', (out/'report.html').read_text(encoding='utf-8'))
+            self.assertEqual(b'NEW\n', (out/'newVersion/Demo/a.txt').read_bytes())
             self.assert_no_stages(out)
             self.assertFalse(list((self.root/'runtime').glob('comparetool_html_*')))
 
@@ -197,8 +198,10 @@ class HtmlDetailTests(WorkflowCase):
         with mock.patch.object(HtmlDetailStore, 'iter_fragment', side_effect=OSError('multi read failure')):
             app._do_generate_multi(tasks, str(out/'report.html'), str(out/'oldVersion'),
                                    str(out/'newVersion'), str(out))
-        self.assertFalse(app._last_task_record['success'])
-        self.assertEqual({}, tree_hashes(out))
+        self.assert_success(app)
+        app._show_error.assert_not_called()
+        self.assertIn('基础比对报告', (out/'report.html').read_text(encoding='utf-8'))
+        self.assertEqual(b'NEW\n', (out/'newVersion/One/a.txt').read_bytes())
         self.assert_no_stages(out)
         self.assertFalse(list((self.root/'runtime').glob('comparetool_html_*')))
 

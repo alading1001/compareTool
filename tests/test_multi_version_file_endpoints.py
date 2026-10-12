@@ -86,6 +86,125 @@ class GitFileEndpointTests(unittest.TestCase):
             self.repo,
         )
 
+    def _dependency_upgrade_commits(self):
+        self.write('.gitattributes', '* -text\n')
+        self.write('OnlyFirst.txt', 'before\n')
+        self.write_bytes('lib/collections.jar', b'collections-old\x00')
+        self.write_bytes('lib/parser.jar', b'parser-old\x00')
+        self.commit('baseline dependencies')
+
+        os.remove(os.path.join(self.repo, 'lib/collections.jar'))
+        os.remove(os.path.join(self.repo, 'lib/parser.jar'))
+        self.write_bytes('lib/collections-new.jar', b'collections-new\x00')
+        self.write_bytes('lib/parser-intermediate.jar', b'parser-intermediate\x00')
+        self.write('OnlyFirst.txt', 'first-selected\n')
+        self.write('temporary.txt', 'temporary\n')
+        first = self.commit('selected bulk dependency upgrade')
+
+        os.remove(os.path.join(self.repo, 'lib/parser-intermediate.jar'))
+        os.remove(os.path.join(self.repo, 'temporary.txt'))
+        self.write_bytes('lib/parser-final.jar', b'parser-final\x00')
+        second = self.commit('selected replacement of intermediate parser')
+
+        self.write('.gitattributes', '*.txt text eol=crlf\n*.jar -text\n')
+        self.write_bytes('lib/parser-final.jar', b'parser-patched\x00')
+        last = self.commit('selected parser patch and later attributes')
+        return first, second, last
+
+    def test_contiguous_dependency_upgrades_export_only_real_file_endpoints(self):
+        first, second, last = self._dependency_upgrade_commits()
+        self.write('OnlyFirst.txt', 'later-head\n')
+        self.write_bytes('lib/parser-final.jar', b'later-head\x00')
+        self.commit('unselected later HEAD')
+        vcs = GitMultiVersionVCS(
+            self.repo, [last, first[:10], second, first],
+            exclude_patterns=['.gitattributes'],
+        )
+        try:
+            diff = DiffEngine(vcs).generate_diff(vcs.old_version_label, vcs.new_version_label)
+            self.assertEqual({
+                'OnlyFirst.txt': ChangeType.MODIFIED,
+                'lib/collections.jar': ChangeType.DELETED,
+                'lib/parser.jar': ChangeType.DELETED,
+                'lib/collections-new.jar': ChangeType.ADDED,
+                'lib/parser-final.jar': ChangeType.ADDED,
+            }, {f.file_path: f.change_type for f in diff.files})
+            with project_temp_dir() as output:
+                old_dir = pathlib.Path(output) / 'old'
+                new_dir = pathlib.Path(output) / 'new'
+                FileExporter(diff, vcs).export(str(old_dir), str(new_dir))
+                actual = lambda root: {
+                    p.relative_to(root).as_posix(): p.read_bytes()
+                    for p in root.rglob('*') if p.is_file()
+                }
+                self.assertEqual({
+                    'OnlyFirst.txt': b'before\n',
+                    'lib/collections.jar': b'collections-old\x00',
+                    'lib/parser.jar': b'parser-old\x00',
+                }, actual(old_dir))
+                self.assertEqual({
+                    # Later attributes must not replace this file's last selected endpoint.
+                    'OnlyFirst.txt': b'first-selected\n',
+                    'lib/collections-new.jar': b'collections-new\x00',
+                    'lib/parser-final.jar': b'parser-patched\x00',
+                }, actual(new_dir))
+                instructions = pathlib.Path(output) / DELIVERY_INSTRUCTIONS_FILENAME
+                write_delivery_instructions([{'project_name': 'Demo', 'diff_result': diff}], str(instructions))
+                text = instructions.read_text(encoding='utf-8-sig')
+                self.assertIn('lib/collections.jar', text)
+                self.assertIn('lib/parser.jar', text)
+                self.assertNotIn('parser-intermediate.jar', text)
+                self.assertNotIn('temporary.txt', text)
+        finally:
+            vcs.cleanup()
+
+    def test_dependency_upgrade_with_a_selection_gap_still_falls_back(self):
+        first, _second, last = self._dependency_upgrade_commits()
+        self.assert_conflict_fallback(first, last)
+
+    def test_contiguous_rewrite_keeps_explicit_delete_and_add(self):
+        self.write('src/Old.java', 'baseline\n')
+        self.commit('baseline rename chain')
+        self.write('src/Old.java', 'first-selected\n')
+        first = self.commit('selected source modification')
+        run([self.git, 'mv', 'src/Old.java', 'src/Middle.java'], self.repo)
+        middle = self.commit('selected first rename')
+        run([self.git, 'mv', 'src/Middle.java', 'src/Final.java'], self.repo)
+        self.write('src/Final.java', 'final-selected\n')
+        last = self.commit('selected final rename and rewrite')
+        vcs = GitMultiVersionVCS(self.repo, [last, middle, first])
+        try:
+            files = vcs.get_changed_files()
+            # The final rewrite has no native rename similarity, so its explicit
+            # delete/add remains intact rather than inventing an identity.
+            self.assertEqual({
+                ('src/Old.java', ChangeType.DELETED, ''),
+                ('src/Final.java', ChangeType.ADDED, ''),
+            }, {(f.path, f.change_type, f.old_path) for f in files})
+            self.assertEqual(b'baseline\n', vcs.get_file_content_bytes(vcs.old_version_label, 'src/Old.java'))
+            self.assertEqual(b'final-selected\n', vcs.get_file_content_bytes(vcs.new_version_label, 'src/Final.java'))
+        finally:
+            vcs.cleanup()
+
+    def test_contiguous_native_rename_chain_preserves_original_and_final_paths(self):
+        self.write('Old.java', 'baseline\n')
+        self.commit('baseline native rename chain')
+        self.write('Old.java', 'selected\n')
+        first = self.commit('selected original path')
+        run([self.git, 'mv', 'Old.java', 'Middle.java'], self.repo)
+        middle = self.commit('selected native first rename')
+        run([self.git, 'mv', 'Middle.java', 'Final.java'], self.repo)
+        last = self.commit('selected native final rename')
+        vcs = GitMultiVersionVCS(self.repo, [first, middle, last])
+        try:
+            files = vcs.get_changed_files()
+            self.assertEqual([('Final.java', ChangeType.RENAMED, 'Old.java')],
+                             [(f.path, f.change_type, f.old_path) for f in files])
+            self.assertEqual(b'baseline\n', vcs.get_file_content_bytes(vcs.old_version_label, 'Old.java'))
+            self.assertEqual(b'selected\n', vcs.get_file_content_bytes(vcs.new_version_label, 'Final.java'))
+        finally:
+            vcs.cleanup()
+
     def test_normal_and_multi_git_preserve_mode_only_change(self):
         self.write("script.sh", "echo ok\n")
         baseline = self.commit("baseline")
@@ -282,7 +401,26 @@ class GitFileEndpointTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "第一父历史"):
             GitMultiVersionVCS(self.repo, [side_commit])
 
-    def test_low_similarity_possible_rename_fails_closed(self):
+    def assert_conflict_fallback(self, first, last):
+        vcs = GitMultiVersionVCS(self.repo, [first, last])
+        try:
+            self.assertIn('降级', vcs.comparison_note)
+            files = vcs.get_changed_files()
+            self.assertTrue(files)
+            self.assertFalse(any(file.change_type == ChangeType.RENAMED for file in files))
+            old = run([self.git, 'rev-parse', first + '^'], self.repo).stdout.strip()
+            for file in files:
+                for version, commit, path, present in (
+                    ('old', old, file.old_path or file.path, file.change_type != ChangeType.ADDED),
+                    ('new', last, file.path, file.change_type != ChangeType.DELETED)):
+                    if present:
+                        expected = subprocess.run([self.git, 'show', commit + ':' + path],
+                            cwd=self.repo, check=True, capture_output=True).stdout
+                        self.assertEqual(expected, vcs.get_file_content_raw_bytes(version, path))
+        finally:
+            vcs.cleanup()
+
+    def test_low_similarity_possible_rename_falls_back(self):
         original = "".join(f"original-{index:03d}\n" for index in range(200))
         self.write("A.java", original)
         self.commit("baseline")
@@ -297,8 +435,7 @@ class GitFileEndpointTests(unittest.TestCase):
         self.write("B.java", retained + replacement + "selected-after\n")
         last = self.commit("selected B")
 
-        with self.assertRaisesRegex(RuntimeError, "无法唯一确认"):
-            GitMultiVersionVCS(self.repo, [first, last])
+        self.assert_conflict_fallback(first, last)
 
     def test_unrelated_low_similarity_rename_between_selected_commits_is_ignored(self):
         original = "".join(f"original-{index:03d}\n" for index in range(200))
@@ -352,7 +489,7 @@ class GitFileEndpointTests(unittest.TestCase):
         finally:
             vcs.cleanup()
 
-    def test_selected_non_regular_type_change_still_fails_closed(self):
+    def test_selected_non_regular_type_change_still_falls_back(self):
         self.write("Link.java", "regular\n")
         self.commit("baseline selected type change")
         self.stage_symlink("Link.java", "target.txt")
@@ -362,7 +499,7 @@ class GitFileEndpointTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "不是普通文件"):
             GitMultiVersionVCS(self.repo, [selected])
 
-    def test_zero_similarity_possible_rename_fails_closed(self):
+    def test_zero_similarity_possible_rename_falls_back(self):
         original = "".join(f"old-{index:03d}\n" for index in range(80))
         self.write("A.java", original)
         self.commit("baseline")
@@ -375,10 +512,9 @@ class GitFileEndpointTests(unittest.TestCase):
         self.write("B.java", "rewritten\nselected-after\n")
         last = self.commit("selected B")
 
-        with self.assertRaisesRegex(RuntimeError, "无法唯一确认"):
-            GitMultiVersionVCS(self.repo, [first, last])
+        self.assert_conflict_fallback(first, last)
 
-    def test_duplicate_content_rename_source_ambiguity_fails_closed(self):
+    def test_duplicate_content_rename_source_ambiguity_falls_back(self):
         common = "same-content\n"
         self.write("src/Chosen.java", common)
         self.write("B.java", common)
@@ -394,8 +530,7 @@ class GitFileEndpointTests(unittest.TestCase):
         self.write("src/New.java", "selected-after\n")
         last = self.commit("selected new")
 
-        with self.assertRaisesRegex(RuntimeError, "无法唯一确认"):
-            GitMultiVersionVCS(self.repo, [first, last])
+        self.assert_conflict_fallback(first, last)
 
     def test_multiple_duplicate_content_renames_fail_closed(self):
         common = "same-content\n"
@@ -413,8 +548,7 @@ class GitFileEndpointTests(unittest.TestCase):
         self.write("one/B.java", "selected-after\n")
         last = self.commit("selected one B")
 
-        with self.assertRaisesRegex(RuntimeError, "无法唯一确认"):
-            GitMultiVersionVCS(self.repo, [first, last])
+        self.assert_conflict_fallback(first, last)
 
     def test_multiple_high_similarity_renames_fail_closed(self):
         common = "".join(f"shared-{index:03d}\n" for index in range(200))
@@ -436,8 +570,7 @@ class GitFileEndpointTests(unittest.TestCase):
         self.write("one/B.java", common + "selected-after\n")
         last = self.commit("selected similar one B")
 
-        with self.assertRaisesRegex(RuntimeError, "无法唯一确认"):
-            GitMultiVersionVCS(self.repo, [first, last])
+        self.assert_conflict_fallback(first, last)
 
     def test_reliable_rename_and_unrelated_delete_are_not_false_ambiguity(self):
         self.write("A.java", "AAA\n")
@@ -462,7 +595,7 @@ class GitFileEndpointTests(unittest.TestCase):
         finally:
             vcs.cleanup()
 
-    def test_high_similarity_competing_rename_source_fails_closed(self):
+    def test_high_similarity_competing_rename_source_falls_back(self):
         common = "".join(f"shared-{index:03d}\n" for index in range(200))
         chosen = common + "".join(f"chosen-{index:02d}\n" for index in range(20))
         other = common + "other-old\n"
@@ -486,10 +619,9 @@ class GitFileEndpointTests(unittest.TestCase):
         self.write("src/New.java", target + "selected-after\n")
         last = self.commit("selected new after rename")
 
-        with self.assertRaisesRegex(RuntimeError, "无法唯一确认"):
-            GitMultiVersionVCS(self.repo, [first, last])
+        self.assert_conflict_fallback(first, last)
 
-    def test_move_split_across_unselected_commits_fails_closed(self):
+    def test_move_split_across_unselected_commits_falls_back(self):
         self.write("A.java", "base\n")
         self.commit("baseline split move")
         self.write("A.java", "selected-before-split-move\n")
@@ -502,8 +634,7 @@ class GitFileEndpointTests(unittest.TestCase):
         self.write("B.java", "selected-after-split-move\n")
         last = self.commit("selected B after split move")
 
-        with self.assertRaisesRegex(RuntimeError, "无法唯一确认"):
-            GitMultiVersionVCS(self.repo, [first, last])
+        self.assert_conflict_fallback(first, last)
 
     def test_git_native_rename_score_drives_competing_candidate_check(self):
         self.write("src/Chosen.java", "A" * 10000)
@@ -525,8 +656,7 @@ class GitFileEndpointTests(unittest.TestCase):
         self.write("src/New.java", "selected-after\n")
         last = self.commit("selected long new")
 
-        with self.assertRaisesRegex(RuntimeError, "无法唯一确认"):
-            GitMultiVersionVCS(self.repo, [first, last])
+        self.assert_conflict_fallback(first, last)
 
     def test_cross_commit_candidate_ignores_same_path_rebuild_noise(self):
         moved_content = "selected-source-content\n"
@@ -543,8 +673,7 @@ class GitFileEndpointTests(unittest.TestCase):
         self.write("B.java", "selected-after-rebuild\n")
         last = self.commit("selected B after rebuild")
 
-        with self.assertRaisesRegex(RuntimeError, "无法唯一确认"):
-            GitMultiVersionVCS(self.repo, [first, last])
+        self.assert_conflict_fallback(first, last)
 
     def test_pending_delete_competes_with_later_rename_target(self):
         common = "same-content\n"
@@ -563,8 +692,7 @@ class GitFileEndpointTests(unittest.TestCase):
         self.write("B.java", "selected-after\n")
         last = self.commit("selected competing B")
 
-        with self.assertRaisesRegex(RuntimeError, "无法唯一确认"):
-            GitMultiVersionVCS(self.repo, [first, last])
+        self.assert_conflict_fallback(first, last)
 
     def test_pending_delete_competes_with_rename_reusing_same_path(self):
         common = "same-content\n"
@@ -583,10 +711,9 @@ class GitFileEndpointTests(unittest.TestCase):
         self.write("A.java", "selected-after\n")
         last = self.commit("selected reused A path")
 
-        with self.assertRaisesRegex(RuntimeError, "无法唯一确认"):
-            GitMultiVersionVCS(self.repo, [first, last])
+        self.assert_conflict_fallback(first, last)
 
-    def test_move_over_existing_target_as_delete_modify_fails_closed(self):
+    def test_move_over_existing_target_as_delete_modify_falls_back(self):
         source = "source-content\n"
         self.write("A.java", source)
         self.write("B.java", "old-target\n")
@@ -607,8 +734,7 @@ class GitFileEndpointTests(unittest.TestCase):
         self.write("B.java", "selected-after\n")
         last = self.commit("selected B after overwrite")
 
-        with self.assertRaisesRegex(RuntimeError, "无法唯一确认"):
-            GitMultiVersionVCS(self.repo, [first, last])
+        self.assert_conflict_fallback(first, last)
 
     def test_rename_source_competes_with_modified_existing_target(self):
         common = "same-content\n"
@@ -634,8 +760,7 @@ class GitFileEndpointTests(unittest.TestCase):
         self.write("C.java", "selected-after\n")
         last = self.commit("selected C after competing moves")
 
-        with self.assertRaisesRegex(RuntimeError, "无法唯一确认"):
-            GitMultiVersionVCS(self.repo, [first, last])
+        self.assert_conflict_fallback(first, last)
 
     def _git_status(self, commit):
         parent = run([self.git, "rev-parse", f"{commit}^"], self.repo).stdout.strip()
@@ -807,7 +932,7 @@ class SVNFileEndpointTests(unittest.TestCase):
             normalized(vcs.get_file_content_bytes(str(selected), "Pinned.txt")),
         )
 
-    def test_svn_selected_project_root_move_with_externals_fails_closed(self):
+    def test_svn_selected_project_root_move_with_externals_falls_back(self):
         self.write("A.java", "base\n")
         self.commit("baseline before root externals move")
 

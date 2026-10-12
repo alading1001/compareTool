@@ -115,6 +115,7 @@ table.diff span { white-space: pre; }
     </div>
 </div>
 
+{% if summary.issue_count %}<section style="max-height:220px;overflow:auto;flex-shrink:0" aria-label="各项目处理说明和未完成项">{% for project in projects %}{% with result=project.diff_result, multi_issues=true %}{% include "result_issues.html" %}{% endwith %}{% endfor %}</section>{% endif %}
 <div class="summary">
     <div class="card project"><div class="num">{{ summary.project_count }}</div><div class="lbl">项目</div></div>
     <div class="card total"><div class="num">{{ summary.total_files }}</div><div class="lbl">变更文件</div></div>

@@ -1,0 +1,2358 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CompareTool 六模式导出阻断分析</title><style>
+body{font:15px/1.65 system-ui,'Microsoft YaHei',sans-serif;color:#202a39;background:#f4f6f9;margin:0}main{max-width:1600px;margin:auto;padding:24px}h1{font-size:27px}h2{font-size:21px;margin-top:30px}.panel{background:white;border:1px solid #dce2eb;border-radius:10px;padding:18px;margin:16px 0}.note{border-left:4px solid #4263ba;padding:12px;background:#edf2ff}table{border-collapse:collapse;width:100%;font-size:14px}th,td{border:1px solid #dce2eb;padding:10px;vertical-align:top;text-align:left}th{background:#edf1f7;position:sticky;top:0}td:last-child{font:12px/1.6 ui-monospace,monospace;overflow-wrap:anywhere}#catalog td:nth-child(4),#catalog td:nth-child(5),#catalog td:nth-child(6){min-width:210px}.scroll{overflow:auto}input,select{padding:8px;font:inherit;border:1px solid #b8c2d2;border-radius:5px;margin:6px}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f5f6f8;padding:12px;font-size:12px}details{margin:8px 0}summary{cursor:pointer}.muted{color:#566274}@media print{main{padding:0}.controls{display:none}th{position:static}.scroll{overflow:visible}#catalog td{min-width:0;font-size:10px}details{display:none}}
+</style><main><h1>CompareTool 六模式导出阻断分析</h1><p class="muted">只读业务代码审查与独立样本复现 · 2026-10-12T16:55:13+08:00</p><div class="panel note"><strong>历史审查快照（2026-10-12）</strong><p>以下结论描述修复前状态；建议现已实施，当前行为与验证请查看 <a href="../docs/export-best-effort-verification.md">2026-10-13 发布记录</a> 和完整性合同。</p></div><div class="panel"><strong>结论：目前仍是严格整次成功/失败模型。重命名身份、包内附加分析、展示路径、多项目成败、检出转换等，都可能阻止本来可以保留的报告或文件。</strong><p>本轮未修改业务代码、配置、手册、EXE，未提交或推送。以下“建议”均未实现。真正缺失的文件和不能核对的字节需要写进失败清单；可完成的报告/文件可在明确“未完整完成”的结果中保留，不能假报完整成功。</p></div><h2>范围与证据</h2><div class="panel"><ul><li>逐项检查27个应用模块、模板调用及主工作线程。静态索引共485处raise；包括重复包装、重抛、关闭的显式策略及内部接口错误，不能解释为485种用户必遇报错。</li><li>22个独立检查：6模式关闭递归均成功，开启损坏内层JAR均整次失败；另核对Git ident、SVN keywords、非连续身份冲突、展示冲突、单项目失败拖住整批、归档根选项、重复成员及源树变化。</li><li>6份成功结果都有HTML报告且newVersion原包SHA-256与输入一致；含输出记录的预期失败均没有正式交付文件。16个预期失败均命中，不是16个待修测试失败。</li><li>安装构建 51d0e76a7b：当前源码完整构建指纹与元数据相同，安装EXE实际SHA-256与元数据相同；既有发布验证记录还核对过嵌入模块/模板。此次样本通过源码真实工作线程执行，未在EXE窗口重复22项。</li><li>第一次普通沙箱运行被测试临时目录ACL干扰并中止，不用于业务结论；随后现有项目Python正常权限复现通过。未消耗生产输入或访问生产SVN。</li></ul></div><h2>各模式覆盖</h2><div class="panel scroll"><table><thead><tr><th>模式</th><th>主要触发点</th><th>清单编号</th></tr></thead><tbody><tr><td>Git</td><td>检出转换/特殊节点；CLI、仓库、版本和原始对象；共享输出故障。</td><td>R05、R11、R14；F01、F02、F05–F11</td></tr><tr><td>Git多版本</td><td>额外身份歧义/目标冲突/评分失败；第一父历史和浅克隆；检出转换。</td><td>R01–R03、R11、R14；F01–F03、F05–F11</td></tr><tr><td>SVN</td><td>keywords、相关目录externals、special；认证/网络/属性/历史URL；摘要额外读取。</td><td>R05、R12–R14；F01、F02、F04–F11</td></tr><tr><td>SVN多版本</td><td>共享身份目标冲突、copyfrom目录移动确认；keywords/externals/special；revision和历史XML。</td><td>R02、R04、R12–R14；F01、F02、F04–F11</td></tr><tr><td>文件夹</td><td>扫描/复制期间源树变化，未排除无关文件也可能阻断；链接、路径及共享输出。</td><td>R05、R14、R17、R20；F01、F05–F11</td></tr><tr><td>压缩包</td><td>外层包解析/成员完整性/类型/路径；单目录选项；原包锁/空间；共享输出。</td><td>R05、R08、R14、R15、R17、R20；F01、F05–F11</td></tr><tr><td>六模式包内递归</td><td>任何变化的受支持内层包解析失败/LFS指针，向上中止整次。</td><td>R06、R07；F08–F11</td></tr><tr><td>六模式混合多项目</td><td>展示路径冲突；一个任务失败整批不发布。</td><td>R09、R10，加上各任务自己的所有条件</td></tr></tbody></table></div><h2>完整业务触发清单（33类）</h2><p>按触发条件合并列出，底层操作系统和第三方库异常归入对应阶段；不声称能穷举未来程序缺陷的每一句错误文本。</p><div class="controls"><input id="search" placeholder="搜索报错、触发条件、源码"><select id="mode"><option value="">所有模式</option><option>Git</option><option>Git多版本</option><option>SVN</option><option>SVN多版本</option><option>文件夹</option><option>压缩包</option><option>多项目</option><option>包内递归</option></select><select id="kind"><option value="">所有处理建议</option><option>可重试</option><option>可降级</option><option>必须保留</option><option>必须记录</option><option>需前置</option><option>需扩展</option></select><span id="count"></span></div><div class="panel scroll"><table id="catalog"><thead><tr><th>编号</th><th>适用模式</th><th>阶段</th><th>触发条件</th><th>当前表现/报错</th><th>建议</th><th>类别</th><th>源码证据</th></tr></thead><tbody><tr data-mode="Git多版本" data-kind="可降级"><td>R01</td><td>Git多版本</td><td>身份规划</td><td>非连续选版中删除、新增、重命名候选关联多个选中端点，身份不能唯一确定。</td><td>报“Git 检测到无法唯一确认的删除/新增/重命名候选…本次未生成报告和源码包”；整次失败。连续选版仅跳过额外歧义检查，通用降级尚未实现。</td><td>优先修复：冲突组按真实首尾状态重新逐路径规划，降级 D/A；同路径为修改。报告注明降级，禁止再次内容配对。</td><td>可降级</td><td>vcs/multi_version_vcs.py:992,1011,1395</td></tr><tr data-mode="Git多版本、SVN多版本" data-kind="可降级"><td>R02</td><td>Git多版本、SVN多版本</td><td>身份规划</td><td>重命名目标已经由另一活动身份占用。</td><td>报“多版本历史出现无法唯一追踪的重命名目标，已中止生成”；共享规划器直接抛异常。</td><td>纳入同一冲突组降级；不能简单忽略异常，要重新消解相同路径端点和目标占用。</td><td>可降级</td><td>vcs/multi_version_vcs.py:372,668</td></tr><tr data-mode="Git多版本" data-kind="可降级"><td>R03</td><td>Git多版本</td><td>额外身份评分</td><td>隔离两个 blob 的 Git 原生 rename score 子命令失败。</td><td>报“Git 重命名候选评分失败”；评分服务异常也会让整个任务失败。</td><td>把无法评分归入身份不确定，降级该组 D/A；真实源对象读不到另行标为文件失败，不能猜身份。</td><td>可降级</td><td>vcs/multi_version_vcs.py:1680,1738</td></tr><tr data-mode="SVN多版本" data-kind="可降级"><td>R04</td><td>SVN多版本</td><td>目录移动规划</td><td>目录移动中的显式 copyfrom 文件不在核对的源/目标端点集合中。</td><td>报“SVN 目录移动中的显式文件 copyfrom 无法在端点确认”；整次失败。</td><td>可把相关移动组改为源端点删除、目标端点新增；必须实际读取并核对存在的端点。copyfrom 分叉已有部分 D/A 降级，不能说 SVN 所有分叉都报错。</td><td>可降级</td><td>vcs/multi_version_vcs.py:2706,2901</td></tr><tr data-mode="Git、SVN、文件夹、压缩包" data-kind="可降级"><td>R05</td><td>Git、SVN、文件夹、压缩包</td><td>精确重命名识别</td><td>为可选的删除/新增合并计算内容摘要时，摘要读取或缓存校验抛异常。</td><td>多对多同内容候选本来会保留 D/A，不会因“不唯一”失败；但 signature_getter 异常未被本层接住，尤其 SVN 下载/摘要失败会传播。</td><td>摘要专用步骤失败可保留 D/A，后续真实导出独立重试、校验；内容本身读不到仍需记录失败，不能把它当空文件。</td><td>可降级</td><td>diff_engine.py:846,905,913;vcs/svn_vcs.py:568,585;vcs/raw_cache.py:66</td></tr><tr data-mode="全部六模式（开启包内递归）" data-kind="可降级"><td>R06</td><td>全部六模式（开启包内递归）</td><td>原文件已暂存，包内分析</td><td>变化的内层 ZIP/JAR/WAR/TAR 等损坏、CRC 错误、格式不兼容、密码加密、分卷、未知压缩算法，或成员名称/属性冲突。</td><td>报“项目[…] 旧侧[…] / 新侧[…]: 压缩包内部比较失败[…]”；递归异常向上抛，清理暂存，原包也不发布。六模式均已实测损坏内层 JAR。</td><td>最高优先级：逐包标“内部分析未完成 + 原因”，停止该包展开，保留已核对的原包和主报告，继续分析其他文件。不能吞掉暂存身份被替换/越界等交付来源错误。</td><td>可降级</td><td>archive_report.py:163,173,193,197;main.py:2426,2444,2491</td></tr><tr data-mode="全部六模式（开启包内递归）" data-kind="可降级"><td>R07</td><td>全部六模式（开启包内递归）</td><td>包内分析</td><td>某侧待交付 .jar/.zip 文件实际上是 Git LFS 指针，或另一侧格式不支持。</td><td>变化包的 LFS 指针报“不是实际压缩包；本功能不下载 LFS 对象”；一侧扩展名不支持已经可以保留原文件并标 unsupported；相同包不展开。</td><td>LFS 指针可作为“包内未展开”继续主报告，但必须说明交付的是指针而非真实大文件，不能宣称拿到了实际 JAR。</td><td>可降级</td><td>archive_report.py:165,178,187</td></tr><tr data-mode="压缩包" data-kind="可降级"><td>R08</td><td>压缩包</td><td>解压后选择比较根</td><td>勾选“忽略最外层单一文件夹”，而任一端顶层不是恰好一个文件夹。</td><td>报“压缩包不满足…顶层必须只有一个文件夹”；目前要求取消勾选后重试。</td><td>可以让两侧一起回退完整根层级并明确标注；这是比较根语义变化，不能只剥离满足条件的一侧。</td><td>可降级</td><td>vcs/archive_vcs.py:216,411</td></tr><tr data-mode="全部六模式（多项目）" data-kind="可降级"><td>R09</td><td>全部六模式（多项目）</td><td>全部项目已比对，导出前</td><td>两个项目关闭项目名展示，产生相同展示路径，如 config/app.properties。</td><td>报“多项目报告存在同名展示路径，无法生成”；实际导出目录已有项目隔离，冲突来自展示。已实测。</td><td>自动为冲突项目显示项目名前缀并说明，不应让展示选择中止整批。</td><td>可降级</td><td>main.py:2086,2116,2559</td></tr><tr data-mode="全部六模式（多项目）" data-kind="可降级"><td>R10</td><td>全部六模式（多项目）</td><td>任一项目/递归/模板阶段</td><td>任一项目失败，包括最后一个项目或某个递归包失败。</td><td>当前整批失败，不发布已成功项目；原本能导出的项目也一起清理。已实测一项目递归失败。</td><td>建议尽力导出：按项目保留完整成功结果，总报告列出成功/失败项目和原因，明确本批未完整完成；不可把部分项目统计冒充整批成功。</td><td>可降级</td><td>main.py:2535,2552,2586,2645</td></tr><tr data-mode="Git、Git多版本" data-kind="需扩展"><td>R11</td><td>Git、Git多版本</td><td>检出策略/导出</td><td>启用 ident、working-tree-encoding、旧 crlf 属性，或实际启用 smudge/process/required 的 filter（含 LFS 常见配置）。</td><td>报“Git 文件启用了当前无法可靠复现的检出属性，已中止导出”或“Git 原生检出失败”；多版本可能外包为“无法写入…文件端点”。ident 两模式已实测。缺少转换程序且非 required、仅 clean 的 filter 已允许。</td><td>需要补充真实转换支持，或提供明确标注的仓库原始字节输出策略；不能直接输出 raw 后声称是同样的检出/上线文件。其他普通文件可保留。</td><td>需扩展</td><td>vcs/git_vcs.py:663,673,686;vcs/git_checkout.py:144,171;vcs/multi_version_vcs.py:699</td></tr><tr data-mode="SVN、SVN多版本" data-kind="需扩展"><td>R12</td><td>SVN、SVN多版本</td><td>端点属性核对</td><td>文件设置了非空 svn:keywords，如 Id/Revision/Author。</td><td>报“svn cat 不能可靠复现工作副本展开字节”；两模式已实测。空值/仅 ASCII 空白已允许。</td><td>增加固定 revision 的可靠展开方式，或单独标注 raw 输出；该限制是当前转换能力边界，不是 SVN 不能导出。</td><td>需扩展</td><td>vcs/svn_vcs.py:753;vcs/multi_version_vcs.py:3130</td></tr><tr data-mode="SVN、SVN多版本" data-kind="需扩展"><td>R13</td><td>SVN、SVN多版本</td><td>变更目录属性核对</td><td>本次处理的相关目录/根启用有效 svn:externals。</td><td>报“目录启用了 svn:externals，文件级交付无法保真”；不是任意未涉及目录存在 externals 都一定触发。空白/整行注释不触发。</td><td>可明确只导出所选主项目并列明外部依赖未包含，或新增固定外部依赖版本的导出支持；需明确范围，不能偷偷漏掉外部内容。</td><td>需扩展</td><td>vcs/svn_vcs.py:250;vcs/multi_version_vcs.py:2492</td></tr><tr data-mode="Git、Git多版本、SVN、SVN多版本、文件夹、压缩包" data-kind="需扩展"><td>R14</td><td>Git、Git多版本、SVN、SVN多版本、文件夹、压缩包</td><td>节点/成员类型核对</td><td>Git 类型变化 T、符号链接/子模块、SVN svn:special、文件夹 junction/symlink、ZIP/TAR 链接/设备等非普通文件。</td><td>报“文件类型发生变化”“端点不是普通文件”“包含符号链接或联接点”“链接/特殊文件”等；一个节点可中止整次。Git 多版本中无关的中间 T 已可延续同路径，最终特殊端点仍拒绝。</td><td>可在尽力模式中记录该节点无法按普通文件交付并继续其余文件；若要完整支持需定义链接/子模块交付格式。不得解引用读取根外内容。</td><td>需扩展</td><td>vcs/git_vcs.py:276,395;vcs/multi_version_vcs.py:1882,3125;vcs/folder_vcs.py:182,209;vcs/archive_vcs.py:563,669</td></tr><tr data-mode="压缩包（直接作为输入）" data-kind="需扩展"><td>R15</td><td>压缩包（直接作为输入）</td><td>预检/解压</td><td>输入为 RAR/7z 等不支持格式，或外层包加密、分卷、压缩算法不支持。</td><td>不支持格式/分卷的应用错误，或 zipfile/tarfile 的密码、解压算法异常；无法完成外层成员比较和成员导出。与仅附加递归不同。</td><td>可先输出诊断报告/原包附件并列明未展开，完整成员导出则需密码/格式支持；不能把原包当成已完成的成员交付。</td><td>需扩展</td><td>vcs/archive_vcs.py:376,518,975;vcs/archive_vcs.py:541,579,668</td></tr><tr data-mode="全部六模式" data-kind="可降级"><td>R16</td><td>全部六模式</td><td>HTML 明细/模板写入</td><td>HTML 片段损坏、引用失效、模板缺失/渲染异常、HTML 写入失败。</td><td>报“HTML 明细存储被截断或改变”“HTML 片段内容校验失败”，或 Jinja TemplateNotFound/其他异常；完整文本详情与文件导出被同一任务成败绑定。</td><td>对仅展示故障可切换独立基础报告（完整路径清单、失败原因），并保留已成功导出的文件；磁盘完全不可写时基础报告也不能写。</td><td>可降级</td><td>html_details.py:37,87,106;report_generator.py:37,87,105;main.py:2449,2491</td></tr><tr data-mode="全部六模式（临时快照/HTML缓存）" data-kind="可重试"><td>R17</td><td>全部六模式（临时快照/HTML缓存）</td><td>临时空间创建</td><td>COMPARETOOL_TEMP_DIR 指定根不可写/空间不足，或所有候选临时根均不可用/位于输入目录内。</td><td>报“无法使用环境变量…指定的临时目录”或“无法创建…临时工作目录”；显式指定但不可用会在部分路径提前结束候选尝试。归档和文件夹按预计实际工作字节选空间。</td><td>无效首选根可尝试其他安全可写根并说明；真实都不可用时只能记录失败。不能在输入树内造暂存物污染比对。</td><td>可重试</td><td>vcs/temp_storage.py:101,152,162,166,197;vcs/archive_vcs.py:154;vcs/folder_vcs.py:414</td></tr><tr data-mode="全部六模式" data-kind="可重试"><td>R18</td><td>全部六模式</td><td>最终发布</td><td>Windows 权限/占用使 rename 返回 WinError 5/32/33。</td><td>已有 4 次重试，等待合计 1.5 秒，仍失败时报“无法发布本次输出…短暂重试4次后仍失败”；其他 OS 错误直接传播。</td><td>可延长可见等待、允许用户释放占用后继续；或明确选新运行目录保留完成的暂存结果。不能覆盖外部新建目标。</td><td>可重试</td><td>file_exporter.py:431,451,455;vcs/base.py:233</td></tr><tr data-mode="全部六模式（覆盖旧结果）" data-kind="可重试"><td>R19</td><td>全部六模式（覆盖旧结果）</td><td>生成开始前删除旧输出</td><td>旧报告或旧导出目录被占用、权限不足、类型异常。</td><td>报“无法删除上次输出…”或“输出目标类型不符”；确认覆盖后先删再生成，已删部分不恢复。</td><td>可提前核对能否覆盖，或按明确的新运行目录继续。当前先删后生成是既定行为，不在本次分析中改回备份/回滚。</td><td>可重试</td><td>file_exporter.py:334,357,364;main.py:2342</td></tr><tr data-mode="文件夹；压缩包源捕获" data-kind="可重试"><td>R20</td><td>文件夹；压缩包源捕获</td><td>读取前后/源树最终复核</td><td>扫描/复制期间输入被编辑、替换、增加或删除；文件夹未排除的无关文件变化也能触发。Windows 源归档写锁还可能与其他程序现有写句柄冲突。</td><td>报“比对源文件/目录在快照期间发生变化”“路径集合…变化”“压缩包源…变化/无法读取”；文件夹无关文件变化已实测。</td><td>可自动从头重新捕获一次稳定端点，或把持续变化文件/受影响组列为失败后继续其他项；不能混用前后时点字节冒充一致快照。</td><td>可重试</td><td>vcs/folder_vcs.py:338,382,395,446;vcs/archive_vcs.py:240,256,324</td></tr><tr data-mode="Git、Git多版本" data-kind="可降级"><td>R21</td><td>Git、Git多版本</td><td>原生检出探针</td><td>微小检出探针有标准错误输出，即使单次调用退出码为0，或批量探针已返回合法内容。</td><td>单次 _run 对 endpoint 且 stderr 非空也报“Git 原生检出失败”；批量探针 stderr 文件非空也抛异常。静态条件确认，本轮未构造实际无害告警样本。</td><td>区分诊断内容与真实转换失败；仅经核对为无害的告警可记录后继续，不能把失败filter或不完整协议当作告警忽略。</td><td>可降级</td><td>vcs/git_checkout.py:143;vcs/git_probe_batch.py:84</td></tr><tr data-mode="Git、Git多版本" data-kind="可重试"><td>R22</td><td>Git、Git多版本</td><td>版本/配置/属性固定</td><td>短窗口内分支或tag引用变化；固定检出配置、filter配置或外部属性文件时前后不一致。</td><td>报“Git 版本引用/检出配置或属性/filter配置/属性文件在任务快照期间发生变化”；已固定OID之后单纯HEAD前进不等于必然失败。</td><td>可重新捕获完整一致策略再试；仍需使用同一组真实端点和转换规则。不能只跳过前后核对，让报告与交付使用两套规则。</td><td>可重试</td><td>vcs/git_vcs.py:365,667,736,755;vcs/git_checkout.py:53,75,133</td></tr><tr data-mode="全部六模式" data-kind="需前置"><td>F01</td><td>全部六模式</td><td>输入检查/版本固定</td><td>目录/文件不存在，项目名或输出路径空，无版本输入，多项目任务同名/名称无效。</td><td>生成前提示缺参数；普通模式“旧/新版本不存在”在工作线程中检查，可能已删除旧输出。check_version_exists 会把部分底层查询失败表述成版本不存在。</td><td>把可确定输入和版本检查尽量提前，保留底层诊断；没有可解析的输入时生成诊断说明，无法凭空提供有效文件。</td><td>需前置</td><td>main.py:1789,2120,2233,2397;vcs/git_vcs.py:807;vcs/svn_vcs.py:845</td></tr><tr data-mode="Git、Git多版本、SVN、SVN多版本" data-kind="需前置"><td>F02</td><td>Git、Git多版本、SVN、SVN多版本</td><td>CLI/仓库/网络</td><td>未安装 git/svn、选错仓库、Git dubious ownership、对象/仓库损坏，SVN 认证/证书/网络/访问权限失败，CLI 版本不支持使用的参数。</td><td>报“未找到…命令行工具”“Git/SVN命令失败”“无法确定Git项目范围”等，部分失败变成“无法读取原始字节”。本地 Git 比较本身不主动联网；SVN会访问仓库。</td><td>先做工具/仓库/访问检查；短暂网络错误可重试，逐文件失败可记录后继续。不要修改全局 safe.directory 或自动执行外部转换来掩盖问题。</td><td>需前置</td><td>vcs/git_vcs.py:88,183,200;vcs/git_checkout.py:38,90;vcs/svn_vcs.py:185,209</td></tr><tr data-mode="Git多版本" data-kind="需前置"><td>F03</td><td>Git多版本</td><td>历史选择/父提交读取</td><td>所选提交不在当前分支第一父链，分支无提交，浅克隆缺少第一父对象。</td><td>报“提交不在当前分支第一父历史中”“当前Git分支没有可用提交”“仓库缺少…第一父对象”；不能靠重命名降级解决。</td><td>生成前直接检查并指出哪个版本；跨分支/缺历史需要新的明确端点语义或补齐对象，不应生成伪首尾结果。</td><td>需前置</td><td>vcs/multi_version_vcs.py:975,983,1524</td></tr><tr data-mode="SVN、SVN多版本" data-kind="需前置"><td>F04</td><td>SVN、SVN多版本</td><td>版本/仓库身份/历史解析</td><td>revision 无效、晚于任务固定 HEAD，仓库 URL/UUID不匹配，log/list/info/proplist XML 损坏或历史顺序异常。</td><td>报“revision格式不正确”“端点晚于…HEAD”“仓库身份…变化”“无法解析…XML”“历史XML未按倒序返回”等。</td><td>版本和身份提前固定；不完整的历史或未知源位置不能猜。可对独立项目保留成功结果并报告这个项目失败。</td><td>需前置</td><td>vcs/svn_vcs.py:116,168,421;vcs/multi_version_vcs.py:2112,2177,2230,2985</td></tr><tr data-mode="全部六模式" data-kind="必须保留"><td>F05</td><td>全部六模式</td><td>输出边界检查</td><td>输出会覆盖输入源码、位于 .git/.svn/裸仓库元数据、嵌套工作副本或已跟踪源码路径，新旧输出重叠、目标重复，祖先是链接/联接点。</td><td>报“输出目录与输入源码目录重叠”“输出目标位于…元数据”“包含已跟踪文件”“新旧版本导出目录不能相同”“输出目标重复或互相包含”等。</td><td>保留禁止覆盖边界，可选择新的安全运行目录；不能静默删源码或改变用户文件。大部分已有前置检查，工作线程还会再核对。</td><td>必须保留</td><td>main.py:774,938,953,1000,1050;file_exporter.py:85,313,317;path_safety.py:297</td></tr><tr data-mode="全部六模式" data-kind="必须保留"><td>F06</td><td>全部六模式</td><td>路径校验/创建文件</td><td>路径穿越、绝对/盘符路径、ADS、Windows非法字符/保留名、尾随点空格、大小写/真实短别名碰撞、文件目录前缀冲突、路径过长。</td><td>报“不安全路径”“Windows路径冲突”“不可保真尾随空格或点”“保留名称”“文件/目录前缀冲突”，或底层路径/Unicode/长度 OS 错误。合法独立 ~ 名称不会只凭外形拒绝。</td><td>冲突文件可进入失败清单，其余可继续；完整同路径交付不能随意改名或让后文件覆盖前文件。多版本逻辑规划错误造成的重复应优先从端点规划修复。</td><td>必须保留</td><td>path_safety.py:143,147,149,152,231;file_exporter.py:219;vcs/archive_vcs.py:1274,1286;vcs/multi_version_vcs.py:668</td></tr><tr data-mode="全部六模式" data-kind="必须记录"><td>F07</td><td>全部六模式</td><td>读取/导出</td><td>具体端点文件读不到、读到的字节长度不符、对象缺失、Git batch blob类型/长度/结束符错误、SVN cat失败、raw缓存内容变化。</td><td>报“无法读取旧/新版本原始字节”“文件大小与读取字节不一致”“无法流式导出…”“Git batch returned incomplete blob content”“原始缓存内容已变化”等；目前一文件拖住整次。</td><td>尽力模式可保留其他文件，失败文件明确不交付、不计作成功；对应比较/删除操作不能按未知端点推导。读不到的文件不能用空文件代替。</td><td>必须记录</td><td>diff_engine.py:377,379;file_exporter.py:190;vcs/git_batch.py:68,78,84;vcs/svn_vcs.py:645;vcs/raw_cache.py:73</td></tr><tr data-mode="压缩包；全部模式的包内递归" data-kind="必须记录"><td>F08</td><td>压缩包；全部模式的包内递归</td><td>归档完整性</td><td>ZIP/TAR头/目录/CRC/声明长度损坏、提前结束，ZIP重复成员内容或相关属性不同，PAX记录无效，提取计划与成员不一致。</td><td>多种“已损坏/中央目录…无效/数据提前结束/同名成员内容不一致/成员与预检不一致”等错误；逐字同名且内容/属性一致的重复成员已经可合并。</td><td>仅附加包内分析时用 R06 降级；直接压缩包模式中坏外层无法提供完整成员结果，可给诊断报告/明确未完成，不能从坏包猜出缺失正文。</td><td>必须记录</td><td>vcs/archive_vcs.py:456,466,471,657,804,954,999,1124</td></tr><tr data-mode="全部六模式" data-kind="必须记录"><td>F09</td><td>全部六模式</td><td>临时/导出/报告/说明写盘</td><td>磁盘空间不足、权限不足、网络盘断开、目标文件系统限制、写入不完整、fsync/os.replace失败。</td><td>底层 OSError/PermissionError/WinError，或“成员写入不完整”“交付复制不完整”“HTML明细写入不完整”等；文件可能已比对很久才触发。归档还有真实可用空间预检。</td><td>尽量前置空间/可写性检查并可重试或选其他盘；若输出根完全不可写，连诊断报告也无法写到该根。实际缺失字节必须记失败。</td><td>必须记录</td><td>vcs/archive_vcs.py:338,454;file_exporter.py:175;report_generator.py:114,128;delivery_instructions.py:17;html_details.py:64</td></tr><tr data-mode="全部六模式" data-kind="必须保留"><td>F10</td><td>全部六模式</td><td>输出互斥/发布时身份</td><td>另一个实例占用同批次输出锁，锁文件非法/被替换；生成期间正式目标被外部重新创建；已分析暂存被替换/篡改。</td><td>报“输出目录正在被另一个CompareTool实例使用”“输出锁文件身份无效”“生成期间输出目标被重新创建”“待交付内容…已变化”；发布后复核仍可失败并清理本次新结果。</td><td>并发可等待/新运行目录；来源或已分析字节变化必须重新验证/重做受影响项。不能直接跳过校验后发布另一份内容。</td><td>必须保留</td><td>file_exporter.py:392,443,608,663,695</td></tr><tr data-mode="全部六模式；深层递归更明显" data-kind="必须记录"><td>F11</td><td>全部六模式；深层递归更明显</td><td>运行时资源/意外异常</td><td>真实内存耗尽、过深的 Python/Jinja/目录递归、文件句柄耗尽、程序缺陷及第三方库异常。</td><td>工作线程统一捕获 Exception 后转错误弹窗；可能显示 MemoryError、RecursionError、Too many open files、UnicodeEncodeError 等。默认规模不限不等于系统资源无限。深层资源耗尽未在本轮故意压满实测。</td><td>仅分析/渲染失败可降级基础报告；内存/系统资源真正耗尽需要释放资源或恢复后重试，不能保证在已不可用的进程里继续完成。</td><td>必须记录</td><td>main.py:2489,2645,2722;archive_report.py:197,202;templates/archive_details.html;file_exporter.py:509</td></tr></tbody></table></div><h2>目前已经不会仅因此阻断</h2><div class="panel"><ul><li>当前源码/匹配的安装构建中：文本字节/行数/最长行、明细数、路径总字节、HTML大小默认不限。受限策略代码存在，但 GUI 未默认注入这些上限。</li><li>文件夹规模、多版本历史/端点/重命名评分规模默认不限；生成用 Git/SVN命令超时默认 None。版本列表最近100条只是列表数量，不是生成任务的数量上限。</li><li>压缩包成员数、单成员大小、累计展开量、压缩比、递归深度当前都默认 None；旧版100000成员、8层等不能再当作当前安装构建的默认报错条件。</li><li>二进制文件只省略正文展示，完整导出；未知文本编码已有无损字节标记，HtmlDiff RecursionError 已切换完整非递归差异表。不能把这些误列成必然阻断。</li><li>普通模式同内容删除/新增匹配不唯一时本来保留 D/A；跨项目边界/单侧排除 rename 已安全降级；SVN一源多目标自然后缀消失也已有 D/A 分支。</li><li>源码日志和耗时日志写不出不会让比较本身失败；配置保存失败会单独弹窗/告警，但生成入口没有依据返回值停止本次生成。</li><li>归档合法逐字同名、内容和相关属性一致的重复普通文件已支持合并；符合精确条件的旧JAR空目录0xFFFF权限也已兼容。</li><li>未知递归格式如RAR/7z不会按支持格式继续展开；相同包不进一步解析，所以不能宣称对相同包完成了格式校验。</li></ul></div><h2>建议实施顺序</h2><div class="panel"><ol><li>重命名身份冲突D/A降级；包内解析失败逐包标注而保留主报告/原包；展示路径冲突自动加项目前缀。</li><li>将版本、仓库、转换能力、输出位置等能预知的错误前置；对短暂占用/网络/输入变化提供可靠重试。</li><li>明确尽力导出语义：分别统计成功项目/文件、失败项、降级分析项；保留成功结果，在报告开头及结束提示统一说明。本批含失败项时不能冒充完整可上线包；上线说明不得从未知端点推导删除。</li><li>补齐Git/SVN检出转换、外部依赖、特殊节点等能力。不能用吞异常或未经说明的raw替换来假装完成。</li></ol><p class="note">当前流程确认覆盖后会先删除旧结果，后面任何失败都不会恢复旧结果。这个既定覆盖行为需要在预检改进时一起考虑；本轮没有引入备份、HMAC或回滚机制。</p></div><h2>22项本地核对结果</h2><div class="panel scroll"><table><thead><tr><th>样本</th><th>当前结果</th><th>错误</th></tr></thead><tbody><tr><td>folder_plain_corrupt_inner</td><td>导出成功</td><td></td></tr><tr><td>folder_recursive_corrupt_inner</td><td>预期阻断已命中</td><td>项目 [FolderInput] 旧侧 [bad.jar] / 新侧 [bad.jar]: 压缩包内部比较失败 [bad.jar]: 找不到有效 ZIP 中央目录结束记录: D:\AI\project\compareTool_myself\.tmp\export_blocker_audit_20261012\cases_native\folder_recursive_corrupt_inner\.comparetool_stage_477tvi6o\FolderInput\bad.jar</td></tr><tr><td>archive_plain_corrupt_inner</td><td>导出成功</td><td></td></tr><tr><td>archive_recursive_corrupt_inner</td><td>预期阻断已命中</td><td>项目 [ArchiveInput] 旧侧 [bad.jar] / 新侧 [bad.jar]: 压缩包内部比较失败 [bad.jar]: ZIP 文件过短或已损坏: D:\AI\project\compareTool_myself\.tmp\export_blocker_audit_20261012\cases_native\archive_recursive_corrupt_inner\.comparetool_stage_pr50d87d\ArchiveInput\bad.jar</td></tr><tr><td>archive_single_root_mismatch</td><td>预期阻断已命中</td><td>旧压缩包不满足“忽略最外层单一文件夹”：顶层必须只有一个文件夹，不能同时有文件或其它文件夹。请取消勾选，或手工解压后选择对应目录进行文件夹比对。</td></tr><tr><td>archive_duplicate_conflict</td><td>预期阻断已命中</td><td>压缩包同名成员内容不一致，已拒绝解压: same.txt</td></tr><tr><td>git_plain_corrupt_inner</td><td>导出成功</td><td></td></tr><tr><td>git_recursive_corrupt_inner</td><td>预期阻断已命中</td><td>项目 [Demo] 旧侧 [bad.jar] / 新侧 [bad.jar]: 压缩包内部比较失败 [bad.jar]: ZIP 文件过短或已损坏: D:\AI\project\compareTool_myself\.tmp\export_blocker_audit_20261012\cases_native\git_recursive_corrupt_inner\.comparetool_stage_kie6hav6\Demo\bad.jar</td></tr><tr><td>git_multi_plain_corrupt_inner</td><td>导出成功</td><td></td></tr><tr><td>git_multi_recursive_corrupt_inner</td><td>预期阻断已命中</td><td>项目 [Demo] 旧侧 [bad.jar] / 新侧 [bad.jar]: 压缩包内部比较失败 [bad.jar]: ZIP 文件过短或已损坏: D:\AI\project\compareTool_myself\.tmp\export_blocker_audit_20261012\cases_native\git_multi_recursive_corrupt_inner\.comparetool_stage_wz1lem8k\Demo\bad.jar</td></tr><tr><td>git_ident_attribute</td><td>预期阻断已命中</td><td>Git 文件启用了当前无法可靠复现的检出属性，已中止导出: ident.txt
+属性: ident=set</td></tr><tr><td>git_multi_ident_attribute</td><td>预期阻断已命中</td><td>无法写入旧版本文件端点，已中止生成: ident.txt@2a37fef6fb5784e914b1d4e001a157e363503dd3
+Git 文件启用了当前无法可靠复现的检出属性，已中止导出: ident.txt
+属性: ident=set</td></tr><tr><td>git_multi_noncontiguous_identity</td><td>预期阻断已命中</td><td>Git 检测到无法唯一确认的删除/新增/重命名候选，且候选两侧都关联选中变更，无法排除彻底改写或同内容文件造成的错误配对。本次未生成报告和源码包。
+提交 7fd8886db0a63ebaff291d78b559afa78da895c3
+  候选矩阵 1×1，示例：old.jar -&gt; new.jar</td></tr><tr><td>svn_plain_corrupt_inner</td><td>导出成功</td><td></td></tr><tr><td>svn_recursive_corrupt_inner</td><td>预期阻断已命中</td><td>项目 [Demo] 旧侧 [bad.jar] / 新侧 [bad.jar]: 压缩包内部比较失败 [bad.jar]: ZIP 文件过短或已损坏: D:\AI\project\compareTool_myself\.tmp\export_blocker_audit_20261012\cases_native\svn_recursive_corrupt_inner\.comparetool_stage_873n9eat\Demo\bad.jar</td></tr><tr><td>svn_multi_plain_corrupt_inner</td><td>导出成功</td><td></td></tr><tr><td>svn_multi_recursive_corrupt_inner</td><td>预期阻断已命中</td><td>项目 [Demo] 旧侧 [bad.jar] / 新侧 [bad.jar]: 压缩包内部比较失败 [bad.jar]: ZIP 文件过短或已损坏: D:\AI\project\compareTool_myself\.tmp\export_blocker_audit_20261012\cases_native\svn_multi_recursive_corrupt_inner\.comparetool_stage_caksimb9\Demo\bad.jar</td></tr><tr><td>svn_keywords</td><td>预期阻断已命中</td><td>SVN 文件启用了 svn:keywords，svn cat 不能可靠复现工作副本展开字节，已中止生成: keyword.txt</td></tr><tr><td>svn_multi_keywords</td><td>预期阻断已命中</td><td>SVN 多版本端点启用了 svn:keywords，svn cat 不能可靠复现工作副本展开字节，已中止生成: keyword.txt@3</td></tr><tr><td>multi_display_conflict</td><td>预期阻断已命中</td><td>多项目报告存在同名展示路径，无法生成。
+
+存在冲突的项目组合：
+- Alpha / Beta（1 个同名路径）
+请将以上项目中至少一个任务的“报告树及变更清单使用项目名”改为“是”后重试。</td></tr><tr><td>multi_one_recursive_failure</td><td>预期阻断已命中</td><td>项目 [Beta] 旧侧 [bad.jar] / 新侧 [bad.jar]: 压缩包内部比较失败 [bad.jar]: 找不到有效 ZIP 中央目录结束记录: D:\AI\project\compareTool_myself\.tmp\export_blocker_audit_20261012\cases_native\multi_one_recursive_failure\.comparetool_stage_hu5964u5\newVersion\Beta\bad.jar</td></tr><tr><td>folder_unrelated_source_mutation</td><td>预期阻断已命中</td><td>比对源文件在快照期间发生变化: D:\AI\project\compareTool_myself\.tmp\export_blocker_audit_20261012\cases_native\changing-source\unrelated.txt</td></tr></tbody></table></div><h2>静态raise索引（开发核对）</h2><p>包含关闭的策略、被捕获的重抛和内部接口防错，需结合上方业务清单阅读。</p><div class="panel"><details><summary>app_version.py（2 处 raise）</summary><pre>app_version.py:18  build_info
+条件：not isinstance(data, dict) or data.get(&#x27;version&#x27;) != APP_VERSION
+raise ValueError(&quot;invalid build metadata&quot;)
+
+app_version.py:21  build_info
+条件：not all((isinstance(data.get(k), str) for k in (&#x27;build_id&#x27;, &#x27;built_at&#x27;, &#x27;commit&#x27;, &#x27;source_sha256&#x27;)))
+raise ValueError(&quot;incomplete build metadata&quot;)</pre></details><details><summary>archive_endpoints.py（10 处 raise）</summary><pre>archive_endpoints.py:17  StagedArchiveEndpoints.__init__
+条件：not trusted_root or not old_root or (not new_root)
+raise ValueError(&#x27;包内分析需要明确的可信根和新旧暂存根&#x27;)
+
+archive_endpoints.py:26  StagedArchiveEndpoints.__init__
+条件：any((windows_path_key(common) == windows_path_key(root) for root in self.roots.values()))
+raise ValueError(&#x27;包内分析的新旧暂存根不能相同或互相包含&#x27;)
+
+archive_endpoints.py:31  StagedArchiveEndpoints._validate_root
+条件：not stat.S_ISDIR(os.lstat(root).st_mode)
+raise ValueError(&#x27;包内分析暂存根不是目录: &#x27; + root)
+
+archive_endpoints.py:35  StagedArchiveEndpoints._validate_root
+条件：os.path.commonpath([anchor_real, root_real]) != anchor_real
+raise ValueError(&#x27;包内分析暂存根越出可信范围: &#x27; + root)
+
+archive_endpoints.py:46  StagedArchiveEndpoints.from_export_pairs
+条件：key not in expected or key in mapped
+raise ValueError(&#x27;包内分析收到不匹配或重复的源码暂存目标&#x27;)
+
+archive_endpoints.py:49  StagedArchiveEndpoints.from_export_pairs
+条件：len(mapped) != 2 or expected[0] == expected[1]
+raise ValueError(&#x27;包内分析缺少完整的新旧源码暂存对&#x27;)
+
+archive_endpoints.py:55  StagedArchiveEndpoints.path_for
+条件：side not in (&#x27;old&#x27;, &#x27;new&#x27;)
+raise ValueError(&#x27;包内分析侧别必须为 old 或 new，不能使用版本显示标签&#x27;)
+
+archive_endpoints.py:65  StagedArchiveEndpoints.path_for
+条件：regular_file_path_identity(path) != before
+raise RuntimeError(&#x27;包内分析端点在打开期间被替换&#x27;)
+
+archive_endpoints.py:69  StagedArchiveEndpoints.path_for
+条件：
+raise RuntimeError(f&#x27;无法读取{label}侧待交付压缩包 [{relative_path}]: {exc}&#x27;) from exc
+
+archive_endpoints.py:78  StagedArchiveEndpoints._validate_path
+条件：os.path.commonpath([root_real, target_real]) != root_real
+raise ValueError(&#x27;包内分析端点越出暂存根: &#x27; + path)</pre></details><details><summary>archive_report.py（11 处 raise）</summary><pre>archive_report.py:69  ArchiveReportBudget.reserve
+条件：self.max_members is not None and self.members + count &gt; self.max_members
+raise ValueError(&#x27;包内递归比较累计成员数超过安全限制，已中止&#x27;)
+
+archive_report.py:71  ArchiveReportBudget.reserve
+条件：self.max_bytes is not None and self.declared_bytes + size &gt; self.max_bytes
+raise ValueError(&#x27;包内递归比较累计展开字节超过安全限制，已中止&#x27;)
+
+archive_report.py:77  ArchiveReportBudget.consume
+条件：self.max_bytes is not None and self.actual_bytes + size &gt; self.max_bytes
+raise ValueError(&#x27;包内递归比较实际展开字节超过安全限制，已中止&#x27;)
+
+archive_report.py:97  _ReportArchiveVCS._validate_archive_limits
+条件：else: key not in self._reserved_sources &amp;&amp; self._reserved_sources[key] != signature
+raise ValueError(&#x27;包内比较源信息在预检后变化，已中止&#x27;)
+
+archive_report.py:124  _endpoint_path
+条件：not isinstance(vcs, FolderVCS)
+raise ValueError(&#x27;此来源没有可直接借用的快照，请显式传入暂存端点&#x27;)
+
+archive_report.py:163  _Inspector.attach
+条件：
+raise RuntimeError(f&#x27;项目 [{result.project_name}] 包内端点读取失败: {exc}&#x27;) from exc
+
+archive_report.py:173  _Inspector.attach
+条件：
+raise RuntimeError(
+                    f&#x27;项目 [{result.project_name}] 旧侧 [{old_name if old else &quot;不存在&quot;}] / &#x27;
+                    f&#x27;新侧 [{file.file_path if new else &quot;不存在&quot;}]: {exc}&#x27;
+                ) from exc
+
+archive_report.py:183  _Inspector.inspect
+条件：self.budget.max_depth is not None and depth &gt; self.budget.max_depth
+raise RuntimeError(&#x27;包内递归深度超过安全限制: &#x27; + &#x27; → &#x27;.join(names))
+
+archive_report.py:187  _Inspector.inspect
+条件：path is not None and _is_lfs_pointer(path)
+raise ValueError(f&#x27;{side}侧待交付文件是 Git LFS 指针，不是实际压缩包；本功能不下载 LFS 对象&#x27;)
+
+archive_report.py:193  _Inspector.inspect
+条件：
+raise RuntimeError(&#x27;压缩包内部比较失败 [&#x27; + &#x27; → &#x27;.join(names) +
+                               &#x27;]: &#x27; + str(exc)) from exc
+
+archive_report.py:218  enrich_archive_reports
+条件：endpoints is None and (not isinstance(vcs, (FolderVCS, ArchiveVCS)))
+raise ValueError(&#x27;此来源没有可直接借用的快照，请显式传入暂存端点&#x27;)</pre></details><details><summary>delivery_instructions.py（1 处 raise）</summary><pre>delivery_instructions.py:37  prepare_delivery_instructions
+条件：
+raise</pre></details><details><summary>diff_engine.py（2 处 raise）</summary><pre>diff_engine.py:377  DiffEngine._diff_file
+条件：data is None
+raise RuntimeError(f&quot;无法读取{label}原始字节，已中止生成: {path}&quot;)
+
+diff_engine.py:379  DiffEngine._diff_file
+条件：expected_size is not None and len(data) != expected_size
+raise RuntimeError(
+                    f&quot;{label}文件大小与读取字节不一致，已中止生成: &quot;
+                    f&quot;{path} ({expected_size} != {len(data)})&quot;
+                )</pre></details><details><summary>file_exporter.py（50 处 raise）</summary><pre>file_exporter.py:61  FileExporter.export
+条件：targets_are_staging_roots &amp;&amp; any((os.path.lexists(p) for p in targets))
+raise RuntimeError(&quot;多项目暂存中出现重复项目输出&quot;)
+
+file_exporter.py:85  FileExporter.prepare_export
+条件：os.path.normcase(old_dir) == os.path.normcase(new_dir)
+raise RuntimeError(&quot;新旧版本导出目录不能相同&quot;)
+
+file_exporter.py:94  FileExporter.prepare_export
+条件：not trusted_root
+raise RuntimeError(&quot;无法确定项目导出的同盘暂存目录&quot;)
+
+file_exporter.py:131  FileExporter.prepare_export
+条件：
+raise
+
+file_exporter.py:168  FileExporter._write_file
+条件：
+raise RuntimeError(str(exc)) from exc
+
+file_exporter.py:185  FileExporter._write_file
+条件：stream_export is not None
+raise
+
+file_exporter.py:190  FileExporter._write_file
+条件：raw is None
+raise RuntimeError(f&quot;无法读取版本 {version} 中的文件，已中止导出: {rel_path}&quot;)
+
+file_exporter.py:219  FileExporter._validate_export_paths
+条件：key in seen
+raise RuntimeError(
+
+                        f&quot;{label}导出存在 Windows 路径冲突，无法同时保存: &quot;
+
+                        f&quot;{seen[key]} / {rel_path}&quot;
+
+                    )
+
+file_exporter.py:230  FileExporter._safe_join
+条件：
+raise RuntimeError(str(exc)) from exc
+
+file_exporter.py:264  FileExporter._make_stage_dir
+条件：
+raise
+
+file_exporter.py:301  FileExporter._make_stage_file
+条件：
+raise
+
+file_exporter.py:313  FileExporter._validate_output_targets
+条件：key == root_key
+raise RuntimeError(&quot;不能清空整个输出根目录&quot;)
+
+file_exporter.py:317  FileExporter._validate_output_targets
+条件：key == previous or key.startswith(previous + &#x27;\\&#x27;) or previous.startswith(key + &#x27;\\&#x27;)
+raise RuntimeError(&quot;输出目标重复或互相包含&quot;)
+
+file_exporter.py:328  FileExporter._validate_output_targets
+条件：not literal_exists
+raise RuntimeError(&quot;输出目标与实际 Windows 名称别名冲突: &quot; + candidate)
+
+file_exporter.py:338  FileExporter.output_session
+条件：not targets
+raise RuntimeError(&quot;缺少输出目标&quot;)
+
+file_exporter.py:357  FileExporter._clear_outputs
+条件：not (stat.S_ISDIR(metadata.st_mode) if is_directory else stat.S_ISREG(metadata.st_mode))
+raise RuntimeError(&quot;输出目标类型不符，未开始删除: &quot; + target)
+
+file_exporter.py:364  FileExporter._clear_outputs
+条件：
+raise RuntimeError(
+
+                    &quot;无法删除上次输出，请关闭占用文件的程序后重试。&quot;
+
+                    &quot;已删除的旧结果不会恢复：\n&quot; + target + &quot;\n&quot; + str(exc)
+
+                ) from exc
+
+file_exporter.py:380  FileExporter._replace_outputs
+条件：len(stage_keys) != len(pairs)
+raise RuntimeError(&quot;输出暂存项重复&quot;)
+
+file_exporter.py:382  FileExporter._replace_outputs
+条件：expected_stage_states and (not set(expected_stage_states).issubset(stage_keys))
+raise RuntimeError(&quot;缺少已绑定的包内分析暂存项&quot;)
+
+file_exporter.py:388  FileExporter._replace_outputs
+条件：not (stat.S_ISREG(metadata.st_mode) or stat.S_ISDIR(metadata.st_mode))
+raise RuntimeError(&quot;输出暂存项不是普通文件或目录: &quot; + stage)
+
+file_exporter.py:390  FileExporter._replace_outputs
+条件：any((os.path.commonpath([stage, t]) in (stage, t) for t in targets))
+raise RuntimeError(&quot;输出暂存项与正式目标重叠&quot;)
+
+file_exporter.py:392  FileExporter._replace_outputs
+条件：os.path.lexists(target)
+raise RuntimeError(&quot;生成期间输出目标被重新创建，请检查后重试: &quot; + target)
+
+file_exporter.py:405  FileExporter._replace_outputs
+条件：os.path.lexists(target)
+raise RuntimeError(&quot;生成期间输出目标被重新创建，请检查后重试: &quot; + target)
+
+file_exporter.py:428  FileExporter._replace_outputs
+条件：
+raise
+
+file_exporter.py:443  FileExporter._rename_output_with_retry
+条件：attempt &amp;&amp; (metadata.st_dev, metadata.st_ino) != stage_identity
+raise RuntimeError(&quot;等待发布期间输出暂存项已被替换: &quot; + stage)
+
+file_exporter.py:445  FileExporter._rename_output_with_retry
+条件：attempt &amp;&amp; os.path.lexists(target)
+raise RuntimeError(&quot;生成期间输出目标被重新创建，请检查后重试: &quot; + target)
+
+file_exporter.py:453  FileExporter._rename_output_with_retry
+条件：os.name != &#x27;nt&#x27; or getattr(exc, &#x27;winerror&#x27;, None) not in (5, 32, 33)
+raise
+
+file_exporter.py:455  FileExporter._rename_output_with_retry
+条件：attempt == len(delays)
+raise RuntimeError(
+                        &quot;无法发布本次输出：Windows 拒绝访问或文件被占用，&quot;
+                        &quot;短暂重试 4 次后仍失败。请关闭占用输出目录的程序后重试；&quot;
+                        &quot;若仍失败，请检查目录权限。\n目标：&quot; + target + &quot;\n原始错误：&quot; + str(exc)
+                    ) from exc
+
+file_exporter.py:475  FileExporter.capture_stage_states
+条件：key in result
+raise RuntimeError(&quot;包内分析暂存根重复: &quot; + path)
+
+file_exporter.py:478  FileExporter.capture_stage_states
+条件：identity.get(&#x27;kind&#x27;) != &#x27;dir&#x27;
+raise RuntimeError(&quot;包内分析需要完整的源码暂存目录: &quot; + path)
+
+file_exporter.py:489  FileExporter._validate_trusted_paths
+条件：not trusted_root
+raise RuntimeError(&quot;无法确定可信输出根&quot;)
+
+file_exporter.py:496  FileExporter._validate_trusted_paths
+条件：
+raise RuntimeError(str(exc)) from exc
+
+file_exporter.py:506  FileExporter._tree_identity
+条件：is_link_or_junction(path)
+raise RuntimeError(f&quot;待交付内容不能是符号链接或联接点: {path}&quot;)
+
+file_exporter.py:536  FileExporter._tree_identity.visit
+条件：
+raise RuntimeError(f&quot;无法读取待交付内容身份: {current}: {exc}&quot;) from exc
+
+file_exporter.py:543  FileExporter._tree_identity.visit
+条件：is_redirect
+raise RuntimeError(
+
+                    f&quot;待交付内容树包含符号链接或联接点: {current}&quot;
+
+                )
+
+file_exporter.py:560  FileExporter._tree_identity.visit
+条件：stat.S_ISREG(metadata.st_mode)
+raise RuntimeError(
+
+                        f&quot;无法读取待交付内容内容身份: {current}: {exc}&quot;
+
+                    ) from exc
+
+file_exporter.py:564  FileExporter._tree_identity.visit
+条件：stat.S_ISREG(metadata.st_mode) &amp;&amp; opened_identity != closed_identity
+raise RuntimeError(
+
+                        f&quot;待交付内容在计算内容身份期间发生变化: {current}&quot;
+
+                    )
+
+file_exporter.py:570  FileExporter._tree_identity.visit
+条件：stat.S_ISREG(metadata.st_mode)
+raise RuntimeError(
+
+                        f&quot;待交付内容在计算内容身份后发生变化: {current}: {exc}&quot;
+
+                    ) from exc
+
+file_exporter.py:574  FileExporter._tree_identity.visit
+条件：stat.S_ISREG(metadata.st_mode) &amp;&amp; final_identity != opened_identity
+raise RuntimeError(
+
+                        f&quot;待交付内容在计算内容身份期间被替换: {current}&quot;
+
+                    )
+
+file_exporter.py:579  FileExporter._tree_identity.visit
+条件：not stat.S_ISDIR(metadata.st_mode)
+raise RuntimeError(f&quot;待交付内容树包含非普通文件: {current}&quot;)
+
+file_exporter.py:587  FileExporter._tree_identity.visit
+条件：
+raise RuntimeError(f&quot;无法遍历待交付内容树: {current}: {exc}&quot;) from exc
+
+file_exporter.py:608  FileExporter._assert_identity
+条件：current != expected
+raise RuntimeError(
+
+                f&quot;{label}的文件系统身份或内容元数据已变化（含文件内容摘要），&quot;
+
+                f&quot;已停止自动处理: {path}&quot;
+
+            )
+
+file_exporter.py:644  FileExporter._output_lock
+条件：os.write(fd, b&#x27;0&#x27;) != 1
+raise OSError(&quot;无法完整初始化输出锁&quot;)
+
+file_exporter.py:653  FileExporter._output_lock
+条件：
+raise
+
+file_exporter.py:656  FileExporter._output_lock
+条件：is_link_or_junction(lock_path)
+raise RuntimeError(f&quot;输出锁不能是链接或联接点: {lock_path}&quot;)
+
+file_exporter.py:663  FileExporter._output_lock
+条件：not stat.S_ISREG(before.st_mode) or int(getattr(before, &#x27;st_nlink&#x27;, 1)) != 1 or before.st_size != 1
+raise RuntimeError(f&quot;输出锁文件身份无效: {lock_path}&quot;)
+
+file_exporter.py:672  FileExporter._output_lock
+条件：
+raise
+
+file_exporter.py:680  FileExporter._output_lock
+条件：not stat.S_ISREG(metadata.st_mode) or int(getattr(metadata, &#x27;st_nlink&#x27;, 1)) != 1 or metadata.st_size != 1
+raise RuntimeError(f&quot;输出锁文件身份无效: {lock_path}&quot;)
+
+file_exporter.py:684  FileExporter._output_lock
+条件：handle_identity != path_identity
+raise RuntimeError(f&quot;输出锁文件在打开期间被替换: {lock_path}&quot;)
+
+file_exporter.py:695  FileExporter._output_lock
+条件：
+raise RuntimeError(
+
+                    f&quot;输出目录正在被另一个 CompareTool 实例使用: {directory}&quot;
+
+                ) from exc</pre></details><details><summary>html_details.py（11 处 raise）</summary><pre>html_details.py:37  HtmlDetailStore._check_open
+条件：self._closed or self._failed
+raise RuntimeError(&#x27;HTML 明细存储已关闭或失效&#x27;)
+
+html_details.py:47  HtmlDetailStore.add_fragment
+条件：not isinstance(text, str)
+raise TypeError(&#x27;HTML 明细必须是已渲染的字符串&#x27;)
+
+html_details.py:60  HtmlDetailStore.add_chunks
+条件：not isinstance(text, str)
+raise TypeError(&#x27;HTML 片段流必须产生字符串&#x27;)
+
+html_details.py:64  HtmlDetailStore.add_chunks
+条件：self._file.write(block) != len(block)
+raise OSError(&#x27;HTML 明细写入不完整&#x27;)
+
+html_details.py:69  HtmlDetailStore.add_chunks
+条件：os.fstat(self._file.fileno()).st_size != offset + length
+raise OSError(&#x27;HTML 明细存储长度异常&#x27;)
+
+html_details.py:72  HtmlDetailStore.add_chunks
+条件：
+raise
+
+html_details.py:81  HtmlDetailStore.iter_fragment
+条件：ref.store is not self or ref.offset &lt; 0 or ref.length &lt; 0 or (ref.offset + ref.length &gt; self.total_bytes)
+raise ValueError(&#x27;HTML 片段引用不属于本任务或超出范围&#x27;)
+
+html_details.py:87  HtmlDetailStore.iter_fragment
+条件：os.fstat(self._file.fileno()).st_size != self.total_bytes
+raise OSError(&#x27;HTML 明细存储被截断或改变&#x27;)
+
+html_details.py:93  HtmlDetailStore.iter_fragment
+条件：not block
+raise OSError(&#x27;HTML 片段读取提前结束&#x27;)
+
+html_details.py:106  HtmlDetailStore.iter_fragment
+条件：digest.hexdigest() != ref.sha256 or os.fstat(self._file.fileno()).st_size != self.total_bytes
+raise OSError(&#x27;HTML 片段内容校验失败&#x27;)
+
+html_details.py:109  HtmlDetailStore.iter_fragment
+条件：
+raise</pre></details><details><summary>main.py（37 处 raise）</summary><pre>main.py:104  _load_config
+条件：not isinstance(data, dict)
+raise ValueError(&quot;配置文件顶层必须是 JSON 对象&quot;)
+
+main.py:126  _save_config
+条件：_CONFIG_LOAD_FAILURE and _CONFIG_LOAD_FAILURE[0] == os.path.abspath(CONFIG_FILE) and os.path.exists(CONFIG_FILE)
+raise ConfigSaveError(
+
+            &quot;现有配置文件读取失败，为避免覆盖损坏现场，本次未保存。\n&quot;
+
+            f&quot;请先备份或修复配置文件: {CONFIG_FILE}\n{_CONFIG_LOAD_FAILURE[1]}&quot;
+
+        )
+
+main.py:144  _save_config
+条件：
+raise ConfigSaveError(f&quot;配置保存失败，原配置已保留: {CONFIG_FILE}\n{exc}&quot;) from exc
+
+main.py:774  CompareToolApp._validate_source_output_separation
+条件：common_key == target_key or (common_key == source_key and (not allow_descendant_outputs))
+raise ValueError(
+
+                        &quot;输出目录与输入源码目录重叠，可能覆盖源码或把上次产物计入比对：\n&quot;
+
+                        f&quot;输入：{source}\n输出：{target}&quot;
+
+                    )
+
+main.py:790  CompareToolApp._validate_source_output_separation
+条件：common_key == target_key or (common_key == source_key and (not allow_descendant_outputs))
+raise ValueError(
+
+                        &quot;输出文件与输入源码路径重叠，可能覆盖源码或被后续比对误识别：\n&quot;
+
+                        f&quot;输入：{source}\n输出：{target}&quot;
+
+                    )
+
+main.py:816  CompareToolApp._validate_repository_output_targets
+条件：vcs_type in (&#x27;git&#x27;, &#x27;git_multi&#x27;)
+raise ValueError(f&quot;无法确认 Git 工作树根目录：{exc}&quot;) from exc
+
+main.py:822  CompareToolApp._validate_repository_output_targets
+条件：vcs_type in (&#x27;git&#x27;, &#x27;git_multi&#x27;) &amp;&amp; top_result.returncode == 0 &amp;&amp; not git_root_text
+raise ValueError(&quot;无法确认 Git 工作树根目录&quot;)
+
+main.py:844  CompareToolApp._validate_repository_output_targets
+条件：vcs_type in (&#x27;git&#x27;, &#x27;git_multi&#x27;) &amp;&amp; else: top_result.returncode == 0
+raise ValueError(f&quot;无法确认 Git 仓库根目录：{exc}&quot;) from exc
+
+main.py:857  CompareToolApp._validate_repository_output_targets
+条件：vcs_type in (&#x27;git&#x27;, &#x27;git_multi&#x27;) &amp;&amp; else: top_result.returncode == 0 &amp;&amp; not git_bare or not git_dir_text
+raise ValueError(
+
+                        &quot;无法确认 Git 工作树根目录&quot;
+
+                        + (f&quot;：{detail}&quot; if detail else &quot;&quot;)
+
+                    )
+
+main.py:938  CompareToolApp._validate_repository_output_targets
+条件：any((part in (&#x27;.git&#x27;, &#x27;.svn&#x27;) for part in components))
+raise ValueError(
+
+                    &quot;输出目标位于版本控制元数据目录内，已拒绝覆盖：\n&quot;
+
+                    f&quot;{resolved}&quot;
+
+                )
+
+main.py:953  CompareToolApp._validate_repository_output_targets
+条件：nested_marker
+raise ValueError(
+
+                        &quot;输出目标位于独立 Git/SVN 工作副本内，&quot;
+
+                        &quot;为避免覆盖源码已拒绝生成：\n&quot;
+
+                        f&quot;{nested_marker}&quot;
+
+                    )
+
+main.py:969  CompareToolApp._validate_repository_output_targets
+条件：vcs_type in (&#x27;git&#x27;, &#x27;git_multi&#x27;) &amp;&amp; git_bare
+raise ValueError(
+
+                    &quot;输出目标位于 Git 裸仓库元数据目录内，已拒绝覆盖：\n&quot;
+
+                    + &quot;\n&quot;.join(path for _relative, path in relative_targets)
+
+                )
+
+main.py:988  CompareToolApp._validate_repository_output_targets
+条件：vcs_type in (&#x27;git&#x27;, &#x27;git_multi&#x27;)
+raise ValueError(
+
+                    f&quot;无法确认仓库内输出目标是否占用 Git 源码路径：{exc}&quot;
+
+                ) from exc
+
+main.py:995  CompareToolApp._validate_repository_output_targets
+条件：vcs_type in (&#x27;git&#x27;, &#x27;git_multi&#x27;) &amp;&amp; result.returncode != 0
+raise ValueError(
+
+                    &quot;无法确认仓库内输出目标是否占用 Git 源码路径&quot;
+
+                    + (f&quot;：{detail}&quot; if detail else &quot;&quot;)
+
+                )
+
+main.py:1000  CompareToolApp._validate_repository_output_targets
+条件：vcs_type in (&#x27;git&#x27;, &#x27;git_multi&#x27;) &amp;&amp; result.stdout
+raise ValueError(
+
+                    &quot;仓库内输出目标包含 Git 已跟踪文件或子模块，&quot;
+
+                    &quot;为避免覆盖源码已拒绝生成：\n&quot;
+
+                    + &quot;\n&quot;.join(path for _relative, path in relative_targets)
+
+                )
+
+main.py:1026  CompareToolApp._validate_repository_output_targets
+条件：
+raise ValueError(
+
+                f&quot;无法确认仓库内输出目标是否占用 SVN 源码路径：{exc}&quot;
+
+            ) from exc
+
+main.py:1033  CompareToolApp._validate_repository_output_targets
+条件：result.returncode != 0
+raise ValueError(
+
+                &quot;无法确认仓库内输出目标是否占用 SVN 源码路径&quot;
+
+                + (f&quot;：{detail}&quot; if detail else &quot;&quot;)
+
+            )
+
+main.py:1040  CompareToolApp._validate_repository_output_targets
+条件：
+raise ValueError(
+
+                &quot;无法解析 SVN 输出目标状态，已拒绝覆盖：\n&quot;
+
+                + &quot;\n&quot;.join(svn_targets)
+
+            ) from exc
+
+main.py:1050  CompareToolApp._validate_repository_output_targets
+条件：versioned
+raise ValueError(
+
+                &quot;仓库内输出目标包含 SVN 已版本化路径，&quot;
+
+                &quot;为避免覆盖源码已拒绝生成：\n&quot;
+
+                + &quot;\n&quot;.join(svn_targets)
+
+            )
+
+main.py:1223  CompareToolApp._require_project_name
+条件：not project_name
+raise ValueError(&quot;无法自动识别项目名，请检查项目路径/版本路径，或手动填写项目名&quot;)
+
+main.py:1616  CompareToolApp._do_fetch_versions
+条件：else: vcs_type == &#x27;git&#x27; &amp;&amp; else: vcs_type == &#x27;git_multi&#x27; &amp;&amp; else: vcs_type == &#x27;svn_multi&#x27; &amp;&amp; else: vcs_type == &#x27;svn&#x27;
+raise RuntimeError(f&quot;不支持的版本控制类型: {vcs_type}&quot;)
+
+main.py:1789  CompareToolApp._task_from_current_form
+条件：is_archive &amp;&amp; not old_version or not os.path.isfile(old_version)
+raise ValueError(&quot;旧版本压缩包不存在，请选择有效的压缩包文件&quot;)
+
+main.py:1791  CompareToolApp._task_from_current_form
+条件：is_archive &amp;&amp; not new_version or not os.path.isfile(new_version)
+raise ValueError(&quot;新版本压缩包不存在，请选择有效的压缩包文件&quot;)
+
+main.py:1794  CompareToolApp._task_from_current_form
+条件：else: is_archive &amp;&amp; is_folder &amp;&amp; not old_version or not os.path.isdir(old_version)
+raise ValueError(&quot;旧版本文件夹不存在，请选择有效的文件夹&quot;)
+
+main.py:1796  CompareToolApp._task_from_current_form
+条件：else: is_archive &amp;&amp; is_folder &amp;&amp; not new_version or not os.path.isdir(new_version)
+raise ValueError(&quot;新版本文件夹不存在，请选择有效的文件夹&quot;)
+
+main.py:1799  CompareToolApp._task_from_current_form
+条件：else: is_archive &amp;&amp; else: is_folder &amp;&amp; not project_path
+raise ValueError(&quot;请选择项目目录&quot;)
+
+main.py:1801  CompareToolApp._task_from_current_form
+条件：else: is_archive &amp;&amp; else: is_folder &amp;&amp; not os.path.isdir(project_path)
+raise ValueError(&quot;项目目录不存在&quot;)
+
+main.py:1805  CompareToolApp._task_from_current_form
+条件：else: is_archive &amp;&amp; else: is_folder &amp;&amp; is_multi &amp;&amp; not selected_versions
+raise ValueError(&quot;请选择或输入至少一个版本&quot;)
+
+main.py:1809  CompareToolApp._task_from_current_form
+条件：else: is_archive &amp;&amp; else: is_folder &amp;&amp; else: is_multi &amp;&amp; not old_version or not new_version
+raise ValueError(&quot;请输入旧版本和新版本&quot;)
+
+main.py:2028  CompareToolApp._create_vcs_for_task
+条件：
+raise RuntimeError(f&quot;不支持的多项目任务类型: {vcs_type}&quot;)
+
+main.py:2045  CompareToolApp._prepare_task_result
+条件：task[&#x27;vcs_type&#x27;] not in (&#x27;folder&#x27;, &#x27;archive&#x27;, &#x27;git_multi&#x27;, &#x27;svn_multi&#x27;) &amp;&amp; not vcs.check_version_exists(task[&#x27;old_version&#x27;])
+raise RuntimeError(f&quot;{task[&#x27;project_name&#x27;]} 旧版本不存在: {task[&#x27;old_version&#x27;]}&quot;)
+
+main.py:2047  CompareToolApp._prepare_task_result
+条件：task[&#x27;vcs_type&#x27;] not in (&#x27;folder&#x27;, &#x27;archive&#x27;, &#x27;git_multi&#x27;, &#x27;svn_multi&#x27;) &amp;&amp; not vcs.check_version_exists(task[&#x27;new_version&#x27;])
+raise RuntimeError(f&quot;{task[&#x27;project_name&#x27;]} 新版本不存在: {task[&#x27;new_version&#x27;]}&quot;)
+
+main.py:2078  CompareToolApp._prepare_task_result
+条件：
+raise
+
+main.py:2116  CompareToolApp._check_multi_display_path_conflicts
+条件：
+raise RuntimeError(&quot;\n&quot;.join(lines).strip())
+
+main.py:2389  CompareToolApp._do_generate
+条件：else: vcs_type == &#x27;archive&#x27; &amp;&amp; else: vcs_type == &#x27;folder&#x27; &amp;&amp; else: vcs_type == &#x27;git_multi&#x27; &amp;&amp; else: vcs_type == &#x27;svn_multi&#x27; &amp;&amp; else: vcs_type == &#x27;git&#x27; &amp;&amp; else: vcs_type == &#x27;svn&#x27;
+raise RuntimeError(f&quot;不支持的版本控制类型: {vcs_type}&quot;)
+
+main.py:2397  CompareToolApp._do_generate
+条件：vcs_type not in (&#x27;folder&#x27;, &#x27;archive&#x27;, &#x27;git_multi&#x27;, &#x27;svn_multi&#x27;) &amp;&amp; not vcs.check_version_exists(old_version)
+raise RuntimeError(f&quot;旧版本不存在: {old_version}&quot;)
+
+main.py:2400  CompareToolApp._do_generate
+条件：vcs_type not in (&#x27;folder&#x27;, &#x27;archive&#x27;, &#x27;git_multi&#x27;, &#x27;svn_multi&#x27;) &amp;&amp; not vcs.check_version_exists(new_version)
+raise RuntimeError(f&quot;新版本不存在: {new_version}&quot;)</pre></details><details><summary>path_safety.py（23 处 raise）</summary><pre>path_safety.py:143  _relative_path_parts
+条件：not raw or not parts or &#x27;\x00&#x27; in raw or drive or raw.startswith(&#x27;/&#x27;) or any((part == &#x27;..&#x27; for part in parts))
+raise ValueError(f&quot;{label}不安全: {path}&quot;)
+
+path_safety.py:147  _relative_path_parts
+条件：any((ord(char) &lt; 32 or char in WINDOWS_INVALID_CHARS for char in part))
+raise ValueError(f&quot;{label}包含 Windows 非法字符: {path}&quot;)
+
+path_safety.py:149  _relative_path_parts
+条件：part.endswith((&#x27; &#x27;, &#x27;.&#x27;))
+raise ValueError(f&quot;{label}包含 Windows 不可保真的尾随空格或点: {path}&quot;)
+
+path_safety.py:152  _relative_path_parts
+条件：stem in WINDOWS_RESERVED_NAMES
+raise ValueError(f&quot;{label}包含 Windows 保留名称: {path}&quot;)
+
+path_safety.py:154  _relative_path_parts
+条件：reject_short_alias and WINDOWS_SHORT_ALIAS_RE.fullmatch(part)
+raise ValueError(
+                f&quot;{label}疑似 Windows 8.3 短名称，可能覆盖同目录长文件名: {path}&quot;
+            )
+
+path_safety.py:171  safe_join
+条件：not inside_root
+raise ValueError(f&quot;{label}越界: {rel_path}&quot;)
+
+path_safety.py:192  ensure_tree_directory
+条件：existing is not None &amp;&amp; is_link_or_junction(existing) or not os.path.isdir(existing)
+raise ValueError(f&quot;{label}目录与现有文件或链接冲突: {desired}&quot;)
+
+path_safety.py:196  ensure_tree_directory
+条件：os.path.lexists(desired)
+raise ValueError(f&quot;{label}目录与现有 Windows 别名冲突: {desired}&quot;)
+
+path_safety.py:200  ensure_tree_directory
+条件：
+raise ValueError(f&quot;{label}目录发生 Windows 名称碰撞: {desired}&quot;) from exc
+
+path_safety.py:202  ensure_tree_directory
+条件：is_link_or_junction(desired) or not os.path.isdir(desired)
+raise ValueError(f&quot;{label}目录创建后身份异常: {desired}&quot;)
+
+path_safety.py:217  _tree_directory_entries
+条件：key not in cache &amp;&amp; name_key in known
+raise ValueError(f&quot;{label}目录存在 Windows 名称碰撞: {entry.path}&quot;)
+
+path_safety.py:231  open_new_tree_file
+条件：key in known
+raise ValueError(f&quot;{label}文件与现有 Windows 路径或短名称别名冲突: {target}&quot;)
+
+path_safety.py:235  open_new_tree_file
+条件：
+raise ValueError(
+            f&quot;{label}文件与现有 Windows 路径或短名称别名冲突: {target}&quot;
+        ) from exc
+
+path_safety.py:287  ensure_no_link_components
+条件：not inside
+raise ValueError(f&quot;{label}越出指定根目录: {path}&quot;)
+
+path_safety.py:297  ensure_no_link_components
+条件：os.path.lexists(current) and is_link_or_junction(current)
+raise ValueError(f&quot;{label}祖先包含符号链接或联接点: {current}&quot;)
+
+path_safety.py:311  regular_file_handle_identity
+条件：not stat.S_ISREG(metadata.st_mode)
+raise RuntimeError(&quot;已打开对象不是普通文件&quot;)
+
+path_safety.py:317  regular_file_handle_identity
+条件：os.name == &#x27;nt&#x27; &amp;&amp; not _get_file_information(handle, ctypes.byref(info))
+raise ctypes.WinError(ctypes.get_last_error())
+
+path_safety.py:328  regular_file_handle_identity
+条件：os.name == &#x27;nt&#x27; &amp;&amp; info.dwFileAttributes &amp; 1024 &amp;&amp; not reparse_tag &amp;&amp; not _get_file_information_ex(handle, 9, ctypes.byref(tag_info), ctypes.sizeof(tag_info))
+raise ctypes.WinError(ctypes.get_last_error())
+
+path_safety.py:331  regular_file_handle_identity
+条件：os.name == &#x27;nt&#x27; &amp;&amp; info.dwFileAttributes &amp; 1024 &amp;&amp; is_name_surrogate_reparse_tag(reparse_tag)
+raise RuntimeError(&quot;已打开对象是路径重定向重解析点&quot;)
+
+path_safety.py:390  open_regular_file_no_links
+条件：os.name == &#x27;nt&#x27; &amp;&amp; handle == invalid_handle
+raise ctypes.WinError(ctypes.get_last_error())
+
+path_safety.py:397  open_regular_file_no_links
+条件：os.name == &#x27;nt&#x27;
+raise
+
+path_safety.py:408  open_regular_file_no_links
+条件：else: os.name == &#x27;nt&#x27; &amp;&amp; deny_writes
+raise
+
+path_safety.py:415  open_regular_file_no_links
+条件：is_link_or_junction(path)
+raise RuntimeError(&quot;已打开文件路径被替换成符号链接或联接点&quot;)</pre></details><details><summary>report_generator.py（2 处 raise）</summary><pre>report_generator.py:121  ReportGenerator._dump_limited
+条件：cls.MAX_REPORT_OUTPUT_BYTES is not None &amp;&amp; total &gt; cls.MAX_REPORT_OUTPUT_BYTES
+raise RuntimeError(
+                                &quot;最终 HTML 报告超过统一大小上限: &quot;
+                                f&quot;{total} &gt; {cls.MAX_REPORT_OUTPUT_BYTES} 字节&quot;
+                            )
+
+report_generator.py:138  ReportGenerator._dump_limited
+条件：
+raise</pre></details><details><summary>task_progress.py（1 处 raise）</summary><pre>task_progress.py:200  stage
+条件：
+raise</pre></details><details><summary>vcs/archive_vcs.py（96 处 raise）</summary><pre>vcs/archive_vcs.py:124  ArchiveVCS.__init__
+条件：self.MAX_ARCHIVE_SOURCE_BYTES is not None &amp;&amp; source_bytes &gt; self.MAX_ARCHIVE_SOURCE_BYTES
+raise RuntimeError(
+                            f&quot;压缩包源文件总大小超过上限: {source_bytes} &gt; &quot;
+                            f&quot;{self.MAX_ARCHIVE_SOURCE_BYTES}&quot;
+                        )
+
+vcs/archive_vcs.py:201  ArchiveVCS.__init__
+条件：
+raise
+
+vcs/archive_vcs.py:216  ArchiveVCS._single_directory_root
+条件：first is None or next(entries, None) is not None or (not first.is_dir(follow_symlinks=False)) or is_link_or_junction(first.path)
+raise ValueError(
+                    f&quot;{label}压缩包不满足“忽略最外层单一文件夹”：&quot;
+                    &quot;顶层必须只有一个文件夹，不能同时有文件或其它文件夹。&quot;
+                    &quot;请取消勾选，或手工解压后选择对应目录进行文件夹比对。&quot;
+                )
+
+vcs/archive_vcs.py:227  ArchiveVCS._rebase_metadata
+条件：any((not path.startswith(prefix) for path in metadata))
+raise ValueError(&quot;压缩包文件属性路径超出所选比较根目录&quot;)
+
+vcs/archive_vcs.py:234  ArchiveVCS._open_archive_source
+条件：is_link_or_junction(source)
+raise RuntimeError(f&quot;不允许将符号链接或联接点作为压缩包源: {source}&quot;)
+
+vcs/archive_vcs.py:240  ArchiveVCS._open_archive_source
+条件：
+raise RuntimeError(f&quot;无法读取压缩包源: {source}: {exc}&quot;) from exc
+
+vcs/archive_vcs.py:252  ArchiveVCS._capture_archive_source
+条件：
+raise RuntimeError(f&quot;无法读取压缩包源: {source}: {exc}&quot;) from exc
+
+vcs/archive_vcs.py:254  ArchiveVCS._capture_archive_source
+条件：
+raise RuntimeError(f&quot;压缩包源不是普通文件: {source}&quot;) from exc
+
+vcs/archive_vcs.py:256  ArchiveVCS._capture_archive_source
+条件：is_link_or_junction(source) or path_signature != signature
+raise RuntimeError(f&quot;压缩包源在成对捕获时发生变化，已中止: {source}&quot;)
+
+vcs/archive_vcs.py:270  ArchiveVCS._hash_archive_source
+条件：
+raise RuntimeError(f&quot;无法读取压缩包源: {source}: {exc}&quot;) from exc
+
+vcs/archive_vcs.py:275  ArchiveVCS._hash_archive_source
+条件：is_link_or_junction(source) or path_before != expected_signature
+raise RuntimeError(f&quot;压缩包源在成对捕获后发生变化，已中止: {source}&quot;)
+
+vcs/archive_vcs.py:280  ArchiveVCS._hash_archive_source
+条件：handle_before != expected_signature
+raise RuntimeError(f&quot;压缩包源句柄在任务期间发生变化: {source}&quot;)
+
+vcs/archive_vcs.py:293  ArchiveVCS._hash_archive_source
+条件：
+raise RuntimeError(f&quot;无法读取压缩包源: {source}: {exc}&quot;) from exc
+
+vcs/archive_vcs.py:298  ArchiveVCS._hash_archive_source
+条件：
+raise RuntimeError(f&quot;压缩包源在快照期间消失: {source}: {exc}&quot;) from exc
+
+vcs/archive_vcs.py:305  ArchiveVCS._hash_archive_source
+条件：path_before != path_after or handle_before != handle_after or read_bytes != expected_signature[1] or is_link_or_junction(source)
+raise RuntimeError(f&quot;压缩包源在摘要读取期间发生变化，已中止: {source}&quot;)
+
+vcs/archive_vcs.py:316  ArchiveVCS._verify_archive_source
+条件：capture.get(&#x27;digest&#x27;) is None
+raise RuntimeError(
+                    f&quot;无法复核压缩包源身份: {source}: {exc}&quot;
+                ) from exc
+
+vcs/archive_vcs.py:324  ArchiveVCS._verify_archive_source
+条件：capture.get(&#x27;digest&#x27;) is None &amp;&amp; is_link_or_junction(source) or handle_identity != capture[&#x27;signature&#x27;] or path_identity != capture[&#x27;signature&#x27;]
+raise RuntimeError(
+                    f&quot;压缩包源在任务期间发生变化，已中止: {source}&quot;
+                )
+
+vcs/archive_vcs.py:330  ArchiveVCS._verify_archive_source
+条件：current_digest != capture[&#x27;digest&#x27;]
+raise RuntimeError(
+                f&quot;压缩包源内容在任务期间发生变化，已中止: {capture[&#x27;path&#x27;]}&quot;
+            )
+
+vcs/archive_vcs.py:338  ArchiveVCS._ensure_free_space
+条件：free_bytes &lt; required
+raise RuntimeError(
+                &quot;压缩包任务可用磁盘空间不足，已中止生成: &quot;
+                f&quot;需要至少 {required} 字节，当前 {free_bytes} 字节&quot;
+            )
+
+vcs/archive_vcs.py:376  ArchiveVCS._extract
+条件：else: self._is_zip(archive_path) &amp;&amp; else: self._is_tar(archive_path)
+raise ValueError(
+                f&quot;不支持的压缩格式: {archive_path}&quot;
+                &quot;（支持 .zip / .jar / .war / .ear / .aar / .tar / .tar.gz / .tgz / .tar.bz2 / .tbz2）&quot;
+            )
+
+vcs/archive_vcs.py:411  ArchiveVCS._prepare_sparse_storage
+条件：self._sparse_ignore_root &amp;&amp; root_file or len(roots) != 1
+raise ValueError(&quot;压缩包不满足忽略最外层单一文件夹：必须恰有一个真实顶层目录&quot;)
+
+vcs/archive_vcs.py:445  ArchiveVCS._copy_archive_payload
+条件：plan is not None &amp;&amp; relative not in plan[0]
+raise ValueError(&quot;归档实际成员路径与不可变提取计划不一致: &quot; + relative)
+
+vcs/archive_vcs.py:454  ArchiveVCS._copy_archive_payload
+条件：keep and target is not None and (target.write(block) != len(block))
+raise OSError(&quot;压缩包成员写入不完整&quot;)
+
+vcs/archive_vcs.py:456  ArchiveVCS._copy_archive_payload
+条件：count != size
+raise ValueError(&quot;压缩包成员实际读取长度与声明不一致&quot;)
+
+vcs/archive_vcs.py:466  ArchiveVCS._extract_file_member
+条件：previous is not None &amp;&amp; (size, attributes) != (old_size, old_attributes)
+raise ValueError(&quot;压缩包同名成员内容长度或文件属性不一致，已拒绝解压: &quot; + name)
+
+vcs/archive_vcs.py:471  ArchiveVCS._extract_file_member
+条件：previous is not None &amp;&amp; digest.digest() != old_digest
+raise ValueError(&quot;压缩包同名成员内容不一致，已拒绝解压: &quot; + name)
+
+vcs/archive_vcs.py:518  ArchiveVCS._preflight_archive_size
+条件：
+raise ValueError(f&quot;不支持的压缩格式: {path}&quot;)
+
+vcs/archive_vcs.py:563  ArchiveVCS._extract_zip
+条件：stat.S_ISLNK(unix_mode)
+raise ValueError(f&quot;压缩包包含不安全的符号链接: {name}&quot;)
+
+vcs/archive_vcs.py:567  ArchiveVCS._extract_zip
+条件：file_type and (not (stat.S_ISREG(unix_mode) or stat.S_ISDIR(unix_mode) or legacy_directory))
+raise ValueError(f&quot;压缩包包含不安全或不支持的特殊文件: {name}&quot;)
+
+vcs/archive_vcs.py:572  ArchiveVCS._extract_zip
+条件：legacy_directory &amp;&amp; src.read(1)
+raise ValueError(f&quot;压缩包目录包含非空正文: {name}&quot;)
+
+vcs/archive_vcs.py:633  ArchiveVCS._extract_tar
+条件：total_size != planned_size
+raise ValueError(&quot;TAR 预检展开大小与成员计划不一致&quot;)
+
+vcs/archive_vcs.py:638  ArchiveVCS._extract_tar
+条件：self.MAX_COMPRESSION_RATIO is not None and total_size / archive_size &gt; self.MAX_COMPRESSION_RATIO
+raise ValueError(f&quot;压缩包展开比例过高，已拒绝解压: {path}&quot;)
+
+vcs/archive_vcs.py:657  ArchiveVCS._extract_tar
+条件：index &gt;= len(members) or current != members[index]
+raise ValueError(f&quot;TAR 成员与完整预检不一致: {member.name}&quot;)
+
+vcs/archive_vcs.py:669  ArchiveVCS._extract_tar
+条件：not member.isfile()
+raise ValueError(f&quot;压缩包包含不安全或不支持的链接/特殊文件: {member.name}&quot;)
+
+vcs/archive_vcs.py:672  ArchiveVCS._extract_tar
+条件：src is None
+raise ValueError(f&quot;无法读取压缩包成员: {member.name}&quot;)
+
+vcs/archive_vcs.py:683  ArchiveVCS._extract_tar
+条件：index != len(members)
+raise ValueError(&quot;TAR 提取提前结束，缺少预检成员&quot;)
+
+vcs/archive_vcs.py:725  ArchiveVCS._extract_tar_legacy_sparse
+条件：not (member.isdir() or member.isfile())
+raise ValueError(
+                            f&quot;压缩包包含不安全或不支持的链接/特殊文件: {member.name}&quot;
+                        )
+
+vcs/archive_vcs.py:730  ArchiveVCS._extract_tar_legacy_sparse
+条件：self.MAX_COMPRESSION_RATIO is not None and total_size / archive_size &gt; self.MAX_COMPRESSION_RATIO
+raise ValueError(
+                        f&quot;压缩包展开比例过高，已拒绝解压: {path} &quot;
+                        f&quot;({total_size / archive_size:.0f}:1)&quot;
+                    )
+
+vcs/archive_vcs.py:745  ArchiveVCS._extract_tar_legacy_sparse
+条件：src is None
+raise ValueError(f&quot;无法读取压缩包成员: {member.name}&quot;)
+
+vcs/archive_vcs.py:804  ArchiveVCS._preflight_tar
+条件：
+raise ValueError(f&quot;tar 头损坏，已拒绝解压: {path}&quot;) from exc
+
+vcs/archive_vcs.py:807  ArchiveVCS._preflight_tar
+条件：size &lt; 0
+raise ValueError(f&quot;压缩包成员大小无效: {member.name}&quot;)
+
+vcs/archive_vcs.py:818  ArchiveVCS._preflight_tar
+条件：member.type in (tarfile.GNUTYPE_LONGNAME, tarfile.GNUTYPE_LONGLINK, tarfile.XHDTYPE, tarfile.XGLTYPE, getattr(tarfile, &#x27;SOLARIS_XHDTYPE&#x27;, b&#x27;X&#x27;)) &amp;&amp; metadata_records is not None &amp;&amp; metadata_records &gt; cls.MAX_TAR_METADATA_RECORDS
+raise ValueError(&quot;tar 扩展元数据记录过多，已拒绝解压&quot;)
+
+vcs/archive_vcs.py:823  ArchiveVCS._preflight_tar
+条件：member.type in (tarfile.GNUTYPE_LONGNAME, tarfile.GNUTYPE_LONGLINK, tarfile.XHDTYPE, tarfile.XGLTYPE, getattr(tarfile, &#x27;SOLARIS_XHDTYPE&#x27;, b&#x27;X&#x27;)) &amp;&amp; cls.MAX_TAR_METADATA_BYTES is not None and size &gt; cls.MAX_TAR_METADATA_BYTES
+raise ValueError(
+                            f&quot;tar 扩展元数据过大，已拒绝解压: {member.name} ({size} 字节)&quot;
+                        )
+
+vcs/archive_vcs.py:829  ArchiveVCS._preflight_tar
+条件：member.type in (tarfile.GNUTYPE_LONGNAME, tarfile.GNUTYPE_LONGLINK, tarfile.XHDTYPE, tarfile.XGLTYPE, getattr(tarfile, &#x27;SOLARIS_XHDTYPE&#x27;, b&#x27;X&#x27;)) &amp;&amp; metadata_size is not None &amp;&amp; metadata_size &gt; cls.MAX_TAR_METADATA_BYTES
+raise ValueError(
+                                &quot;tar 扩展元数据累计过大，已拒绝解压: &quot;
+                                f&quot;{metadata_size} &gt; {cls.MAX_TAR_METADATA_BYTES} 字节&quot;
+                            )
+
+vcs/archive_vcs.py:853  ArchiveVCS._preflight_tar
+条件：member.type in (tarfile.GNUTYPE_LONGNAME, tarfile.GNUTYPE_LONGLINK, tarfile.XHDTYPE, tarfile.XGLTYPE, getattr(tarfile, &#x27;SOLARIS_XHDTYPE&#x27;, b&#x27;X&#x27;)) &amp;&amp; else: member.type == tarfile.GNUTYPE_LONGNAME &amp;&amp; else: member.type == tarfile.GNUTYPE_LONGLINK &amp;&amp; cls.MAX_TAR_PAX_FIELDS is not None and len(global_pax) + len(pending_pax) &gt; cls.MAX_TAR_PAX_FIELDS
+raise ValueError(&quot;tar PAX 字段过多，已拒绝解压&quot;)
+
+vcs/archive_vcs.py:873  ArchiveVCS._preflight_tar
+条件：&#x27;size&#x27; in effective
+raise ValueError(f&quot;tar PAX size 无效: {name}&quot;) from exc
+
+vcs/archive_vcs.py:875  ArchiveVCS._preflight_tar
+条件：size &lt; 0
+raise ValueError(f&quot;tar PAX size 无效: {name}&quot;)
+
+vcs/archive_vcs.py:878  ArchiveVCS._preflight_tar
+条件：not (is_dir or member.isfile())
+raise ValueError(f&quot;压缩包包含不安全或不支持的链接/特殊文件: {name}&quot;)
+
+vcs/archive_vcs.py:882  ArchiveVCS._preflight_tar
+条件：not is_dir &amp;&amp; cls.MAX_SINGLE_MEMBER_BYTES is not None and size &gt; cls.MAX_SINGLE_MEMBER_BYTES
+raise ValueError(
+                            f&quot;压缩包单个成员展开后过大，已拒绝解压: {name} ({size} 字节)&quot;
+                        )
+
+vcs/archive_vcs.py:888  ArchiveVCS._preflight_tar
+条件：not is_dir &amp;&amp; cls.MAX_TOTAL_UNCOMPRESSED_BYTES is not None and total_size &gt; cls.MAX_TOTAL_UNCOMPRESSED_BYTES
+raise ValueError(&quot;压缩包累计展开大小超过限制，已拒绝解压&quot;)
+
+vcs/archive_vcs.py:891  ArchiveVCS._preflight_tar
+条件：not is_dir &amp;&amp; cls.MAX_COMPRESSION_RATIO is not None and total_size &gt; archive_size * cls.MAX_COMPRESSION_RATIO
+raise ValueError(
+                            f&quot;压缩包展开比例过高，已拒绝解压: {path} &quot;
+                            f&quot;({total_size / archive_size:.0f}:1)&quot;
+                        )
+
+vcs/archive_vcs.py:903  ArchiveVCS._preflight_tar
+条件：cls.MAX_ARCHIVE_MEMBERS is not None and len(targets) &gt; cls.MAX_ARCHIVE_MEMBERS
+raise ValueError(&quot;压缩包成员过多，已拒绝解压&quot;)
+
+vcs/archive_vcs.py:913  ArchiveVCS._read_exact
+条件：size &lt; 0
+raise ValueError(&quot;tar 读取长度无效，已拒绝解压&quot;)
+
+vcs/archive_vcs.py:921  ArchiveVCS._read_exact
+条件：not chunk
+raise ValueError(&quot;tar 数据提前结束，已拒绝解压&quot;)
+
+vcs/archive_vcs.py:935  ArchiveVCS._discard_exact
+条件：size &lt; 0
+raise ValueError(&quot;tar 读取长度无效，已拒绝解压&quot;)
+
+vcs/archive_vcs.py:940  ArchiveVCS._discard_exact
+条件：not chunk
+raise ValueError(&quot;tar 数据提前结束，已拒绝解压&quot;)
+
+vcs/archive_vcs.py:954  ArchiveVCS._preflight_zip
+条件：archive_size &lt; 22
+raise ValueError(f&quot;ZIP 文件过短或已损坏: {path}&quot;)
+
+vcs/archive_vcs.py:962  ArchiveVCS._preflight_zip
+条件：eocd is None
+raise ValueError(f&quot;找不到有效 ZIP 中央目录结束记录: {path}&quot;)
+
+vcs/archive_vcs.py:975  ArchiveVCS._preflight_zip
+条件：disk_number or central_disk or entries_on_disk != entries_total
+raise ValueError(&quot;不支持分卷 ZIP 压缩包&quot;)
+
+vcs/archive_vcs.py:994  ArchiveVCS._preflight_zip
+条件：central_start &lt; 0 or central_offset &gt; central_start
+raise ValueError(&quot;ZIP 中央目录位置无效&quot;)
+
+vcs/archive_vcs.py:999  ArchiveVCS._preflight_zip
+条件：actual_entries != entries_total
+raise ValueError(
+                    &quot;ZIP 中央目录成员数与 EOCD 不一致，已拒绝解压&quot;
+                )
+
+vcs/archive_vcs.py:1024  ArchiveVCS._read_zip64_eocd
+条件：locator_offset &lt; 0
+raise ValueError(&quot;ZIP64 定位器缺失&quot;)
+
+vcs/archive_vcs.py:1037  ArchiveVCS._read_zip64_eocd
+条件：signature != cls._ZIP64_LOCATOR_SIGNATURE or disk_number != 0 or disk_count != 1 or (zip64_offset &lt; 0) or (zip64_offset + 56 &gt; locator_offset)
+raise ValueError(&quot;ZIP64 定位器无效或为分卷压缩包&quot;)
+
+vcs/archive_vcs.py:1061  ArchiveVCS._read_zip64_eocd
+条件：signature != cls._ZIP64_EOCD_SIGNATURE or record_size &lt; 44 or zip64_offset + 12 + record_size != locator_offset or (disk_number != 0) or (central_disk != 0) or (entries_on_disk != entries_total)
+raise ValueError(&quot;ZIP64 中央目录结束记录无效&quot;)
+
+vcs/archive_vcs.py:1067  ArchiveVCS._validate_zip_directory_limits
+条件：cls.MAX_ARCHIVE_MEMBERS is not None and entries &gt; cls.MAX_ARCHIVE_MEMBERS
+raise ValueError(
+                f&quot;压缩包成员过多，已拒绝解压: &quot;
+                f&quot;{entries} &gt; {cls.MAX_ARCHIVE_MEMBERS}&quot;
+            )
+
+vcs/archive_vcs.py:1075  ArchiveVCS._validate_zip_directory_limits
+条件：cls.MAX_ZIP_CENTRAL_DIRECTORY_BYTES is not None and central_size &gt; cls.MAX_ZIP_CENTRAL_DIRECTORY_BYTES
+raise ValueError(
+                &quot;ZIP 中央目录过大，已拒绝解压: &quot;
+                f&quot;{central_size} &gt; {cls.MAX_ZIP_CENTRAL_DIRECTORY_BYTES} 字节&quot;
+            )
+
+vcs/archive_vcs.py:1092  ArchiveVCS._scan_zip_central_directory
+条件：signature == cls._ZIP_CENTRAL_SIGNATURE &amp;&amp; stream.tell() + variable_size &gt; end
+raise ValueError(&quot;ZIP 中央目录记录越界&quot;)
+
+vcs/archive_vcs.py:1096  ArchiveVCS._scan_zip_central_directory
+条件：signature == cls._ZIP_CENTRAL_SIGNATURE &amp;&amp; cls.MAX_ARCHIVE_MEMBERS is not None and count &gt; cls.MAX_ARCHIVE_MEMBERS
+raise ValueError(&quot;压缩包成员过多，已拒绝解压&quot;)
+
+vcs/archive_vcs.py:1102  ArchiveVCS._scan_zip_central_directory
+条件：signature == cls._ZIP_DIGITAL_SIGNATURE &amp;&amp; stream.tell() + signature_size &gt; end
+raise ValueError(&quot;ZIP 数字签名越界&quot;)
+
+vcs/archive_vcs.py:1105  ArchiveVCS._scan_zip_central_directory
+条件：
+raise ValueError(&quot;ZIP 中央目录记录无效&quot;)
+
+vcs/archive_vcs.py:1107  ArchiveVCS._scan_zip_central_directory
+条件：stream.tell() != end
+raise ValueError(&quot;ZIP 中央目录尺寸无效&quot;)
+
+vcs/archive_vcs.py:1114  ArchiveVCS._read_exact_file
+条件：len(data) != size
+raise ValueError(f&quot;{label}提前结束&quot;)
+
+vcs/archive_vcs.py:1124  ArchiveVCS._parse_pax_payload
+条件：space &lt;= offset
+raise ValueError(&quot;tar PAX 记录格式无效&quot;)
+
+vcs/archive_vcs.py:1128  ArchiveVCS._parse_pax_payload
+条件：
+raise ValueError(&quot;tar PAX 记录长度无效&quot;) from exc
+
+vcs/archive_vcs.py:1130  ArchiveVCS._parse_pax_payload
+条件：length &lt;= 0 or offset + length &gt; len(payload)
+raise ValueError(&quot;tar PAX 记录越界&quot;)
+
+vcs/archive_vcs.py:1133  ArchiveVCS._parse_pax_payload
+条件：not record.endswith(b&#x27;\n&#x27;) or b&#x27;=&#x27; not in record
+raise ValueError(&quot;tar PAX 记录格式无效&quot;)
+
+vcs/archive_vcs.py:1152  ArchiveVCS._safe_extract_target
+条件：
+raise ValueError(f&quot;压缩包包含不安全路径: {member_name}（{exc}）&quot;) from exc
+
+vcs/archive_vcs.py:1168  ArchiveVCS._ensure_archive_directory
+条件：not inside
+raise ValueError(f&quot;压缩包成员目录越出解压根: {directory}&quot;)
+
+vcs/archive_vcs.py:1170  ArchiveVCS._ensure_archive_directory
+条件：is_link_or_junction(root)
+raise ValueError(f&quot;压缩包解压根是符号链接或联接点: {root}&quot;)
+
+vcs/archive_vcs.py:1188  ArchiveVCS._ensure_archive_directory
+条件：known is None &amp;&amp; entry_key in known
+raise ValueError(
+                                &quot;压缩包成员目录存在 Windows 名称碰撞: &quot;
+                                f&quot;{entry.path}&quot;
+                            )
+
+vcs/archive_vcs.py:1199  ArchiveVCS._ensure_archive_directory
+条件：existing is not None &amp;&amp; is_link_or_junction(existing) or not os.path.isdir(existing)
+raise ValueError(
+                        f&quot;压缩包成员目录与现有文件或链接冲突: {desired}&quot;
+                    )
+
+vcs/archive_vcs.py:1208  ArchiveVCS._ensure_archive_directory
+条件：os.path.lexists(desired)
+raise ValueError(
+                    f&quot;压缩包成员目录与现有 Windows 别名冲突: {desired}&quot;
+                )
+
+vcs/archive_vcs.py:1214  ArchiveVCS._ensure_archive_directory
+条件：
+raise ValueError(
+                    f&quot;压缩包成员目录发生 Windows 名称碰撞: {desired}&quot;
+                ) from exc
+
+vcs/archive_vcs.py:1218  ArchiveVCS._ensure_archive_directory
+条件：is_link_or_junction(desired) or not os.path.isdir(desired)
+raise ValueError(f&quot;压缩包成员目录创建后身份异常: {desired}&quot;)
+
+vcs/archive_vcs.py:1237  ArchiveVCS._open_archive_member_target
+条件：name_key in known
+raise ValueError(
+                f&quot;压缩包成员与现有 Windows 路径或短名称别名冲突: {target}&quot;
+            )
+
+vcs/archive_vcs.py:1243  ArchiveVCS._open_archive_member_target
+条件：
+raise ValueError(
+                f&quot;压缩包成员与现有 Windows 路径或短名称别名冲突: {target}&quot;
+            ) from exc
+
+vcs/archive_vcs.py:1274  ArchiveVCS._validate_archive_targets
+条件：previous is not None
+raise ValueError(
+                    &quot;压缩包成员会写入同一 Windows 路径，已拒绝解压: &quot;
+                    f&quot;{previous_name} / {name}&quot;
+                )
+
+vcs/archive_vcs.py:1286  ArchiveVCS._validate_archive_targets
+条件：len(other_parts) &gt; len(parts) and other_parts[:len(parts)] == parts
+raise ValueError(
+                    &quot;压缩包成员存在文件/目录前缀冲突，已拒绝解压: &quot;
+                    f&quot;{name} / {other_name}&quot;
+                )
+
+vcs/archive_vcs.py:1295  ArchiveVCS._validate_archive_limits
+条件：cls.MAX_ARCHIVE_MEMBERS is not None and len(members) &gt; cls.MAX_ARCHIVE_MEMBERS
+raise ValueError(
+                f&quot;压缩包成员过多，已拒绝解压: {len(members)} &gt; {cls.MAX_ARCHIVE_MEMBERS}&quot;
+            )
+
+vcs/archive_vcs.py:1304  ArchiveVCS._validate_archive_limits
+条件：size &lt; 0
+raise ValueError(f&quot;压缩包成员大小无效: {name}&quot;)
+
+vcs/archive_vcs.py:1306  ArchiveVCS._validate_archive_limits
+条件：cls.MAX_SINGLE_MEMBER_BYTES is not None and size &gt; cls.MAX_SINGLE_MEMBER_BYTES
+raise ValueError(
+                    f&quot;压缩包单个成员展开后过大，已拒绝解压: {name} ({size} 字节)&quot;
+                )
+
+vcs/archive_vcs.py:1312  ArchiveVCS._validate_archive_limits
+条件：cls.MAX_TOTAL_UNCOMPRESSED_BYTES is not None and total_size &gt; cls.MAX_TOTAL_UNCOMPRESSED_BYTES
+raise ValueError(
+                    &quot;压缩包累计展开大小超过限制，已拒绝解压: &quot;
+                    f&quot;{total_size} &gt; {cls.MAX_TOTAL_UNCOMPRESSED_BYTES} 字节&quot;
+                )
+
+vcs/archive_vcs.py:1319  ArchiveVCS._validate_archive_limits
+条件：check_member_ratio and size &gt; 0 and (cls.MAX_COMPRESSION_RATIO is not None) &amp;&amp; ratio &gt; cls.MAX_COMPRESSION_RATIO
+raise ValueError(
+                        f&quot;压缩包成员展开比例过高，已拒绝解压: {name} ({ratio:.0f}:1)&quot;
+                    )
+
+vcs/archive_vcs.py:1347  ArchiveVCS.set_exclude_patterns
+条件：fixed is not None and normalized != fixed
+raise ValueError(&quot;内部归档提取排除计划不可变；动态规则请使用默认完整提取接口&quot;)
+
+vcs/archive_vcs.py:1355  ArchiveVCS.get_changed_files
+条件：fixed is not None and (tuple(self.exclude_patterns) != fixed or tuple(self._folder.exclude_patterns) != fixed)
+raise ValueError(&quot;内部归档提取排除计划已被改变&quot;)
+
+vcs/archive_vcs.py:1382  ArchiveVCS._require_materialized_path
+条件：fixed is not None and any((self._match_glob_pattern(file_path, p, True) for p in fixed))
+raise ValueError(&quot;排除成员仅保留内部名称占位，不能作为原始内容读取或导出: &quot; + file_path)</pre></details><details><summary>vcs/base.py（4 处 raise）</summary><pre>vcs/base.py:201  BaseVCS.export_file_to_path
+条件：data is None
+raise RuntimeError(f&quot;无法读取版本 {version} 中的文件: {file_path}&quot;)
+
+vcs/base.py:212  BaseVCS._copy_fixed_raw
+条件：os.path.abspath(raw_path) == os.path.abspath(target_path) or (os.path.exists(target_path) and os.path.samefile(raw_path, target_path))
+raise RuntimeError(&quot;原始端点与交付端点不能共享同一文件&quot;)
+
+vcs/base.py:221  BaseVCS._copy_fixed_raw
+条件：copied != before[1] or regular_file_handle_identity(source) != before or regular_file_path_identity(raw_path) != before
+raise RuntimeError(&quot;原始端点在派生交付字节时发生变化&quot;)
+
+vcs/base.py:248  BaseVCS._replace_eol_stage
+条件：os.name != &#x27;nt&#x27; or getattr(exc, &#x27;winerror&#x27;, None) not in (5, 32, 33) or attempt == len(delays)
+raise</pre></details><details><summary>vcs/folder_vcs.py（36 处 raise）</summary><pre>vcs/folder_vcs.py:88  FolderVCS._ensure_snapshot
+条件：self.MAX_SNAPSHOT_FILES is not None &amp;&amp; total_files &gt; self.MAX_SNAPSHOT_FILES
+raise RuntimeError(
+                            f&quot;文件夹快照文件数超过上限: {total_files} &gt; &quot;
+                            f&quot;{self.MAX_SNAPSHOT_FILES}&quot;
+                        )
+
+vcs/folder_vcs.py:99  FolderVCS._ensure_snapshot
+条件：self.MAX_SNAPSHOT_TOTAL_BYTES is not None &amp;&amp; total_bytes &gt; self.MAX_SNAPSHOT_TOTAL_BYTES
+raise RuntimeError(
+                            f&quot;文件夹快照总字节数超过上限: {total_bytes} &gt; &quot;
+                            f&quot;{self.MAX_SNAPSHOT_TOTAL_BYTES}&quot;
+                        )
+
+vcs/folder_vcs.py:157  FolderVCS._ensure_snapshot
+条件：
+raise
+
+vcs/folder_vcs.py:180  FolderVCS._walk_tree
+条件：
+raise RuntimeError(f&quot;比对源目录不存在或不是目录: {root}&quot;) from exc
+
+vcs/folder_vcs.py:182  FolderVCS._walk_tree
+条件：metadata_is_link_or_junction(root_metadata)
+raise RuntimeError(f&quot;不允许将符号链接或联接点作为比对根目录: {root}&quot;)
+
+vcs/folder_vcs.py:184  FolderVCS._walk_tree
+条件：not stat.S_ISDIR(root_metadata.st_mode)
+raise RuntimeError(f&quot;比对源目录不存在或不是目录: {root}&quot;)
+
+vcs/folder_vcs.py:187  FolderVCS._walk_tree.raise_walk_error
+条件：
+raise RuntimeError(f&quot;遍历比对源目录失败: {root}: {error}&quot;) from error
+
+vcs/folder_vcs.py:203  FolderVCS._walk_tree
+条件：apply_excludes and self._should_prune_directory(rel) &amp;&amp; self.MAX_SNAPSHOT_ENTRIES is not None and len(files) + len(directories) &gt; self.MAX_SNAPSHOT_ENTRIES
+raise RuntimeError(
+                            &quot;文件夹快照目录和文件条目数超过上限: &quot;
+                            f&quot;{self.MAX_SNAPSHOT_ENTRIES}&quot;
+                        )
+
+vcs/folder_vcs.py:209  FolderVCS._walk_tree
+条件：is_link_or_junction(full)
+raise RuntimeError(f&quot;比对目录包含符号链接或联接点，已拒绝读取: {full}&quot;)
+
+vcs/folder_vcs.py:215  FolderVCS._walk_tree
+条件：self.MAX_SNAPSHOT_ENTRIES is not None and len(files) + len(directories) &gt; self.MAX_SNAPSHOT_ENTRIES
+raise RuntimeError(
+                        &quot;文件夹快照目录和文件条目数超过上限: &quot;
+                        f&quot;{self.MAX_SNAPSHOT_ENTRIES}&quot;
+                    )
+
+vcs/folder_vcs.py:225  FolderVCS._walk_tree
+条件：validate_file_links and is_link_or_junction(full)
+raise RuntimeError(f&quot;比对目录包含符号链接，已拒绝读取: {full}&quot;)
+
+vcs/folder_vcs.py:231  FolderVCS._walk_tree
+条件：self.MAX_SNAPSHOT_FILES is not None and len(files) &gt; self.MAX_SNAPSHOT_FILES
+raise RuntimeError(
+                        f&quot;文件夹快照文件数超过上限: {self.MAX_SNAPSHOT_FILES}&quot;
+                    )
+
+vcs/folder_vcs.py:238  FolderVCS._walk_tree
+条件：self.MAX_SNAPSHOT_ENTRIES is not None and len(files) + len(directories) &gt; self.MAX_SNAPSHOT_ENTRIES
+raise RuntimeError(
+                        &quot;文件夹快照目录和文件条目数超过上限: &quot;
+                        f&quot;{self.MAX_SNAPSHOT_ENTRIES}&quot;
+                    )
+
+vcs/folder_vcs.py:250  FolderVCS._file_signature
+条件：
+raise RuntimeError(f&quot;读取比对源文件元数据失败: {path}: {exc}&quot;) from exc
+
+vcs/folder_vcs.py:252  FolderVCS._file_signature
+条件：
+raise RuntimeError(f&quot;比对源包含非普通文件，已拒绝读取: {path}&quot;) from exc
+
+vcs/folder_vcs.py:261  FolderVCS._directory_identity
+条件：
+raise RuntimeError(f&quot;比对源目录不存在或不是目录: {path}&quot;) from exc
+
+vcs/folder_vcs.py:263  FolderVCS._directory_identity
+条件：metadata_is_link_or_junction(metadata)
+raise RuntimeError(f&quot;比对目录包含符号链接或联接点，已拒绝读取: {path}&quot;)
+
+vcs/folder_vcs.py:265  FolderVCS._directory_identity
+条件：not stat.S_ISDIR(metadata.st_mode)
+raise RuntimeError(f&quot;比对源目录在快照期间被替换: {path}&quot;)
+
+vcs/folder_vcs.py:338  FolderVCS._same_captured_file_content
+条件：regular_file_handle_identity(old_stream) != old_signature
+raise RuntimeError(
+                        f&quot;旧版本文件在快照复制前发生变化: {old_path}&quot;
+                    )
+
+vcs/folder_vcs.py:342  FolderVCS._same_captured_file_content
+条件：regular_file_handle_identity(new_stream) != new_signature
+raise RuntimeError(
+                        f&quot;新版本文件在快照复制前发生变化: {new_path}&quot;
+                    )
+
+vcs/folder_vcs.py:355  FolderVCS._same_captured_file_content
+条件：regular_file_handle_identity(old_stream) != old_signature
+raise RuntimeError(
+                        f&quot;旧版本文件在快照复制期间发生变化: {old_path}&quot;
+                    )
+
+vcs/folder_vcs.py:359  FolderVCS._same_captured_file_content
+条件：regular_file_handle_identity(new_stream) != new_signature
+raise RuntimeError(
+                        f&quot;新版本文件在快照复制期间发生变化: {new_path}&quot;
+                    )
+
+vcs/folder_vcs.py:363  FolderVCS._same_captured_file_content
+条件：
+raise RuntimeError(
+                f&quot;读取文件夹端点内容失败: {relative_path}: {exc}&quot;
+            ) from exc
+
+vcs/folder_vcs.py:368  FolderVCS._same_captured_file_content
+条件：self._file_signature(old_path) != old_signature
+raise RuntimeError(f&quot;旧版本文件在快照复制期间发生变化: {old_path}&quot;)
+
+vcs/folder_vcs.py:370  FolderVCS._same_captured_file_content
+条件：self._file_signature(new_path) != new_signature
+raise RuntimeError(f&quot;新版本文件在快照复制期间发生变化: {new_path}&quot;)
+
+vcs/folder_vcs.py:382  FolderVCS._verify_capture
+条件：final_files != capture[&#x27;files&#x27;] or final_directories != capture[&#x27;directories&#x27;]
+raise RuntimeError(f&quot;比对源目录路径集合在快照期间发生变化: {source}&quot;)
+
+vcs/folder_vcs.py:384  FolderVCS._verify_capture
+条件：self._directory_identity(source) != capture[&#x27;root_identity&#x27;]
+raise RuntimeError(f&quot;比对源目录在快照期间被替换: {source}&quot;)
+
+vcs/folder_vcs.py:390  FolderVCS._verify_capture
+条件：self._directory_identity(current_path) != expected_identity
+raise RuntimeError(f&quot;比对源目录在快照期间被替换: {current_path}&quot;)
+
+vcs/folder_vcs.py:395  FolderVCS._verify_capture
+条件：self._file_signature(current_path) != expected_signature
+raise RuntimeError(
+                    f&quot;比对源文件在快照期间发生变化: {current_path}&quot;
+                )
+
+vcs/folder_vcs.py:429  FolderVCS._snapshot_directory
+条件：opened_signature != expected_signature
+raise RuntimeError(
+                            f&quot;比对源文件在快照复制前发生变化: {source_path}&quot;
+                        )
+
+vcs/folder_vcs.py:440  FolderVCS._snapshot_directory
+条件：
+raise RuntimeError(f&quot;复制比对源文件失败: {source_path}: {exc}&quot;) from exc
+
+vcs/folder_vcs.py:446  FolderVCS._snapshot_directory
+条件：copied_size != expected_signature[1] or closed_signature != expected_signature or self._file_signature(source_path) != expected_signature
+raise RuntimeError(
+                    f&quot;比对源文件在快照复制期间发生变化: {source_path}&quot;
+                )
+
+vcs/folder_vcs.py:562  FolderVCS.export_file_to_path
+条件：not os.path.isfile(full_path)
+raise RuntimeError(f&quot;无法读取版本 {version} 中的文件: {file_path}&quot;)
+
+vcs/folder_vcs.py:572  FolderVCS._resolve_file_path
+条件：
+raise RuntimeError(str(exc)) from exc
+
+vcs/folder_vcs.py:574  FolderVCS._resolve_file_path
+条件：check_leaf_link and is_link_or_junction(full_path)
+raise RuntimeError(f&quot;比对文件是符号链接或联接点，已拒绝读取: {full_path}&quot;)
+
+vcs/folder_vcs.py:593  FolderVCS._resolve_file_path
+条件：not inside
+raise RuntimeError(f&quot;比对文件解析后越界，已拒绝读取: {file_path}&quot;)</pre></details><details><summary>vcs/git_batch.py（9 处 raise）</summary><pre>vcs/git_batch.py:48  GitBatchReader._start
+条件：
+raise
+
+vcs/git_batch.py:58  GitBatchReader.copy_to
+条件：not self.supports(expression)
+raise ValueError(&quot;Object expression requires a one-shot Git read&quot;)
+
+vcs/git_batch.py:68  GitBatchReader.copy_to
+条件：header == request[:-1] + b&#x27; missing\n&#x27;
+raise MissingGitObject(f&quot;Git object not found: {expression}&quot;)
+
+vcs/git_batch.py:73  GitBatchReader.copy_to
+条件：not header.endswith(b&#x27;\n&#x27;) or len(fields) != 3 or (not re.fullmatch(b&#x27;(?:[0-9a-f]{40}|[0-9a-f]{64})&#x27;, fields[0])) or (fields[1] != b&#x27;blob&#x27;) or (not fields[2].isdigit())
+raise RuntimeError(f&quot;Invalid Git batch blob response: {header!r}&quot;)
+
+vcs/git_batch.py:78  GitBatchReader.copy_to
+条件：not chunk
+raise RuntimeError(&quot;Git batch returned incomplete blob content&quot;)
+
+vcs/git_batch.py:81  GitBatchReader.copy_to
+条件：written is not None and written != len(chunk)
+raise OSError(&quot;Incomplete write while exporting Git blob&quot;)
+
+vcs/git_batch.py:84  GitBatchReader.copy_to
+条件：process.stdout.read(1) != b&#x27;\n&#x27;
+raise RuntimeError(&quot;Invalid Git batch blob terminator&quot;)
+
+vcs/git_batch.py:87  GitBatchReader.copy_to
+条件：
+raise
+
+vcs/git_batch.py:90  GitBatchReader.copy_to
+条件：
+raise</pre></details><details><summary>vcs/git_checkout.py（10 处 raise）</summary><pre>vcs/git_checkout.py:53  GitCheckoutSnapshot.__init__
+条件：self._copy_attribute_file(path, target) != before[index][1]
+raise RuntimeError(&quot;Git 属性文件复制期间发生变化，已中止生成&quot;)
+
+vcs/git_checkout.py:58  GitCheckoutSnapshot.__init__
+条件：self._copy_attribute_file(self.sources[2], target) != before[2][1]
+raise RuntimeError(&quot;Git 属性文件复制期间发生变化，已中止生成&quot;)
+
+vcs/git_checkout.py:75  GitCheckoutSnapshot.__init__
+条件：before != self._source_state(self._attribute_paths(vcs))
+raise RuntimeError(&quot;Git 属性文件在任务快照期间发生变化，已中止生成&quot;)
+
+vcs/git_checkout.py:79  GitCheckoutSnapshot.__init__
+条件：
+raise
+
+vcs/git_checkout.py:122  GitCheckoutSnapshot._source_state
+条件：not path
+raise FileNotFoundError
+
+vcs/git_checkout.py:133  GitCheckoutSnapshot.verify_source
+条件：self.source_state != self._source_state(self._attribute_paths(vcs))
+raise RuntimeError(&quot;Git 属性文件在任务快照期间发生变化，已中止生成&quot;)
+
+vcs/git_checkout.py:144  GitCheckoutSnapshot._run
+条件：result.returncode or (endpoint and result.stderr)
+raise RuntimeError(
+                &quot;Git 原生检出失败；无法可靠导出的 filter 或内容已中止处理：\n&quot;
+                + result.stderr.decode(&quot;utf-8&quot;, &quot;replace&quot;)
+            )
+
+vcs/git_checkout.py:171  GitCheckoutSnapshot.conversion_mode
+条件：else: plain == self._PLAIN_PROBE &amp;&amp; plain == self._PLAIN_PROBE.replace(b&#x27;\n&#x27;, b&#x27;\r\n&#x27;) &amp;&amp; else: binary == self._BINARY_PROBE &amp;&amp; else: binary == b&#x27;CompareTool\x00\r\n\rprobe\r\n&#x27;
+raise RuntimeError(&quot;Git 检出规则不属于可可靠流式处理的换行转换&quot;)
+
+vcs/git_checkout.py:173  GitCheckoutSnapshot.conversion_mode
+条件：else: plain == self._PLAIN_PROBE &amp;&amp; else: plain == self._PLAIN_PROBE.replace(b&#x27;\n&#x27;, b&#x27;\r\n&#x27;)
+raise RuntimeError(&quot;Git 检出规则不属于可可靠流式处理的换行转换&quot;)
+
+vcs/git_checkout.py:207  GitCheckoutSnapshot._probe
+条件：
+raise</pre></details><details><summary>vcs/git_probe_batch.py（11 处 raise）</summary><pre>vcs/git_probe_batch.py:29  GitProbeBatch._start
+条件：self.failed
+raise RuntimeError(&#x27;Git 检出探针通道已经失效&#x27;)
+
+vcs/git_probe_batch.py:32  GitProbeBatch._start
+条件：self.process is not None &amp;&amp; self.process.poll() is not None
+raise RuntimeError(&#x27;Git 检出探针进程提前结束&#x27;)
+
+vcs/git_probe_batch.py:40  GitProbeBatch._start
+条件：
+raise
+
+vcs/git_probe_batch.py:49  GitProbeBatch.read
+条件：oid not in self.allowed or not self.supports(path)
+raise ValueError(&#x27;Git 批量检出只接收本任务微小探针及可表达路径&#x27;)
+
+vcs/git_probe_batch.py:61  GitProbeBatch.read
+条件：not header &amp;&amp; code == 129
+raise ProbeBatchUnavailable(self._diagnostic())
+
+vcs/git_probe_batch.py:66  GitProbeBatch.read
+条件：not header.endswith(b&#x27;\n&#x27;) or len(fields) != 3 or fields[0] != oid.encode(&#x27;ascii&#x27;) or (fields[1] != b&#x27;blob&#x27;) or (not fields[2].isdigit())
+raise RuntimeError(&#x27;Git 检出探针响应无效: &#x27;+repr(header)+&#x27; &#x27;+self._diagnostic())
+
+vcs/git_probe_batch.py:74  GitProbeBatch.read
+条件：int(fields[2]) not in (len(raw), len(converted))
+raise RuntimeError(&#x27;Git 检出探针声明长度无效&#x27;)
+
+vcs/git_probe_batch.py:79  GitProbeBatch.read
+条件：not part.endswith(b&#x27;\n&#x27;)
+raise RuntimeError(&#x27;Git 检出探针内容不完整: &#x27;+self._diagnostic())
+
+vcs/git_probe_batch.py:83  GitProbeBatch.read
+条件：body not in (raw, converted) or p.stdout.read(1) != b&#x27;\n&#x27;
+raise RuntimeError(&#x27;Git 检出探针内容或结束符无效: &#x27;+self._diagnostic())
+
+vcs/git_probe_batch.py:85  GitProbeBatch.read
+条件：os.fstat(self.stderr.fileno()).st_size
+raise RuntimeError(&#x27;Git 原生检出失败: &#x27;+self._diagnostic())
+
+vcs/git_probe_batch.py:90  GitProbeBatch.read
+条件：
+raise</pre></details><details><summary>vcs/git_vcs.py（29 处 raise）</summary><pre>vcs/git_vcs.py:88  GitVCS._git_cwd
+条件：not hasattr(self, &#x27;_repository_root&#x27;) &amp;&amp; result.returncode
+raise RuntimeError(&quot;无法确定 Git 项目范围：\n&quot; + result.stderr.decode(&quot;utf-8&quot;, &quot;replace&quot;))
+
+vcs/git_vcs.py:183  GitVCS._run
+条件：
+raise RuntimeError(GIT_NOT_FOUND_MESSAGE)
+
+vcs/git_vcs.py:185  GitVCS._run
+条件：result.returncode != 0
+raise RuntimeError(f&quot;Git命令失败: {&#x27; &#x27;.join(args)}\n{result.stderr}&quot;)
+
+vcs/git_vcs.py:197  GitVCS._run_bytes
+条件：
+raise RuntimeError(GIT_NOT_FOUND_MESSAGE)
+
+vcs/git_vcs.py:200  GitVCS._run_bytes
+条件：result.returncode != 0
+raise RuntimeError(f&quot;Git命令失败: {&#x27; &#x27;.join(args)}\n{stderr}&quot;)
+
+vcs/git_vcs.py:221  GitVCS.get_changed_files
+条件：not header.startswith(b&#x27;:&#x27;)
+raise RuntimeError(&quot;无法解析 Git raw 变更记录&quot;)
+
+vcs/git_vcs.py:224  GitVCS.get_changed_files
+条件：len(parts) != 5
+raise RuntimeError(
+                    &quot;无法解析 Git raw 变更头: &quot;
+                    + header.decode(&quot;utf-8&quot;, errors=&quot;replace&quot;)
+                )
+
+vcs/git_vcs.py:234  GitVCS.get_changed_files
+条件：code in (&#x27;R&#x27;, &#x27;C&#x27;) &amp;&amp; index + 1 &gt;= len(fields)
+raise RuntimeError(&quot;无法解析 Git 重命名/复制路径&quot;)
+
+vcs/git_vcs.py:240  GitVCS.get_changed_files
+条件：else: code in (&#x27;R&#x27;, &#x27;C&#x27;) &amp;&amp; index &gt;= len(fields)
+raise RuntimeError(&quot;无法解析 Git 变更路径&quot;)
+
+vcs/git_vcs.py:276  GitVCS.get_changed_files
+条件：code == &#x27;T&#x27;
+raise RuntimeError(
+                    f&quot;Git 文件类型发生变化（如普通文件与符号链接互换），&quot;
+                    f&quot;已中止生成以避免导出错误文件: {path}&quot;
+                )
+
+vcs/git_vcs.py:317  GitVCS.get_changed_files
+条件：else: code == &#x27;R&#x27; &amp;&amp; else: code == &#x27;C&#x27; &amp;&amp; else: code in {&#x27;A&#x27;, &#x27;M&#x27;, &#x27;D&#x27;}
+raise RuntimeError(f&quot;暂不支持的 Git 变更类型 {code}: {path}&quot;)
+
+vcs/git_vcs.py:349  GitVCS._resolve_ref_once
+条件：
+raise RuntimeError(
+                f&quot;无法固定 Git 版本端点，已中止生成: {version}&quot;
+            ) from exc
+
+vcs/git_vcs.py:353  GitVCS._resolve_ref_once
+条件：not re.fullmatch(&#x27;[0-9a-fA-F]{40,64}&#x27;, resolved)
+raise RuntimeError(f&quot;Git 版本端点解析结果无效: {version} -&gt; {resolved}&quot;)
+
+vcs/git_vcs.py:365  GitVCS._pin_versions_stable
+条件：first != second
+raise RuntimeError(&quot;Git 版本引用在任务快照期间发生变化，已中止生成&quot;)
+
+vcs/git_vcs.py:395  GitVCS._validate_regular_modes
+条件：invalid
+raise RuntimeError(
+                f&quot;Git 端点不是普通文件，已中止生成: {path} &quot;
+                f&quot;(mode={old_mode}-&gt;{new_mode})&quot;
+            )
+
+vcs/git_vcs.py:522  GitVCS.export_raw_file_to_path
+条件：
+raise RuntimeError(f&quot;无法流式导出 Git 文件: {file_path}\n{exc}&quot;) from exc
+
+vcs/git_vcs.py:524  GitVCS.export_raw_file_to_path
+条件：result.returncode != 0
+raise RuntimeError(
+                f&quot;无法流式导出 Git 文件: {file_path}\n&quot;
+                + result.stderr.decode(&quot;utf-8&quot;, errors=&quot;replace&quot;)
+            )
+
+vcs/git_vcs.py:548  GitVCS._read_git_config_value
+条件：
+raise RuntimeError(f&quot;无法读取 Git 配置 {name}，已中止导出: {exc}&quot;) from exc
+
+vcs/git_vcs.py:555  GitVCS._read_git_config_value
+条件：else: r.returncode == 0 &amp;&amp; else: r.returncode == 1
+raise RuntimeError(
+                f&quot;读取 Git 配置失败，已中止导出: {name}\n{stderr}&quot;
+            )
+
+vcs/git_vcs.py:573  GitVCS._parse_check_attr_records
+条件：
+raise RuntimeError(
+                    f&quot;无法准确解析 Git filter 名称，已中止导出: {path}&quot;
+                ) from exc
+
+vcs/git_vcs.py:616  GitVCS._read_checkout_attributes_bulk
+条件：result.returncode != 0
+raise RuntimeError(
+                f&quot;无法批量读取 Git 属性，已中止导出\n{stderr.strip()}&quot;
+            )
+
+vcs/git_vcs.py:625  GitVCS._read_checkout_attributes_bulk
+条件：missing
+raise RuntimeError(
+                f&quot;Git 属性查询结果不完整，已中止导出: {preview}&quot;
+            )
+
+vcs/git_vcs.py:645  GitVCS._read_filter_checkout_config
+条件：
+raise RuntimeError(f&quot;无法读取 Git filter 配置 {name}: {exc}&quot;) from exc
+
+vcs/git_vcs.py:652  GitVCS._read_filter_checkout_config
+条件：else: result.returncode == 1 &amp;&amp; else: result.returncode == 0 and result.stdout.endswith(b&#x27;\x00&#x27;)
+raise RuntimeError(
+                    f&quot;读取 Git filter 配置失败，已中止导出: {name}\n&quot;
+                    + result.stderr.decode(&quot;utf-8&quot;, errors=&quot;replace&quot;)
+                )
+
+vcs/git_vcs.py:667  GitVCS._filter_is_passthrough
+条件：driver not in cache &amp;&amp; first != self._read_filter_checkout_config(driver)
+raise RuntimeError(&quot;Git filter 配置在任务快照期间发生变化，已中止生成&quot;)
+
+vcs/git_vcs.py:686  GitVCS._validate_checkout_attributes
+条件：unsupported
+raise RuntimeError(
+                &quot;Git 文件启用了当前无法可靠复现的检出属性，已中止导出: &quot;
+                f&quot;{file_path}\n属性: {&#x27;, &#x27;.join(unsupported)}&quot;
+            )
+
+vcs/git_vcs.py:736  GitVCS._snapshot_checkout_policy
+条件：first_config != second_config or first_attrs != second_attrs or first_filters != second_filters
+raise RuntimeError(
+                &quot;Git 检出配置或属性在任务快照期间发生变化，已中止生成&quot;
+            )
+
+vcs/git_vcs.py:755  GitVCS._snapshot_git_config
+条件：first != second
+raise RuntimeError(&quot;Git 检出配置在任务快照期间发生变化，已中止生成&quot;)
+
+vcs/git_vcs.py:814  GitVCS.check_version_exists
+条件：GIT_NOT_FOUND_MESSAGE in str(exc)
+raise</pre></details><details><summary>vcs/multi_version_vcs.py（91 处 raise）</summary><pre>vcs/multi_version_vcs.py:41  _run_capped_process
+条件：
+raise
+
+vcs/multi_version_vcs.py:98  _run_capped_process
+条件：timed_out.is_set()
+raise RuntimeError(f&quot;{label}超时，已中止生成&quot;)
+
+vcs/multi_version_vcs.py:100  _run_capped_process
+条件：exceeded.is_set()
+raise RuntimeError(
+            f&quot;{label}原始输出超过上限 {max_output_bytes} 字节，已中止生成&quot;
+        )
+
+vcs/multi_version_vcs.py:303  _EndpointPlanner._new_entity
+条件：self.MAX_LOGICAL_FILES is not None and len(self._entities) &gt;= self.MAX_LOGICAL_FILES
+raise RuntimeError(
+                &quot;多版本历史逻辑文件数超过安全上限，已中止生成。&quot;
+                &quot;请缩小所选版本范围或增加排除规则。&quot;
+            )
+
+vcs/multi_version_vcs.py:324  _EndpointPlanner.apply
+条件：self.MAX_HISTORY_STEPS is not None and self._step &gt; self.MAX_HISTORY_STEPS
+raise RuntimeError(&quot;多版本历史步数超过安全上限，已中止生成&quot;)
+
+vcs/multi_version_vcs.py:328  _EndpointPlanner.apply
+条件：self.MAX_HISTORY_CHANGES is not None &amp;&amp; self._change_count &gt; self.MAX_HISTORY_CHANGES
+raise RuntimeError(&quot;多版本历史变更记录数超过安全上限，已中止生成&quot;)
+
+vcs/multi_version_vcs.py:336  _EndpointPlanner.apply
+条件：self.MAX_HISTORY_PATH_BYTES is not None &amp;&amp; self._path_bytes &gt; self.MAX_HISTORY_PATH_BYTES
+raise RuntimeError(&quot;多版本历史路径文本超过安全上限，已中止生成&quot;)
+
+vcs/multi_version_vcs.py:372  _EndpointPlanner.apply
+条件：action == &#x27;R&#x27; &amp;&amp; existing is not None and existing is not entity
+raise RuntimeError(
+                        &quot;多版本历史出现无法唯一追踪的重命名目标，已中止生成：\n&quot;
+                        f&quot;{old_path} -&gt; {path}&quot;
+                    )
+
+vcs/multi_version_vcs.py:429  _EndpointPlanner.apply
+条件：
+raise RuntimeError(f&quot;暂不支持的多版本历史变更类型 {action}: {path}&quot;)
+
+vcs/multi_version_vcs.py:469  _EndpointPlanner._normalize_path
+条件：not value or value in (&#x27;.&#x27;, &#x27;..&#x27;) or value.startswith(&#x27;../&#x27;)
+raise RuntimeError(f&quot;版本历史包含无效文件路径: {path}&quot;)
+
+vcs/multi_version_vcs.py:491  _MultiVersionFolderDelegate.__init__
+条件：not selected_versions
+raise ValueError(&quot;请选择至少一个版本&quot;)
+
+vcs/multi_version_vcs.py:668  _MultiVersionFolderDelegate._reserve_endpoint_target
+条件：key in targets
+raise RuntimeError(
+                &quot;不同文件端点会写入同一 Windows 路径，已中止生成：\n&quot;
+                f&quot;{targets[key]}\n{path}&quot;
+            )
+
+vcs/multi_version_vcs.py:676  _MultiVersionFolderDelegate._reserve_endpoint_target
+条件：
+raise RuntimeError(str(exc)) from exc
+
+vcs/multi_version_vcs.py:683  _MultiVersionFolderDelegate._reserve_endpoint_target
+条件：
+raise RuntimeError(str(exc)) from exc
+
+vcs/multi_version_vcs.py:699  _MultiVersionFolderDelegate._write_endpoint_file
+条件：
+raise RuntimeError(
+                f&quot;无法写入{label}文件端点，已中止生成: {path}@{version}\n{exc}&quot;
+            ) from exc
+
+vcs/multi_version_vcs.py:703  _MultiVersionFolderDelegate._write_endpoint_file
+条件：not os.path.isfile(target) or os.path.islink(target)
+raise RuntimeError(
+                f&quot;{label}文件端点不是普通文件，已中止生成: {path}@{version}&quot;
+            )
+
+vcs/multi_version_vcs.py:709  _MultiVersionFolderDelegate._write_endpoint_file
+条件：self.MAX_ENDPOINT_DISK_BYTES is not None &amp;&amp; self._endpoint_written_bytes &gt; self.MAX_ENDPOINT_DISK_BYTES
+raise RuntimeError(
+                    &quot;多版本端点实际写盘字节数超过安全上限，已中止生成&quot;
+                )
+
+vcs/multi_version_vcs.py:717  _MultiVersionFolderDelegate._write_endpoint_file
+条件：self.MIN_ENDPOINT_FREE_BYTES &gt; 0 and shutil.disk_usage(self._tmp_root).free &lt; self.MIN_ENDPOINT_FREE_BYTES
+raise RuntimeError(
+                &quot;多版本端点写入后磁盘保留空间不足，已中止生成&quot;
+            )
+
+vcs/multi_version_vcs.py:742  _MultiVersionFolderDelegate._reserve_endpoint_budget
+条件：self.MAX_ENDPOINT_FILES is not None and output_files &gt; self.MAX_ENDPOINT_FILES
+raise RuntimeError(
+                f&quot;多版本端点文件数超过上限: {output_files} &gt; &quot;
+                f&quot;{self.MAX_ENDPOINT_FILES}&quot;
+            )
+
+vcs/multi_version_vcs.py:773  _MultiVersionFolderDelegate._reserve_endpoint_budget
+条件：self.MAX_ENDPOINT_SOURCE_BYTES is not None and source_bytes &gt; self.MAX_ENDPOINT_SOURCE_BYTES
+raise RuntimeError(
+                    &quot;多版本端点源文件总字节数超过安全上限，已中止生成&quot;
+                )
+
+vcs/multi_version_vcs.py:783  _MultiVersionFolderDelegate._reserve_endpoint_budget
+条件：self.MAX_ENDPOINT_DISK_BYTES is not None and projected_disk_bytes &gt; self.MAX_ENDPOINT_DISK_BYTES
+raise RuntimeError(
+                &quot;多版本端点最坏写盘字节数超过安全上限，已中止生成&quot;
+            )
+
+vcs/multi_version_vcs.py:793  _MultiVersionFolderDelegate._reserve_endpoint_budget
+条件：sizes_complete and (self.MAX_ENDPOINT_DISK_BYTES is not None or self.MIN_ENDPOINT_FREE_BYTES &gt; 0) &amp;&amp; free_bytes &lt; required
+raise RuntimeError(
+                    &quot;多版本端点可用磁盘空间不足，已中止生成: &quot;
+                    f&quot;需要至少 {required} 字节，当前 {free_bytes} 字节&quot;
+                )
+
+vcs/multi_version_vcs.py:906  GitMultiVersionVCS.__init__
+条件：
+raise
+
+vcs/multi_version_vcs.py:919  GitMultiVersionVCS._run
+条件：
+raise RuntimeError(GIT_NOT_FOUND_MESSAGE)
+
+vcs/multi_version_vcs.py:922  GitMultiVersionVCS._run
+条件：returncode != 0
+raise RuntimeError(f&quot;Git命令失败: {&#x27; &#x27;.join(args)}\n{error_text}&quot;)
+
+vcs/multi_version_vcs.py:945  GitMultiVersionVCS.get_recent_versions
+条件：
+raise RuntimeError(GIT_NOT_FOUND_MESSAGE)
+
+vcs/multi_version_vcs.py:947  GitMultiVersionVCS.get_recent_versions
+条件：result.returncode != 0
+raise RuntimeError(f&quot;Git命令失败: git log\n{result.stderr}&quot;)
+
+vcs/multi_version_vcs.py:967  GitMultiVersionVCS._prepare
+条件：_EndpointPlanner.MAX_HISTORY_STEPS is not None &amp;&amp; not history_count_text.isdigit()
+raise RuntimeError(&quot;无法确认 Git 第一父历史长度&quot;)
+
+vcs/multi_version_vcs.py:969  GitMultiVersionVCS._prepare
+条件：_EndpointPlanner.MAX_HISTORY_STEPS is not None &amp;&amp; int(history_count_text) &gt; _EndpointPlanner.MAX_HISTORY_STEPS
+raise RuntimeError(
+                    &quot;Git 第一父历史提交数超过安全上限，已中止生成。&quot;
+                    &quot;请缩小仓库历史或改用普通 Git 比对。&quot;
+                )
+
+vcs/multi_version_vcs.py:975  GitMultiVersionVCS._prepare
+条件：not history
+raise RuntimeError(&quot;当前 Git 分支没有可用提交&quot;)
+
+vcs/multi_version_vcs.py:983  GitMultiVersionVCS._prepare
+条件：commit not in history_index
+raise RuntimeError(f&quot;提交不在当前分支第一父历史中: {raw}&quot;)
+
+vcs/multi_version_vcs.py:1201  GitMultiVersionVCS._prepare
+条件：self.MAX_GIT_PENDING_DELETES is not None and len(pending_deletes) &gt; self.MAX_GIT_PENDING_DELETES
+raise RuntimeError(
+                    &quot;Git 多版本待定删除文件过多，无法在资源上限内安全追踪身份，&quot;
+                    &quot;已中止生成。请缩小所选版本范围或增加排除规则。&quot;
+                )
+
+vcs/multi_version_vcs.py:1395  GitMultiVersionVCS._prepare
+条件：suspicious
+raise RuntimeError(
+                &quot;Git 检测到无法唯一确认的删除/新增/重命名候选，且候选两侧都&quot;
+                &quot;关联选中变更，无法排除彻底改写或同内容文件造成的错误配对。&quot;
+                &quot;本次未生成报告和源码包。\n&quot;
+                + &quot;\n&quot;.join(suspicious)
+            )
+
+vcs/multi_version_vcs.py:1524  GitMultiVersionVCS._first_parent
+条件：
+raise RuntimeError(
+                f&quot;Git 仓库缺少提交 {commit} 的第一父对象 {parent}，&quot;
+                &quot;可能是浅克隆边界；请补全历史后重试。&quot;
+            ) from exc
+
+vcs/multi_version_vcs.py:1651  GitMultiVersionVCS._reserve_git_pair_candidates
+条件：self._git_pair_candidates &gt; self.MAX_GIT_RENAME_PAIR_CANDIDATES
+raise RuntimeError(
+                f&quot;Git 多版本{label}过多（累计 {self._git_pair_candidates}），&quot;
+                &quot;无法在资源上限内安全判定文件身份，已中止生成。&quot;
+                &quot;请缩小所选版本范围或增加排除规则。&quot;
+            )
+
+vcs/multi_version_vcs.py:1665  GitMultiVersionVCS._reserve_stored_ambiguous_candidates
+条件：self._git_stored_ambiguous_candidates &gt; self.MAX_GIT_STORED_AMBIGUOUS_CANDIDATES
+raise RuntimeError(
+                &quot;Git 多版本待复核的身份候选过多，已中止生成。&quot;
+                &quot;请缩小所选版本范围或增加排除规则。&quot;
+            )
+
+vcs/multi_version_vcs.py:1688  GitMultiVersionVCS._git_rename_candidate
+条件：self.MAX_GIT_RENAME_SCORING_EVALUATIONS is not None &amp;&amp; self._git_scoring_evaluations &gt; self.MAX_GIT_RENAME_SCORING_EVALUATIONS
+raise RuntimeError(
+                    &quot;Git 多版本重命名评分次数超过安全上限，已中止生成。&quot;
+                    &quot;请缩小所选版本范围或增加排除规则。&quot;
+                )
+
+vcs/multi_version_vcs.py:1696  GitMultiVersionVCS._git_rename_candidate
+条件：self.MAX_GIT_RENAME_SCORING_BYTES is not None &amp;&amp; old_size is None or new_size is None
+raise RuntimeError(
+                    &quot;无法确认 Git 重命名候选 blob 大小：&quot;
+                    f&quot;{old_path}@{old_version} -&gt; {new_path}@{new_version}&quot;
+                )
+
+vcs/multi_version_vcs.py:1702  GitMultiVersionVCS._git_rename_candidate
+条件：self.MAX_GIT_RENAME_SCORING_BYTES is not None &amp;&amp; self._git_scoring_bytes &gt; self.MAX_GIT_RENAME_SCORING_BYTES
+raise RuntimeError(
+                    &quot;Git 多版本重命名评分累计字节数超过安全上限，已中止生成。&quot;
+                    &quot;请缩小所选版本范围或增加排除规则。&quot;
+                )
+
+vcs/multi_version_vcs.py:1738  GitMultiVersionVCS._git_rename_candidate
+条件：result.returncode not in (0, 1)
+raise RuntimeError(
+                    &quot;Git 重命名候选评分失败:\n&quot;
+                    + result.stderr.decode(&quot;utf-8&quot;, errors=&quot;replace&quot;)
+                )
+
+vcs/multi_version_vcs.py:1782  GitMultiVersionVCS._parse_git_changes
+条件：cls.MAX_GIT_COMMAND_OUTPUT_BYTES is not None and len(data) &gt; cls.MAX_GIT_COMMAND_OUTPUT_BYTES
+raise RuntimeError(&quot;Git 多版本变更记录原始字节超过安全上限&quot;)
+
+vcs/multi_version_vcs.py:1794  GitMultiVersionVCS._parse_git_changes
+条件：index &gt;= len(fields)
+raise RuntimeError(&quot;无法解析 Git 多版本变更记录&quot;)
+
+vcs/multi_version_vcs.py:1797  GitMultiVersionVCS._parse_git_changes
+条件：status.startswith((&#x27;R&#x27;, &#x27;C&#x27;)) &amp;&amp; index + 1 &gt;= len(fields)
+raise RuntimeError(&quot;无法解析 Git 多版本重命名/复制记录&quot;)
+
+vcs/multi_version_vcs.py:1811  GitMultiVersionVCS._parse_git_changes
+条件：status.startswith((&#x27;R&#x27;, &#x27;C&#x27;)) &amp;&amp; _EndpointPlanner.MAX_HISTORY_CHANGES is not None and len(changes) &gt; _EndpointPlanner.MAX_HISTORY_CHANGES
+raise RuntimeError(&quot;Git 单次变更记录数超过安全上限&quot;)
+
+vcs/multi_version_vcs.py:1816  GitMultiVersionVCS._parse_git_changes
+条件：status.startswith((&#x27;R&#x27;, &#x27;C&#x27;)) &amp;&amp; _EndpointPlanner.MAX_HISTORY_PATH_BYTES is not None and path_bytes &gt; _EndpointPlanner.MAX_HISTORY_PATH_BYTES
+raise RuntimeError(&quot;Git 单次变更路径字节数超过安全上限&quot;)
+
+vcs/multi_version_vcs.py:1830  GitMultiVersionVCS._parse_git_changes
+条件：status not in (&#x27;A&#x27;, &#x27;M&#x27;, &#x27;D&#x27;)
+raise RuntimeError(f&quot;暂不支持的 Git 多版本变更类型 {status}: {path}&quot;)
+
+vcs/multi_version_vcs.py:1836  GitMultiVersionVCS._parse_git_changes
+条件：_EndpointPlanner.MAX_HISTORY_CHANGES is not None and len(changes) &gt; _EndpointPlanner.MAX_HISTORY_CHANGES
+raise RuntimeError(&quot;Git 单次变更记录数超过安全上限&quot;)
+
+vcs/multi_version_vcs.py:1841  GitMultiVersionVCS._parse_git_changes
+条件：_EndpointPlanner.MAX_HISTORY_PATH_BYTES is not None and path_bytes &gt; _EndpointPlanner.MAX_HISTORY_PATH_BYTES
+raise RuntimeError(&quot;Git 单次变更路径字节数超过安全上限&quot;)
+
+vcs/multi_version_vcs.py:1868  GitMultiVersionVCS._prime_git_endpoint_modes.fetch
+条件：raw and (not raw.endswith(b&#x27;\x00&#x27;))
+raise RuntimeError(&quot;Git 端点 mode 查询返回不完整&quot;)
+
+vcs/multi_version_vcs.py:1878  GitMultiVersionVCS._prime_git_endpoint_modes.fetch
+条件：
+raise RuntimeError(&quot;Git 端点 mode 查询记录无效&quot;) from exc
+
+vcs/multi_version_vcs.py:1880  GitMultiVersionVCS._prime_git_endpoint_modes.fetch
+条件：repository_path not in requested or repository_path in found
+raise RuntimeError(&quot;Git 端点 mode 查询路径超出请求或重复&quot;)
+
+vcs/multi_version_vcs.py:1882  GitMultiVersionVCS._prime_git_endpoint_modes.fetch
+条件：mode not in (b&#x27;100644&#x27;, b&#x27;100755&#x27;) or kind != b&#x27;blob&#x27;
+raise RuntimeError(f&quot;Git 多版本端点不是普通文件，已中止生成: {repository_path}@{version}&quot;)
+
+vcs/multi_version_vcs.py:1884  GitMultiVersionVCS._prime_git_endpoint_modes.fetch
+条件：not re.fullmatch(b&#x27;[0-9a-f]{40}|[0-9a-f]{64}&#x27;, oid)
+raise RuntimeError(&quot;Git 端点 mode 查询对象标识无效&quot;)
+
+vcs/multi_version_vcs.py:1887  GitMultiVersionVCS._prime_git_endpoint_modes.fetch
+条件：set(found) != requested
+raise RuntimeError(&quot;Git 固定端点缺少所需文件，已中止生成&quot;)
+
+vcs/multi_version_vcs.py:1908  GitMultiVersionVCS._validate_git_endpoint_mode
+条件：mode not in (&#x27;100644&#x27;, &#x27;100755&#x27;)
+raise RuntimeError(
+                f&quot;Git 多版本端点不是普通文件，已中止生成: {path}@{version} (mode={mode})&quot;
+            )
+
+vcs/multi_version_vcs.py:1982  SVNMultiVersionVCS.get_recent_versions
+条件：
+raise RuntimeError(SVN_NOT_FOUND_MESSAGE)
+
+vcs/multi_version_vcs.py:1984  SVNMultiVersionVCS.get_recent_versions
+条件：info.returncode != 0
+raise RuntimeError(
+                &quot;SVN命令失败: info\n&quot; + SVNMultiVersionVCS._decode(info.stderr or info.stdout)
+            )
+
+vcs/multi_version_vcs.py:1995  SVNMultiVersionVCS.get_recent_versions
+条件：
+raise RuntimeError(SVN_NOT_FOUND_MESSAGE)
+
+vcs/multi_version_vcs.py:1997  SVNMultiVersionVCS.get_recent_versions
+条件：result.returncode != 0
+raise RuntimeError(
+                &quot;SVN命令失败: log\n&quot; + SVNMultiVersionVCS._decode(result.stderr or result.stdout)
+            )
+
+vcs/multi_version_vcs.py:2050  SVNMultiVersionVCS.__init__
+条件：
+raise
+
+vcs/multi_version_vcs.py:2071  SVNMultiVersionVCS._run
+条件：
+raise RuntimeError(SVN_NOT_FOUND_MESSAGE)
+
+vcs/multi_version_vcs.py:2073  SVNMultiVersionVCS._run
+条件：returncode != 0
+raise RuntimeError(
+                f&quot;SVN命令失败: {&#x27; &#x27;.join(args)}\n&quot; + self._decode(stderr or stdout)
+            )
+
+vcs/multi_version_vcs.py:2088  SVNMultiVersionVCS._run_bytes
+条件：
+raise RuntimeError(SVN_NOT_FOUND_MESSAGE)
+
+vcs/multi_version_vcs.py:2090  SVNMultiVersionVCS._run_bytes
+条件：returncode != 0
+raise RuntimeError(
+                f&quot;SVN命令失败: {&#x27; &#x27;.join(args)}\n&quot;
+                + self._decode(stderr or stdout)
+            )
+
+vcs/multi_version_vcs.py:2112  SVNMultiVersionVCS._prepare
+条件：last_revision &gt; int(self._pinned_peg_revision)
+raise RuntimeError(
+                &quot;SVN 多版本选择包含任务开始后才存在的 revision，已中止生成: &quot;
+                f&quot;r{last_revision} &gt; r{self._pinned_peg_revision}&quot;
+            )
+
+vcs/multi_version_vcs.py:2123  SVNMultiVersionVCS._prepare
+条件：else: project_url == root_prefix &amp;&amp; else: project_url.startswith(root_prefix + &#x27;/&#x27;)
+raise RuntimeError(&quot;SVN 项目 URL 不属于固定仓库根 URL，已中止生成&quot;)
+
+vcs/multi_version_vcs.py:2177  SVNMultiVersionVCS._parse_revisions
+条件：not token.isdigit() or int(token) &lt;= 0
+raise RuntimeError(f&quot;SVN revision 格式不正确: {raw}&quot;)
+
+vcs/multi_version_vcs.py:2190  SVNMultiVersionVCS._parse_svn_history
+条件：self.MAX_SVN_COMMAND_OUTPUT_BYTES is not None and len(output.encode(&#x27;utf-8&#x27;, errors=&#x27;surrogatepass&#x27;)) &gt; self.MAX_SVN_COMMAND_OUTPUT_BYTES
+raise RuntimeError(&quot;SVN 多版本历史 XML 超过安全上限&quot;)
+
+vcs/multi_version_vcs.py:2194  SVNMultiVersionVCS._parse_svn_history
+条件：
+raise RuntimeError(f&quot;无法解析 SVN 多版本历史: {exc}&quot;) from exc
+
+vcs/multi_version_vcs.py:2212  SVNMultiVersionVCS._parse_svn_history_bytes
+条件：self.MAX_SVN_COMMAND_OUTPUT_BYTES is not None and len(payload) &gt; self.MAX_SVN_COMMAND_OUTPUT_BYTES
+raise RuntimeError(&quot;SVN 多版本历史 XML 超过安全上限&quot;)
+
+vcs/multi_version_vcs.py:2230  SVNMultiVersionVCS._parse_svn_history_bytes.entries
+条件：revision_text.isdigit() &amp;&amp; previous_revision is not None and revision &gt; previous_revision
+raise RuntimeError(
+                                &quot;SVN 历史 XML 未按倒序返回，已中止流式解析&quot;
+                            )
+
+vcs/multi_version_vcs.py:2237  SVNMultiVersionVCS._parse_svn_history_bytes.entries
+条件：
+raise RuntimeError(f&quot;无法解析 SVN 多版本历史: {exc}&quot;) from exc
+
+vcs/multi_version_vcs.py:2253  SVNMultiVersionVCS._build_svn_history
+条件：self.MAX_SVN_LOG_ENTRIES is not None &amp;&amp; entry_count &gt; self.MAX_SVN_LOG_ENTRIES
+raise RuntimeError(&quot;SVN 历史 revision 记录数超过安全上限&quot;)
+
+vcs/multi_version_vcs.py:2259  SVNMultiVersionVCS._build_svn_history
+条件：self.MAX_SVN_PATH_RECORDS is not None &amp;&amp; path_record_count &gt; self.MAX_SVN_PATH_RECORDS
+raise RuntimeError(&quot;SVN 历史路径记录数超过安全上限&quot;)
+
+vcs/multi_version_vcs.py:2271  SVNMultiVersionVCS._build_svn_history
+条件：self.MAX_SVN_PATH_BYTES is not None &amp;&amp; path_bytes &gt; self.MAX_SVN_PATH_BYTES
+raise RuntimeError(&quot;SVN 历史路径文本超过安全上限&quot;)
+
+vcs/multi_version_vcs.py:2492  SVNMultiVersionVCS._expand_svn_changes
+条件：selected &amp;&amp; svn_externals_enabled(old_props) or svn_externals_enabled(new_props)
+raise RuntimeError(
+                        &quot;SVN 多版本目录启用了 svn:externals，文件级交付无法保真，&quot;
+                        f&quot;已中止生成: {item.path}@{revision}&quot;
+                    )
+
+vcs/multi_version_vcs.py:2756  SVNMultiVersionVCS._expand_svn_changes
+条件：else: item.action == &#x27;A&#x27; and item.path in ordinary_directory_copy_targets &amp;&amp; else: item.action in (&#x27;A&#x27;, &#x27;R&#x27;) and item.copyfrom_path and (item.copyfrom_path in deleted_files or covered_by_deleted_dir(item.copyfrom_path) or planner.is_deleted(item.copyfrom_path) or (item.copyfrom_historical and planner.is_active(item.copyfrom_path))) &amp;&amp; else: item.action == &#x27;A&#x27; &amp;&amp; else: item.action == &#x27;D&#x27; &amp;&amp; else: item.action in (&#x27;M&#x27;, &#x27;R&#x27;)
+raise RuntimeError(
+                    f&quot;暂不支持的 SVN 多版本变更类型 {item.action}: {item.path}&quot;
+                )
+
+vcs/multi_version_vcs.py:2852  SVNMultiVersionVCS._expand_svn_changes
+条件：else: item.action == &#x27;D&#x27; &amp;&amp; else: item.action == &#x27;R&#x27; &amp;&amp; item.action not in (&#x27;A&#x27;, &#x27;D&#x27;, &#x27;M&#x27;, &#x27;R&#x27;)
+raise RuntimeError(
+                    f&quot;暂不支持的 SVN 目录变更类型 {item.action}: {item.path}&quot;
+                )
+
+vcs/multi_version_vcs.py:2901  SVNMultiVersionVCS._expand_directory_move
+条件：old_path not in old_path_set or new_path not in new_path_set
+raise RuntimeError(
+                    &quot;SVN 目录移动中的显式文件 copyfrom 无法在端点确认：\n&quot;
+                    f&quot;{old_path} -&gt; {new_path}&quot;
+                )
+
+vcs/multi_version_vcs.py:2963  SVNMultiVersionVCS._list_svn_files
+条件：self.MAX_SVN_LIST_ENTRIES is not None &amp;&amp; self._svn_list_entry_count &gt; self.MAX_SVN_LIST_ENTRIES
+raise RuntimeError(&quot;SVN 递归目录条目数超过安全上限&quot;)
+
+vcs/multi_version_vcs.py:2976  SVNMultiVersionVCS._list_svn_files
+条件：entry.get(&#x27;kind&#x27;) == &#x27;file&#x27; &amp;&amp; name and self.MAX_SVN_PATH_BYTES is not None &amp;&amp; self._svn_list_path_bytes &gt; self.MAX_SVN_PATH_BYTES
+raise RuntimeError(
+                                &quot;SVN 递归目录路径文本超过安全上限&quot;
+                            )
+
+vcs/multi_version_vcs.py:2985  SVNMultiVersionVCS._list_svn_files
+条件：
+raise RuntimeError(f&quot;无法解析 SVN 目录文件列表: {exc}&quot;) from exc
+
+vcs/multi_version_vcs.py:3004  SVNMultiVersionVCS._svn_node_exists
+条件：
+raise RuntimeError(
+                f&quot;无法确认 SVN 节点是否存在，已中止生成: {path}@{revision}\n{exc}&quot;
+            ) from exc
+
+vcs/multi_version_vcs.py:3012  SVNMultiVersionVCS._svn_node_exists
+条件：
+raise RuntimeError(
+            f&quot;确认 SVN 节点是否存在时失败，已中止生成: {path}@{revision}\n{stderr}&quot;
+        )
+
+vcs/multi_version_vcs.py:3035  SVNMultiVersionVCS._svn_node_kind
+条件：
+raise RuntimeError(
+                f&quot;无法确认 SVN 替换前节点类型: {path}@{revision}\n{exc}&quot;
+            ) from exc
+
+vcs/multi_version_vcs.py:3040  SVNMultiVersionVCS._svn_node_kind
+条件：kind not in (&#x27;file&#x27;, &#x27;dir&#x27;)
+raise RuntimeError(
+                f&quot;无法确认 SVN 替换前节点类型: {path}@{revision}\n&quot;
+                + self._decode(result.stderr or result.stdout)
+            )
+
+vcs/multi_version_vcs.py:3099  SVNMultiVersionVCS._get_svn_properties
+条件：
+raise RuntimeError(
+                f&quot;无法检查 SVN 多版本端点属性: {path}@{version}\n{exc}&quot;
+            ) from exc
+
+vcs/multi_version_vcs.py:3103  SVNMultiVersionVCS._get_svn_properties
+条件：result.returncode != 0
+raise RuntimeError(
+                f&quot;无法检查 SVN 多版本端点属性: {path}@{version}\n&quot;
+                + self._decode(result.stderr or result.stdout)
+            )
+
+vcs/multi_version_vcs.py:3110  SVNMultiVersionVCS._get_svn_properties
+条件：
+raise RuntimeError(f&quot;无法解析 SVN 端点属性: {path}@{version}&quot;) from exc
+
+vcs/multi_version_vcs.py:3125  SVNMultiVersionVCS._validate_svn_regular_endpoint
+条件：&#x27;svn:special&#x27; in properties
+raise RuntimeError(
+                f&quot;SVN 多版本端点是 svn:special（符号链接等特殊节点），&quot;
+                f&quot;已中止生成: {path}@{version}&quot;
+            )
+
+vcs/multi_version_vcs.py:3130  SVNMultiVersionVCS._validate_svn_regular_endpoint
+条件：svn_keywords_enabled(properties)
+raise RuntimeError(
+                &quot;SVN 多版本端点启用了 svn:keywords，svn cat 不能可靠复现&quot;
+                f&quot;工作副本展开字节，已中止生成: {path}@{version}&quot;
+            )</pre></details><details><summary>vcs/raw_cache.py（9 处 raise）</summary><pre>vcs/raw_cache.py:23  _DigestWriter.write
+条件：written != len(block)
+raise OSError(&quot;原始缓存写入不完整&quot;)
+
+vcs/raw_cache.py:38  RawEndpointCache.acquire
+条件：not self.root
+raise RuntimeError(&quot;原始缓存已经关闭&quot;)
+
+vcs/raw_cache.py:50  RawEndpointCache.acquire
+条件：completed[0] != initial_id or completed[1] != writer.size
+raise RuntimeError(&quot;原始缓存生成期间身份或长度变化&quot;)
+
+vcs/raw_cache.py:52  RawEndpointCache.acquire
+条件：identity != completed
+raise RuntimeError(&quot;原始缓存发布前被替换&quot;)
+
+vcs/raw_cache.py:59  RawEndpointCache.acquire
+条件：
+raise
+
+vcs/raw_cache.py:66  RawEndpointCache.iter_bytes
+条件：regular_file_handle_identity(source) != entry.identity
+raise RuntimeError(&quot;原始缓存文件身份已变化&quot;)
+
+vcs/raw_cache.py:73  RawEndpointCache.iter_bytes
+条件：regular_file_handle_identity(source) != entry.identity or regular_file_path_identity(entry.path) != entry.identity or size != entry.size or (digest.hexdigest() != entry.digest)
+raise RuntimeError(&quot;原始缓存内容已变化，已中止生成&quot;)
+
+vcs/raw_cache.py:80  RawEndpointCache.copy_to
+条件：os.path.exists(target_path) and os.path.samefile(entry.path, target_path)
+raise RuntimeError(&quot;交付文件不得覆盖原始缓存&quot;)
+
+vcs/raw_cache.py:83  RawEndpointCache.copy_to
+条件：target.write(block) != len(block)
+raise OSError(&quot;交付复制不完整&quot;)</pre></details><details><summary>vcs/svn_vcs.py（34 处 raise）</summary><pre>vcs/svn_vcs.py:116  SVNVCS._parse_info_identity
+条件：
+raise RuntimeError(f&quot;无法解析 SVN 仓库身份信息: {context}&quot;) from exc
+
+vcs/svn_vcs.py:119  SVNVCS._parse_info_identity
+条件：entry is None
+raise RuntimeError(f&quot;SVN 仓库身份信息缺少 entry: {context}&quot;)
+
+vcs/svn_vcs.py:125  SVNVCS._parse_info_identity
+条件：not url or not repo_root or (not uuid) or (not revision.isdigit())
+raise RuntimeError(f&quot;SVN 仓库身份信息不完整: {context}&quot;)
+
+vcs/svn_vcs.py:168  SVNVCS._project_url_at
+条件：uuid != self._pinned_repo_uuid or repo_root != self._pinned_repo_root_url
+raise RuntimeError(
+                &quot;SVN 仓库身份在任务期间发生变化，已中止生成：&quot;
+                f&quot;{self._pinned_repo_uuid} -&gt; {uuid}&quot;
+            )
+
+vcs/svn_vcs.py:185  SVNVCS._run
+条件：
+raise RuntimeError(SVN_NOT_FOUND_MESSAGE)
+
+vcs/svn_vcs.py:189  SVNVCS._run
+条件：result.returncode != 0
+raise RuntimeError(f&quot;SVN命令失败: {&#x27; &#x27;.join(args)}\n{stderr}&quot;)
+
+vcs/svn_vcs.py:205  SVNVCS._run_bytes
+条件：
+raise RuntimeError(SVN_NOT_FOUND_MESSAGE)
+
+vcs/svn_vcs.py:209  SVNVCS._run_bytes
+条件：result.returncode != 0
+raise RuntimeError(f&quot;SVN命令失败: {&#x27; &#x27;.join(args)}\n{stderr}&quot;)
+
+vcs/svn_vcs.py:223  SVNVCS._parse_svn_diff_summarize
+条件：
+raise RuntimeError(f&quot;无法解析 SVN 变更摘要: {exc}&quot;) from exc
+
+vcs/svn_vcs.py:250  SVNVCS._parse_svn_diff_summarize
+条件：node.get(&#x27;kind&#x27;) == &#x27;dir&#x27; &amp;&amp; props_modified or item in (&#x27;added&#x27;, &#x27;deleted&#x27;, &#x27;replaced&#x27;, &#x27;modified&#x27;) &amp;&amp; svn_externals_enabled(old_props) or svn_externals_enabled(new_props)
+raise RuntimeError(
+                            &quot;SVN 目录启用了 svn:externals，文件级交付无法保真，&quot;
+                            f&quot;已中止生成: {rel_dir or &#x27;&lt;项目根&gt;&#x27;}&quot;
+                        )
+
+vcs/svn_vcs.py:314  SVNVCS._parse_svn_diff_summarize
+条件：else: change_type is not None &amp;&amp; item not in (&#x27;none&#x27;, &#x27;normal&#x27;)
+raise RuntimeError(f&quot;暂不支持的 SVN 变更类型 {item}: {path}&quot;)
+
+vcs/svn_vcs.py:346  SVNVCS._summary_relative_path
+条件：urlsplit(value).scheme
+raise RuntimeError(f&quot;SVN 变更摘要包含项目根之外的 URL，已中止生成: {value}&quot;)
+
+vcs/svn_vcs.py:355  SVNVCS._summary_relative_path
+条件：os.path.isabs(value)
+raise RuntimeError(
+                    f&quot;SVN 变更摘要路径无法映射到项目目录: {value}&quot;
+                ) from exc
+
+vcs/svn_vcs.py:362  SVNVCS._summary_relative_path
+条件：normalized == &#x27;..&#x27; or normalized.startswith(&#x27;../&#x27;) or os.path.isabs(normalized)
+raise RuntimeError(f&quot;SVN 变更摘要路径越出项目目录，已中止生成: {value}&quot;)
+
+vcs/svn_vcs.py:384  SVNVCS._get_node_kind
+条件：
+raise RuntimeError(
+                f&quot;无法确认 SVN 替换前节点类型，已中止生成: {path}@{version}\n{exc}&quot;
+            ) from exc
+
+vcs/svn_vcs.py:389  SVNVCS._get_node_kind
+条件：kind not in (&#x27;file&#x27;, &#x27;dir&#x27;)
+raise RuntimeError(
+                f&quot;无法确认 SVN 替换前节点类型，已中止生成: {path}@{version}\n&quot;
+                + _decode_bytes(result.stderr or result.stdout)
+            )
+
+vcs/svn_vcs.py:421  SVNVCS._pin_version
+条件：raw.isdigit() &amp;&amp; int(raw) &gt; pinned_head
+raise RuntimeError(
+                    &quot;SVN 版本端点晚于任务开始时固定的仓库 HEAD，已中止生成: &quot;
+                    f&quot;{version} &gt; r{pinned_head}&quot;
+                )
+
+vcs/svn_vcs.py:435  SVNVCS._pin_version
+条件：uuid != self._pinned_repo_uuid or repo_root != self._pinned_repo_root_url
+raise RuntimeError(&quot;SVN 版本端点不属于任务开始时固定的仓库，已中止生成&quot;)
+
+vcs/svn_vcs.py:437  SVNVCS._pin_version
+条件：not resolved.isdigit()
+raise RuntimeError(f&quot;SVN 版本端点解析结果无效: {version} -&gt; {resolved}&quot;)
+
+vcs/svn_vcs.py:439  SVNVCS._pin_version
+条件：int(resolved) &gt; pinned_head
+raise RuntimeError(
+                &quot;SVN 版本端点晚于任务开始时固定的仓库 HEAD，已中止生成: &quot;
+                f&quot;{version} -&gt; r{resolved} &gt; r{pinned_head}&quot;
+            )
+
+vcs/svn_vcs.py:501  SVNVCS._download_raw_stream
+条件：process.wait() != 0
+raise RuntimeError(&quot;SVN 内容读取失败: &quot; + url + &quot;\n&quot; + _decode_bytes(diagnostic.read()))
+
+vcs/svn_vcs.py:585  SVNVCS.get_file_signature
+条件：result.returncode != 0
+raise RuntimeError(_decode_bytes(result.stderr))
+
+vcs/svn_vcs.py:594  SVNVCS.get_file_signature
+条件：
+raise RuntimeError(
+                f&quot;无法流式计算 SVN 文件摘要: {file_path}@{rev}\n{exc}&quot;
+            ) from exc
+
+vcs/svn_vcs.py:645  SVNVCS.export_raw_file_to_path
+条件：
+raise RuntimeError(f&quot;无法流式导出 SVN 文件: {file_path}@{rev}\n{exc}&quot;) from exc
+
+vcs/svn_vcs.py:647  SVNVCS.export_raw_file_to_path
+条件：result.returncode != 0
+raise RuntimeError(
+                f&quot;无法流式导出 SVN 文件: {file_path}@{rev}\n&quot;
+                + _decode_bytes(result.stderr)
+            )
+
+vcs/svn_vcs.py:674  SVNVCS.use_fixed_property_provider
+条件：not getattr(self, &#x27;_source_identity_pinned&#x27;, False)
+raise RuntimeError(&quot;共享 SVN 属性前必须固定仓库身份&quot;)
+
+vcs/svn_vcs.py:695  SVNVCS._get_properties
+条件：provider is not None &amp;&amp; identity != self._property_source_identity() or url != self._file_url(resolved_version, file_path)
+raise RuntimeError(&quot;共享 SVN 属性来源与固定端点不一致&quot;)
+
+vcs/svn_vcs.py:716  SVNVCS._get_properties
+条件：
+raise RuntimeError(
+                f&quot;无法读取 SVN 文件属性，已中止导出: {file_path}@{version}\n{exc}&quot;
+            ) from exc
+
+vcs/svn_vcs.py:720  SVNVCS._get_properties
+条件：result.returncode != 0
+raise RuntimeError(
+                f&quot;无法读取 SVN 文件属性，已中止导出: {file_path}@{version}\n&quot;
+                + _decode_bytes(result.stderr or result.stdout)
+            )
+
+vcs/svn_vcs.py:727  SVNVCS._get_properties
+条件：
+raise RuntimeError(
+                f&quot;无法解析 SVN 文件属性，已中止导出: {file_path}@{version}&quot;
+            ) from exc
+
+vcs/svn_vcs.py:748  SVNVCS._compare_endpoint_metadata
+条件：&#x27;svn:special&#x27; in old_props or &#x27;svn:special&#x27; in new_props
+raise RuntimeError(
+                &quot;SVN 端点是 svn:special（符号链接等特殊节点），普通文件导出无法保真，&quot;
+                f&quot;已中止生成: {special_path}&quot;
+            )
+
+vcs/svn_vcs.py:753  SVNVCS._compare_endpoint_metadata
+条件：svn_keywords_enabled(old_props) or svn_keywords_enabled(new_props)
+raise RuntimeError(
+                &quot;SVN 文件启用了 svn:keywords，svn cat 不能可靠复现工作副本展开字节，&quot;
+                f&quot;已中止生成: {new_path or old_path}&quot;
+            )
+
+vcs/svn_vcs.py:841  SVNVCS.get_versions
+条件：SVN_NOT_FOUND_MESSAGE in str(exc)
+raise
+
+vcs/svn_vcs.py:851  SVNVCS.check_version_exists
+条件：SVN_NOT_FOUND_MESSAGE in str(exc)
+raise</pre></details><details><summary>vcs/temp_storage.py（6 处 raise）</summary><pre>vcs/temp_storage.py:162  create_temp_dir
+条件：configured_root and (not avoid_paths)
+raise RuntimeError(
+
+            f&quot;无法使用环境变量 {TEMP_DIR_ENV} 指定的临时目录。\n{detail}&quot;
+
+        )
+
+vcs/temp_storage.py:166  create_temp_dir
+条件：avoid_paths
+raise RuntimeError(
+
+            &quot;无法在比对输入目录之外创建 CompareTool 临时工作目录；&quot;
+
+            &quot;所有候选均不安全或不可用。\n&quot;
+
+            f&quot;{detail}&quot;
+
+        )
+
+vcs/temp_storage.py:171  create_temp_dir
+条件：
+raise RuntimeError(f&quot;无法创建 CompareTool 临时工作目录。\n{detail}&quot;)
+
+vcs/temp_storage.py:197  open_temp_file
+条件：configured
+raise RuntimeError(
+
+            f&quot;无法使用环境变量 {TEMP_DIR_ENV} 指定的临时目录。\n{detail}&quot;
+
+        )
+
+vcs/temp_storage.py:200  open_temp_file
+条件：
+raise RuntimeError(f&quot;无法创建 CompareTool 临时文件。\n{detail}&quot;)
+
+vcs/temp_storage.py:229  _mark_temp_dir
+条件：
+raise</pre></details></div><script>
+const tr=[...document.querySelectorAll('#catalog tbody tr')];
+function update(){const q=document.querySelector('#search').value.toLowerCase(),m=document.querySelector('#mode').value,k=document.querySelector('#kind').value;let n=0;for(const r of tr){const mode=r.dataset.mode;const relevant=!m||mode.includes(m)||mode.includes('全部六模式')||(m==='包内递归'&&mode.includes('包内递归'));r.hidden=!(relevant&&(!k||r.dataset.kind===k)&&r.textContent.toLowerCase().includes(q));if(!r.hidden)n++}document.querySelector('#count').textContent=n+' / '+tr.length+' 类'}
+for(const id of ['search','mode','kind'])document.getElementById(id).addEventListener('input',update);update();
+</script></main></html>

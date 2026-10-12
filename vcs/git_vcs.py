@@ -273,15 +273,23 @@ class GitVCS(BaseVCS):
                 new_excluded = code == "D"
 
             if code == "T":
+                if getattr(self, 'best_effort', False):
+                    self.issues.append(dict(stage='文件类型', path=path,
+                        message='Git 文件类型发生变化，该路径未导出，其他普通文件继续处理。', delivery=True))
+                    continue
                 raise RuntimeError(
                     f"Git 文件类型发生变化（如普通文件与符号链接互换），"
                     f"已中止生成以避免导出错误文件: {path}"
                 )
             effective_old_mode = "000000" if old_excluded else old_mode
             effective_new_mode = "000000" if new_excluded else new_mode
-            self._validate_regular_modes(
-                effective_old_mode, effective_new_mode, path
-            )
+            try:
+                self._validate_regular_modes(effective_old_mode, effective_new_mode, path)
+            except RuntimeError as exc:
+                if not getattr(self, 'best_effort', False):
+                    raise
+                self.issues.append(dict(stage='文件类型', path=path, message=str(exc), delivery=True))
+                continue
             metadata = self._mode_metadata(
                 effective_old_mode, effective_new_mode
             )

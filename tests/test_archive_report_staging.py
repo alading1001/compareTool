@@ -5,7 +5,7 @@ import subprocess
 from unittest import mock
 
 from archive_endpoints import StagedArchiveEndpoints
-from archive_report import enrich_archive_reports, _is_lfs_pointer
+from archive_report import ArchiveReportBudget, enrich_archive_reports, _is_lfs_pointer
 from diff_engine import DiffResult, FileDiff
 from file_exporter import FileExporter
 from vcs.base import ChangeType
@@ -191,7 +191,7 @@ class ArchiveStagingTests(WorkflowCase):
         self.assert_success(app); self.assert_no_stages(out)
         self.assertEqual(package(b'NEW_VALUE'), (out/'newVersion/Demo/a.jar').read_bytes())
 
-    def test_eight_nested_layers_succeed_and_ninth_fails(self):
+    def test_explicit_eight_layer_policy_accepts_eight_and_rejects_nine(self):
         from test_archive_report import zip_bytes
         _out, old, new, endpoints = self.staged()
         def nested(levels, value):
@@ -202,7 +202,9 @@ class ArchiveStagingTests(WorkflowCase):
             (old/'a.jar').write_bytes(nested(levels, b'OLD'))
             (new/'a.jar').write_bytes(nested(levels, b'NEW'))
             if levels == 8:
-                enrich_archive_reports(self.result(), endpoints=endpoints)
+                enrich_archive_reports(self.result(), endpoints=endpoints,
+                                       budget=ArchiveReportBudget(max_depth=8))
             else:
                 with self.assertRaisesRegex(RuntimeError, '深度'):
-                    enrich_archive_reports(self.result(), endpoints=endpoints)
+                    enrich_archive_reports(self.result(), endpoints=endpoints,
+                                           budget=ArchiveReportBudget(max_depth=8))

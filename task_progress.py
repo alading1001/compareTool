@@ -105,6 +105,9 @@ class TaskObserver:
             and bool(self.completion) and self.completion[0] != "_show_error",
             seconds=round(self.clock()-self.started, 6), phases=self.phases,
             counts=self.summary, error_type=self.failure, log_error=self.log_error)
+        result["status"] = ("failed" if not result["success"] else
+                            "partial" if self.summary.get("delivery_incomplete") else
+                            "completed_with_notes" if self.summary.get("issue_count") else "completed")
         self.record("task_end", result=result)
         if self.stream:
             try:

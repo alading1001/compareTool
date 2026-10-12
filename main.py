@@ -78,7 +78,7 @@ from vcs.folder_vcs import FolderVCS
 from vcs.archive_vcs import ArchiveVCS
 from vcs.multi_version_vcs import GitMultiVersionVCS, SVNMultiVersionVCS, parse_multi_versions
 from html_details import HtmlDetailStore
-from diff_engine import DiffEngine
+from diff_engine import DiffEngine, DiffResult
 from archive_report import ArchiveReportBudget, enrich_archive_reports, has_archive_candidates
 from archive_endpoints import StagedArchiveEndpoints
 from report_generator import ReportGenerator
@@ -2003,7 +2003,7 @@ class CompareToolApp(TaskProgressUI):
         if vcs_type == "archive":
             return ArchiveVCS(
                 task["old_version"], task["new_version"],
-                ignore_single_root=self._option_bool(task.get("ignore_archive_root"), default=False),
+                ignore_single_root=self._option_bool(task.get("ignore_archive_root"), default=False), best_effort=True,
                 **({"extraction_excludes": task["exclude_rules"].splitlines()}
                    if task.get("exclude_rules", "").strip() else {}),
             ), True
@@ -2013,13 +2013,13 @@ class CompareToolApp(TaskProgressUI):
             return GitMultiVersionVCS(
                 task["project_path"],
                 parse_multi_versions(task["old_version"]),
-                exclude_patterns=exclude_patterns,
+                exclude_patterns=exclude_patterns, best_effort=True,
             ), True
         if vcs_type == "svn_multi":
             return SVNMultiVersionVCS(
                 task["project_path"],
                 parse_multi_versions(task["old_version"]),
-                exclude_patterns=exclude_patterns,
+                exclude_patterns=exclude_patterns, best_effort=True,
             ), True
         if vcs_type == "git":
             return GitVCS(task["project_path"]), True
@@ -2036,6 +2036,9 @@ class CompareToolApp(TaskProgressUI):
         cleanup_needed = False
         try:
             vcs, cleanup_needed = self._create_vcs_for_task(task)
+            vcs.best_effort = True
+            if not hasattr(vcs, 'issues'):
+                vcs.issues = []
             exclude_text = task.get("exclude_rules", "").strip()
             if exclude_text:
                 vcs.set_exclude_patterns(exclude_text.split("\n"))
@@ -2052,7 +2055,7 @@ class CompareToolApp(TaskProgressUI):
                 vcs,
                 show_full_context=show_full,
                 report_budget=report_budget,
-                retain_text_contents=False, detail_store=detail_store,
+                retain_text_contents=False, detail_store=detail_store, best_effort=True,
             )
             diff_result = engine.generate_diff(task["old_version"], task["new_version"])
             diff_result.project_name = task["project_name"]
@@ -2072,10 +2075,19 @@ class CompareToolApp(TaskProgressUI):
                 "show_project_root": self._option_bool(task.get("show_project_root"), default=True),
                 "diff_result": diff_result,
             }
-        except Exception:
+        except Exception as exc:
             if vcs and cleanup_needed:
-                vcs.cleanup()
-            raise
+                try:
+                    vcs.cleanup()
+                except Exception as cleanup_error:
+                    warn(f'项目临时文件清理失败: {cleanup_error}')
+            result = DiffResult(task.get('project_path', ''), task['project_name'],
+                self._vcs_label(task['vcs_type']), task['old_version'], task['new_version'])
+            result.add_issue('项目读取', '', exc, delivery=True)
+            return dict(task=task, vcs=None, cleanup_needed=False,
+                project_name=task['project_name'], vcs_type=self._vcs_label(task['vcs_type']),
+                show_project_root=self._option_bool(task.get('show_project_root'), default=True),
+                diff_result=result)
 
     def _multi_display_path(self, project_result: dict, file_path: str) -> str:
         normalized_path = (file_path or "").replace("\\", "/")
@@ -2100,20 +2112,18 @@ class CompareToolApp(TaskProgressUI):
         if not conflicts:
             return
 
-        project_groups = {}
-        for projects in conflicts.values():
-            group = tuple(projects)
-            project_groups[group] = project_groups.get(group, 0) + 1
-
-        lines = ["多项目报告存在同名展示路径，无法生成。", "", "存在冲突的项目组合："]
-        grouped_items = sorted(project_groups.items(), key=lambda item: (-item[1], item[0]))
-        for projects, count in grouped_items[:10]:
-            lines.append(f"- {' / '.join(projects)}（{count} 个同名路径）")
-        if len(grouped_items) > 10:
-            lines.append(f"... 还有 {len(grouped_items) - 10} 组项目组合存在冲突")
-            lines.append("")
-        lines.append("请将以上项目中至少一个任务的“报告树及变更清单使用项目名”改为“是”后重试。")
-        raise RuntimeError("\n".join(lines).strip())
+        affected = {name for names in conflicts.values() for name in names}
+        changed = False
+        for item in project_results:
+            if item['project_name'] in affected and not item['show_project_root']:
+                item['show_project_root'] = True
+                changed = True
+                item['diff_result'].add_issue('展示路径', '',
+                    '同名展示路径已自动补充项目名前缀，任务保存的显示偏好保持不变。')
+        if not changed:
+            raise RuntimeError("多项目项目名或展示路径不能唯一标识，请使用不同的有效项目名")
+        # 补前缀可能与第三个未补前缀的任务相遇，继续解决到稳定。
+        self._check_multi_display_path_conflicts(project_results)
 
     def _generate(self):
         project_path = self.dir_entry.get().strip()
@@ -2359,73 +2369,31 @@ class CompareToolApp(TaskProgressUI):
             info(f"=== 开始生成比对报告 ===")
             info(f"project_path={project_path}, vcs_type={vcs_type}, old={old_version}, new={new_version}")
 
-            if vcs_type == "archive":
-                vcs = ArchiveVCS(old_version, new_version, ignore_single_root=ignore_archive_root, **({"extraction_excludes": exclude_patterns} if exclude_patterns else {}))
-                cleanup_vcs = vcs
-            elif vcs_type == "folder":
-                vcs = FolderVCS(old_version, new_version)
-                cleanup_vcs = vcs
-            elif vcs_type == "git_multi":
-                vcs = GitMultiVersionVCS(
-                    project_path,
-                    parse_multi_versions(old_version),
-                    exclude_patterns=exclude_patterns,
-                )
-                cleanup_vcs = vcs
-            elif vcs_type == "svn_multi":
-                vcs = SVNMultiVersionVCS(
-                    project_path,
-                    parse_multi_versions(old_version),
-                    exclude_patterns=exclude_patterns,
-                )
-                cleanup_vcs = vcs
-            elif vcs_type == "git":
-                vcs = GitVCS(project_path)
-                cleanup_vcs = vcs
-            elif vcs_type == "svn":
-                vcs = SVNVCS(project_path)
-                cleanup_vcs = vcs
-            else:
-                raise RuntimeError(f"不支持的版本控制类型: {vcs_type}")
-
-            if exclude_patterns:
-                vcs.set_exclude_patterns(exclude_patterns)
-
-            if vcs_type not in ("folder", "archive", "git_multi", "svn_multi"):
-                if not vcs.check_version_exists(old_version):
-                    warn(f"旧版本不存在: {old_version}")
-                    raise RuntimeError(f"旧版本不存在: {old_version}")
-                if not vcs.check_version_exists(new_version):
-                    warn(f"新版本不存在: {new_version}")
-                    raise RuntimeError(f"新版本不存在: {new_version}")
-
-            info("获取变更文件列表...")
             detail_store = HtmlDetailStore(avoid_paths=source_paths)
-            engine = DiffEngine(vcs, show_full_context=show_full, retain_text_contents=False,
-                                detail_store=detail_store)
-            diff_result = engine.generate_diff(old_version, new_version)
-            diff_result.project_name = project_name
-            if vcs_type == "archive":
-                diff_result.project_path = os.path.basename(new_version)
-            elif vcs_type in ("git_multi", "svn_multi"):
-                diff_result.project_path = project_path
+            task = dict(project_path=project_path, vcs_type=vcs_type,
+                old_version=old_version, new_version=new_version, project_name=project_name,
+                exclude_rules='\n'.join(exclude_patterns), show_full_context=show_full,
+                show_project_root=show_project_root, ignore_archive_root=ignore_archive_root)
+            prepared = self._prepare_task_result(task, detail_store=detail_store)
+            vcs, diff_result = prepared['vcs'], prepared['diff_result']
+            cleanup_vcs = vcs
             info(f"变更文件数: {len(diff_result.files)}")
 
             info(f"生成报告: {report_path}")
             template_dir = os.path.join(BASE_DIR, "templates")
-            report_gen = ReportGenerator(template_dir)
+            report_gen = ReportGenerator(template_dir, best_effort=True)
             report_stage = ""
             export_pairs = []
             instruction_stage = ""
             expected_stage_states = None
             recursive_archives = self._option_bool(recursive_archives, default=False)
             try:
-                exporter = FileExporter(diff_result, vcs)
+                exporter = FileExporter(diff_result, vcs, best_effort=True)
+                export_pairs = exporter.prepare_export(
+                    old_export, new_export, project_name=project_name,
+                    trusted_root=trusted_output_root,
+                )
                 if recursive_archives:
-                    export_pairs = exporter.prepare_export(
-                        old_export, new_export, project_name=project_name,
-                        trusted_root=trusted_output_root,
-                    )
                     endpoints = StagedArchiveEndpoints.from_export_pairs(
                         export_pairs,
                         FileExporter._safe_join(old_export, project_name),
@@ -2440,7 +2408,7 @@ class CompareToolApp(TaskProgressUI):
                     enrich_archive_reports(
                         diff_result, endpoints=endpoints,
                         show_full_context=show_full, exclude_patterns=exclude_patterns,
-                        detail_store=detail_store,
+                        detail_store=detail_store, best_effort=True,
                     )
                 report_stage = self._make_report_stage_path(
                     report_path, trusted_output_root
@@ -2456,13 +2424,6 @@ class CompareToolApp(TaskProgressUI):
                              html_fragment_bytes=detail_store.total_bytes)
                 detail_store.close()
                 info(f"导出文件: old={old_export}, new={new_export}")
-                if not recursive_archives:
-                    export_pairs = exporter.prepare_export(
-                        old_export,
-                        new_export,
-                        project_name=project_name,
-                        trusted_root=trusted_output_root,
-                    )
                 instruction_stage, instruction_target = prepare_delivery_instructions(
                     [{"project_name": project_name, "diff_result": diff_result}],
                     instruction_target,
@@ -2483,6 +2444,7 @@ class CompareToolApp(TaskProgressUI):
                 FileExporter._cleanup_stage(instruction_stage)
 
             summary = diff_result.summary
+            task_metrics(**summary)
             info(f"=== 完成: {summary} ===")
             defer_completion(self, "_on_complete", report_path, summary)
 
@@ -2575,7 +2537,7 @@ class CompareToolApp(TaskProgressUI):
             for idx, item in enumerate(project_results, 1):
                 project_progress(idx, len(project_results))
                 task = item["task"]
-                exporter = FileExporter(item["diff_result"], item["vcs"])
+                exporter = FileExporter(item["diff_result"], item["vcs"], best_effort=True)
                 exporter.export(
                     stage_old_root,
                     stage_new_root,
@@ -2606,11 +2568,11 @@ class CompareToolApp(TaskProgressUI):
                     item["diff_result"], endpoints=endpoints,
                     show_full_context=self._option_bool(task.get("show_full_context"), default=True),
                     exclude_patterns=task.get("exclude_rules", "").splitlines(),
-                    budget=archive_budget, detail_store=detail_store,
+                    budget=archive_budget, detail_store=detail_store, best_effort=True,
                 )
 
             template_dir = os.path.join(BASE_DIR, "templates")
-            report_gen = ReportGenerator(template_dir)
+            report_gen = ReportGenerator(template_dir, best_effort=True)
             report_stage = self._make_report_stage_path(
                 report_path, trusted_output_root
             )
@@ -2640,6 +2602,7 @@ class CompareToolApp(TaskProgressUI):
             )
 
             summary = ReportGenerator._multi_summary(project_results)
+            task_metrics(**summary)
             info(f"=== 多项目完成: {summary} ===")
             defer_completion(self, "_on_multi_complete", report_path, summary)
         except Exception as e:
@@ -2676,12 +2639,17 @@ class CompareToolApp(TaskProgressUI):
         skipped = summary.get("skipped_line_count_files", 0)
         line_note = f"，另有 {skipped} 个文件行数未统计" if skipped else ""
         line_dialog_note = f"未统计行数的文件: {skipped} 个\n" if skipped else ""
+        issue_note = (f"交付未完成项: {summary.get('failed_items', 0)} 个；请先查看报告中的问题清单。\n"
+                      if summary.get('delivery_incomplete') else '')
+        if summary.get('issue_count'):
+            issue_note += f"处理说明: {summary['issue_count']} 项，详见报告。\n"
+        completion_title = '已导出（含未完成项）' if summary.get('delivery_incomplete') else '完成'
         self.status_var.set(
-            f"完成! 共 {summary['total_files']} 个文件变更 "
+            f"{completion_title}! 共 {summary['total_files']} 个文件变更 "
             f"(+{summary['total_added_lines']}/-{summary['total_deleted_lines']}{line_note})"
             + self._task_status_suffix()
         )
-        if messagebox.askyesno("完成", f"比对报告已生成!\n\n"
+        if messagebox.askyesno(completion_title, f"比对报告已生成!\n{issue_note}\n"
                                        f"变更文件: {summary['total_files']} 个\n"
                                        f"格式变化: {summary.get('format_changed_files', 0)} 个\n"
                                        f"新增行数: +{summary['total_added_lines']}\n"
@@ -2698,13 +2666,18 @@ class CompareToolApp(TaskProgressUI):
         skipped = summary.get("skipped_line_count_files", 0)
         line_note = f"，另有 {skipped} 个文件行数未统计" if skipped else ""
         line_dialog_note = f"未统计行数的文件: {skipped} 个\n" if skipped else ""
+        issue_note = (f"交付未完成项: {summary.get('failed_items', 0)} 个；请先查看报告中的问题清单。\n"
+                      if summary.get('delivery_incomplete') else '')
+        if summary.get('issue_count'):
+            issue_note += f"处理说明: {summary['issue_count']} 项，详见报告。\n"
+        completion_title = '已导出（含未完成项）' if summary.get('delivery_incomplete') else '完成'
         self.status_var.set(
-            f"多项目完成! {summary['project_count']} 个项目，"
+            f"多项目{completion_title}! {summary['project_count']} 个项目，"
             f"{summary['total_files']} 个文件变更 "
             f"(+{summary['total_added_lines']}/-{summary['total_deleted_lines']}{line_note})"
             + self._task_status_suffix()
         )
-        if messagebox.askyesno("完成", f"多项目总报告已生成!\n\n"
+        if messagebox.askyesno(completion_title, f"多项目总报告已生成!\n{issue_note}\n"
                                        f"项目: {summary['project_count']} 个\n"
                                        f"变更文件: {summary['total_files']} 个\n"
                                        f"格式变化: {summary.get('format_changed_files', 0)} 个\n"

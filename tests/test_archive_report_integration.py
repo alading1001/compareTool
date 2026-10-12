@@ -20,6 +20,7 @@ class ArchiveIntegrationTests(unittest.TestCase):
     def app(self):
         app = CompareToolApp.__new__(CompareToolApp)
         app.root = mock.Mock()
+        app._show_error = mock.Mock()
         app._task_log_dir = self.root/'jobs'
         return app
 
@@ -72,8 +73,9 @@ class ArchiveIntegrationTests(unittest.TestCase):
             before = (out/'multi.html').read_bytes()
             app._do_generate_multi(tasks, str(out/'multi.html'),
                 str(out/'old'), str(out/'new'), str(out))
-            self.assertFalse(app._last_task_record['success'])
-            self.assertFalse((out/'multi.html').exists())
+            self.assertTrue(app._last_task_record['success'])
+            self.assertTrue((out/'multi.html').exists())
+            self.assertIn('包内分析未完成', (out/'multi.html').read_text(encoding='utf-8'))
         html = before.decode('utf-8')
         self.assertIn('archive-member-template', html)
         self.assertIn('不单独交付', html)
@@ -101,7 +103,7 @@ class ArchiveIntegrationTests(unittest.TestCase):
         instructions = next(out.glob('*_上线操作说明.txt')).read_text(encoding='utf-8')
         self.assertNotIn('removed.txt', instructions)
 
-    def test_nested_failure_does_not_restore_previous_delivery(self):
+    def test_nested_failure_keeps_new_original_package_and_main_report(self):
         self.source({'a.zip': zip_bytes({'a.txt': b'old'})},
                     {'a.zip': zip_bytes({'a.txt': b'new'})})
         app = self.app(); out = self.root/'out'; out.mkdir()
@@ -112,9 +114,10 @@ class ArchiveIntegrationTests(unittest.TestCase):
         run(); self.assertTrue(app._last_task_record['success'])
         before = (out/'report.html').read_bytes(), (out/'newVersion/Demo/a.zip').read_bytes()
         (self.new/'a.zip').write_bytes(b'broken archive')
-        run(); self.assertFalse(app._last_task_record['success'])
-        self.assertFalse((out/'report.html').exists())
-        self.assertFalse((out/'newVersion/Demo').exists())
+        run(); self.assertTrue(app._last_task_record['success'])
+        app._show_error.assert_not_called()
+        self.assertIn('包内分析未完成', (out/'report.html').read_text(encoding='utf-8'))
+        self.assertEqual(b'broken archive', (out/'newVersion/Demo/a.zip').read_bytes())
 
     def test_html_source_text_is_escaped(self):
         vcs, result = self.source({}, {'a.zip': zip_bytes({'a.txt': b'<script>bad()</script>'})})

@@ -18,6 +18,8 @@ from path_safety import (
     regular_file_handle_identity,
     regular_file_path_identity,
     windows_path_key,
+    windows_path_conflict_indices,
+    TreePathCollision,
     safe_join,
 )
 from stage_ownership import mark_owned, remove_ownership_marker
@@ -27,9 +29,10 @@ from vcs.base import ChangeType
 class FileExporter:
     """确认覆盖后删除旧输出，生成完整新结果；不保留备份或回滚日志。"""
 
-    def __init__(self, diff_result: DiffResult, vcs):
+    def __init__(self, diff_result: DiffResult, vcs, *, best_effort=False):
         self.diff_result = diff_result
         self.vcs = vcs
+        self.best_effort = best_effort
         self._directory_entries = {}
 
     def export(
@@ -93,7 +96,11 @@ class FileExporter:
         if not trusted_root:
             raise RuntimeError("无法确定项目导出的同盘暂存目录")
 
-        self._validate_export_paths(old_dir, new_dir)
+        original_files = list(self.diff_result.files)
+        if self.best_effort:
+            self._filter_unexportable_paths(old_dir, new_dir)
+        else:
+            self._validate_export_paths(old_dir, new_dir)
         old_ver = self.diff_result.old_version
         new_ver = self.diff_result.new_version
         stage_old = ""
@@ -108,18 +115,58 @@ class FileExporter:
             )
             progress(0, sum(1 if f.change_type in (ChangeType.ADDED, ChangeType.DELETED) else 2
                             for f in self.diff_result.files))
+            delivered = []
+            verified = {}
+            failed = {id(file) for file in original_files} - {id(file) for file in self.diff_result.files}
+            had_export_failure = False
             for file_diff in self.diff_result.files:
-                if file_diff.change_type == ChangeType.DELETED:
-                    self._write_file(stage_old, file_diff.file_path, old_ver, file_diff.old_content)
-                elif file_diff.change_type == ChangeType.ADDED:
-                    self._write_file(stage_new, file_diff.file_path, new_ver, file_diff.new_content)
-                elif file_diff.change_type == ChangeType.RENAMED:
-                    old_path = file_diff.old_path or file_diff.file_path
-                    self._write_file(stage_old, old_path, old_ver, file_diff.old_content)
-                    self._write_file(stage_new, file_diff.file_path, new_ver, file_diff.new_content)
-                else:
-                    self._write_file(stage_old, file_diff.file_path, old_ver, file_diff.old_content)
-                    self._write_file(stage_new, file_diff.file_path, new_ver, file_diff.new_content)
+                written = []
+                try:
+                    for base, path, version, content in self._file_endpoints(
+                            file_diff, stage_old, stage_new, old_ver, new_ver):
+                        self._write_file(base, path, version, content)
+                        if self.best_effort:
+                            target = self._safe_join(base, path)
+                            written.append((target, self._tree_identity(target)))
+                    verified[id(file_diff)] = written
+                    delivered.append(file_diff)
+                except Exception as exc:
+                    if not self.best_effort:
+                        raise
+                    had_export_failure = True
+                    failed.add(id(file_diff))
+                    # 文件读取失败可以跳过；暂存树被替换或加入链接则不能发布。
+                    for base, path, _version, _content in self._file_endpoints(
+                            file_diff, stage_old, stage_new, old_ver, new_ver):
+                        ensure_no_link_components(base, self._safe_join(base, path), '导出暂存路径')
+                    for target, identity in written:
+                        self._assert_identity(target, identity, '导出暂存文件')
+                        os.remove(target)
+                    collision = exc
+                    while collision is not None and not isinstance(collision, TreePathCollision):
+                        collision = collision.__cause__
+                    if collision is not None:
+                        conflict_key = windows_path_key(collision.existing_path)
+                        for previous in delivered:
+                            if any(windows_path_key(target) == conflict_key or
+                                   windows_path_key(target).startswith(conflict_key + '\\')
+                                   for target, _identity in verified[id(previous)]):
+                                failed.add(id(previous))
+                                self.diff_result.add_issue('导出路径', previous.file_path,
+                                    '实际 Windows 名称碰撞，冲突各方均未导出', delivery=True)
+                    self.diff_result.add_issue('文件导出', file_diff.file_path, exc, delivery=True)
+            self._block_failed_directory_dependencies(original_files, failed)
+            had_export_failure = had_export_failure or bool(failed)
+            for file in delivered:
+                if id(file) in failed:
+                    for target, identity in verified[id(file)]:
+                        self._assert_identity(target, identity, '导出暂存文件')
+                        os.remove(target)
+            delivered = [file for file in delivered if id(file) not in failed]
+            self.diff_result.files = delivered
+            if had_export_failure:
+                self._validate_partial_stage(stage_old, stage_new, old_ver, new_ver, verified)
+            self._filter_directory_operations()
             return [
                 (stage_old, old_dir),
                 (stage_new, new_dir),
@@ -129,6 +176,112 @@ class FileExporter:
                 if stage:
                     self._cleanup_stage(stage)
             raise
+
+    @staticmethod
+    def _file_endpoints(file, old_dir, new_dir, old_ver, new_ver):
+        if file.change_type != ChangeType.ADDED:
+            yield old_dir, file.old_path or file.file_path, old_ver, file.old_content
+        if file.change_type != ChangeType.DELETED:
+            yield new_dir, file.file_path, new_ver, file.new_content
+
+    def _validate_partial_stage(self, old_dir, new_dir, old_ver, new_ver, verified):
+        for file in self.diff_result.files:
+            for target, identity in verified[id(file)]:
+                self._assert_identity(target, identity, '已验证的导出暂存文件')
+        expected = {os.path.abspath(self._safe_join(base, path))
+                    for file in self.diff_result.files
+                    for base, path, _version, _content in self._file_endpoints(
+                        file, old_dir, new_dir, old_ver, new_ver)}
+        actual = set()
+        def scan_failed(error):
+            raise RuntimeError('无法完整复核导出暂存树，不能继续发布: ' + str(error)) from error
+        for root in (old_dir, new_dir):
+            for directory, dirs, files in os.walk(root, followlinks=False, onerror=scan_failed):
+                for name in dirs + files:
+                    path = os.path.join(directory, name)
+                    metadata = os.lstat(path)
+                    if metadata_is_link_or_junction(metadata):
+                        raise RuntimeError('导出暂存树出现链接，不能继续发布: ' + path)
+                    if stat.S_ISDIR(metadata.st_mode):
+                        continue
+                    if not stat.S_ISREG(metadata.st_mode):
+                        raise RuntimeError('导出暂存树出现特殊文件，不能继续发布: ' + path)
+                    actual.add(os.path.abspath(path))
+        if actual != expected:
+            raise RuntimeError('导出暂存文件与已验证清单不一致，不能继续发布')
+
+    def _filter_directory_operations(self):
+        destinations = {windows_path_key(file.file_path) for file in self.diff_result.files
+                        if file.change_type != ChangeType.DELETED}
+        self.diff_result.required_directory_deletions = [
+            path for path in self.diff_result.required_directory_deletions if windows_path_key(path) in destinations]
+
+    def _block_failed_directory_dependencies(self, original_files, failed):
+        """目录替换的旧后代与新文件必须一起交付，避免间接删除未完成项。"""
+        groups = {windows_path_key(path): [] for path in self.diff_result.required_directory_deletions}
+        memberships = {}
+        for file in original_files:
+            keys = set()
+            if file.change_type != ChangeType.DELETED:
+                key = windows_path_key(file.file_path)
+                if key in groups:
+                    keys.add(key)
+            if file.change_type != ChangeType.ADDED:
+                key = windows_path_key(file.old_path or file.file_path)
+                while key:
+                    if key in groups:
+                        keys.add(key)
+                    # Windows 键在非 Windows 主机上也按相同层级解析。
+                    key = key.rpartition('\\')[0]
+            for key in keys:
+                groups[key].append(file)
+                memberships.setdefault(id(file), set()).add(key)
+        # 身份规划或 diff 阶段已失败的旧后代也不能由目录指令间接删除。
+        blocked = set()
+        for issue in self.diff_result.issues:
+            if not issue.get('delivery'):
+                continue
+            for path in (issue.get('path', ''), issue.get('old_path', '')):
+                key = windows_path_key(path)
+                while key:
+                    if key in groups:
+                        blocked.add(key)
+                    key = key.rpartition('\\')[0]
+        pending = list(blocked | {key for file_id in failed for key in memberships.get(file_id, ())})
+        visited = set()
+        while pending:
+            key = pending.pop()
+            if key in visited:
+                continue
+            visited.add(key)
+            for file in groups[key]:
+                if id(file) not in failed:
+                    failed.add(id(file))
+                    pending.extend(memberships.get(id(file), ()))
+                    self.diff_result.add_issue('目录替换依赖', file.file_path,
+                        '同一目录替换中有未完成文件，相关变化均未导出或生成上线操作', delivery=True)
+
+    def _filter_unexportable_paths(self, old_dir, new_dir):
+        """碰撞双方都不写，保留其他可验证的独立文件。"""
+        blocked, entries = {}, {}
+        for index, file in enumerate(self.diff_result.files):
+            try:
+                for base, path, _version, _content in self._file_endpoints(file, old_dir, new_dir, '', ''):
+                    key = windows_path_key(self._safe_join(base, path))
+                    entries.setdefault(key, []).append(index)
+            except (ValueError, RuntimeError) as exc:
+                blocked[index] = str(exc)
+        conflicts = windows_path_conflict_indices(
+            ('export', path, index) for path, indices in entries.items() for index in indices)
+        for index in conflicts:
+            blocked[index] = 'Windows 导出路径重名或存在文件/目录碰撞，冲突各方均未导出'
+        kept = []
+        for index, file in enumerate(self.diff_result.files):
+            if index in blocked:
+                self.diff_result.add_issue('导出路径', file.file_path, blocked[index], delivery=True)
+            else:
+                kept.append(file)
+        self.diff_result.files = kept
 
     @classmethod
     def cleanup_stages(cls, pairs):
@@ -185,12 +338,20 @@ class FileExporter:
                 raise
 
         # 兼容测试桩和旧扩展；正式内置 VCS 均不会走到这里。
-        raw = self.vcs.get_file_content_bytes(version, rel_path)
-        if raw is None:
-            raise RuntimeError(f"无法读取版本 {version} 中的文件，已中止导出: {rel_path}")
-        with open(file_path, "wb") as f:
-            f.write(raw)
-        advance()
+        try:
+            raw = self.vcs.get_file_content_bytes(version, rel_path)
+            if raw is None:
+                raise RuntimeError(f"无法读取版本 {version} 中的文件，已中止导出: {rel_path}")
+            with open(file_path, "wb") as f:
+                f.write(raw)
+            advance()
+
+        except Exception:
+            try:
+                os.remove(file_path)
+            except OSError:
+                pass
+            raise
 
     def _validate_export_paths(self, old_dir: str, new_dir: str):
         old_paths = []

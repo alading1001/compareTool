@@ -1,11 +1,29 @@
 from task_progress import measured_phase
 import os
 import tempfile
+import html
+from functools import wraps
 from datetime import datetime
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from diff_engine import DiffResult
 from delivery_instructions import DELIVERY_INSTRUCTIONS_FILENAME
 from stage_ownership import mark_owned, remove_ownership_marker
+
+
+def resilient_report(function):
+    @wraps(function)
+    def render(self, result, output_path, *args, **kwargs):
+        try:
+            return function(self, result, output_path, *args, **kwargs)
+        except Exception as exc:
+            if not self.best_effort:
+                raise
+            projects = result if isinstance(result, list) else [dict(diff_result=result)]
+            for project in projects:
+                project['diff_result'].add_issue('报告展示', '',
+                    '完整页面生成失败，已输出基础清单报告：' + str(exc))
+            self._dump_limited(self._basic_chunks(projects), output_path)
+    return render
 
 
 class ReportGenerator:
@@ -15,7 +33,8 @@ class ReportGenerator:
     # 数值上限仅保留为显式策略/测试注入点。
     MAX_REPORT_OUTPUT_BYTES = None
 
-    def __init__(self, template_dir: str = None):
+    def __init__(self, template_dir: str = None, *, best_effort=False):
+        self.best_effort = best_effort
         if template_dir is None:
             template_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates")
         self.env = Environment(
@@ -24,6 +43,7 @@ class ReportGenerator:
         )
 
     @measured_phase('report.write', '写入 HTML 报告')
+    @resilient_report
     def generate(
         self,
         diff_result: DiffResult,
@@ -48,12 +68,14 @@ class ReportGenerator:
             )
         )
         context = dict(
+            diff_result=diff_result,
             project_name=diff_result.project_name,
             project_path=diff_result.project_path,
             vcs_type=diff_result.vcs_type,
             old_version=diff_result.old_version,
             new_version=diff_result.new_version,
             comparison_note=diff_result.comparison_note,
+            issues=getattr(diff_result, 'issues', []),
             archive_details_enabled=diff_result.archive_details_enabled,
             summary=summary,
             files=report_files,
@@ -68,6 +90,7 @@ class ReportGenerator:
         self._dump_limited(stream, output_path)
 
     @measured_phase('report.write_multi', '写入多项目 HTML 报告')
+    @resilient_report
     def generate_multi(self, project_results: list, output_path: str):
         summary = self._multi_summary(project_results)
         manifest_matches_files = (
@@ -99,6 +122,24 @@ class ReportGenerator:
         stream = template.stream(**context)
         self._dump_limited(stream, output_path)
 
+    @staticmethod
+    def _basic_chunks(projects):
+        def escaped(value):
+            return html.escape(str(value).encode('utf-8', 'backslashreplace').decode('utf-8'))
+        yield '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>基础比对报告</title><body><h1>基础比对报告</h1>'
+        for project in projects:
+            result = project['diff_result']
+            yield '<h2>' + escaped(result.project_name) + '</h2><p>'
+            yield ('交付未完成，请先核对下面问题清单。' if result.delivery_incomplete else '已导出文件清单。')
+            yield '</p><pre>' + escaped(result.comparison_note) + '</pre>'
+            for issue in result.issues:
+                yield '<p>' + escaped(f"[{issue['stage']}] {issue['path']} {issue['message']}") + '</p>'
+            yield '<ul>'
+            for file in result.files:
+                yield '<li>' + escaped(f'{file.report_type} {file.old_path + " → " if file.old_path else ""}{file.file_path}') + '</li>'
+            yield '</ul>'
+        yield '</body></html>'
+
     @classmethod
     def _dump_limited(cls, stream, output_path: str):
         """按最终 UTF-8 字节流执行统一上限，并原子提交渲染结果。"""
@@ -110,7 +151,8 @@ class ReportGenerator:
         total = 0
         try:
             mark_owned(temporary)
-            stream.enable_buffering(64)
+            if hasattr(stream, 'enable_buffering'):
+                stream.enable_buffering(64)
             with os.fdopen(fd, "wb") as target:
                 fd = -1
                 for chunk in stream:
@@ -141,6 +183,9 @@ class ReportGenerator:
     def _multi_summary(project_results: list) -> dict:
         summary = {
             "project_count": len(project_results),
+            "issue_count": 0,
+            "failed_items": 0,
+            "delivery_incomplete": False,
             "total_files": 0,
             "added_files": 0,
             "modified_files": 0,
@@ -160,8 +205,10 @@ class ReportGenerator:
                 "renamed_files", "required_directory_deletions",
                 "total_added_lines", "total_deleted_lines",
                 "skipped_line_count_files", "report_omitted_files",
+                "issue_count", "failed_items",
             ):
                 summary[key] += s.get(key, 0)
+            summary['delivery_incomplete'] |= s.get('delivery_incomplete', False)
         summary["line_counts_complete"] = summary["skipped_line_count_files"] == 0
         return summary
 

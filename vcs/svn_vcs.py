@@ -299,12 +299,18 @@ class SVNVCS(BaseVCS):
             if change_type is not None:
                 if change_type in (ChangeType.ADDED, ChangeType.RENAMED):
                     new_file_paths.add(rel_path)
-                metadata = self._compare_endpoint_metadata(
-                    old_rev,
-                    None if change_type == ChangeType.ADDED else rel_path,
-                    new_rev,
-                    None if change_type == ChangeType.DELETED else rel_path,
-                )
+                try:
+                    metadata = self._compare_endpoint_metadata(
+                        old_rev,
+                        None if change_type == ChangeType.ADDED else rel_path,
+                        new_rev,
+                        None if change_type == ChangeType.DELETED else rel_path,
+                    )
+                except (OSError, ValueError, RuntimeError) as exc:
+                    if not getattr(self, 'best_effort', False):
+                        raise
+                    self.issues.append(dict(stage='文件属性', path=rel_path, message=str(exc), delivery=True))
+                    continue
                 files.append(ChangedFile(
                     path=rel_path,
                     change_type=change_type,

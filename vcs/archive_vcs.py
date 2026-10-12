@@ -62,10 +62,12 @@ class _BorrowedBinaryStream:
 class ArchiveVCS(BaseVCS):
     """压缩包比对实现：解压到临时目录，委托 FolderVCS 做比对"""
 
-    MAX_ARCHIVE_MEMBERS = 100_000
-    MAX_SINGLE_MEMBER_BYTES = 2 * 1024 * 1024 * 1024
-    MAX_TOTAL_UNCOMPRESSED_BYTES = 10 * 1024 * 1024 * 1024
-    MAX_COMPRESSION_RATIO = 1000
+    # 默认完整处理合法归档，不因成员数、展开体积或压缩比提前拒绝。
+    # 部署方仍可显式注入资源策略；路径、类型、长度和 CRC 校验始终保留。
+    MAX_ARCHIVE_MEMBERS = None
+    MAX_SINGLE_MEMBER_BYTES = None
+    MAX_TOTAL_UNCOMPRESSED_BYTES = None
+    MAX_COMPRESSION_RATIO = None
     # 这些元数据上限是可选的部署策略，不是生成正确报告的默认前提。
     # 默认不因合法归档的 PAX/GNU 元数据或 ZIP 中央目录较大而拒绝任务。
     MAX_TAR_METADATA_BYTES = None
@@ -73,7 +75,6 @@ class ArchiveVCS(BaseVCS):
     MAX_TAR_PAX_FIELDS = None
     MAX_ZIP_CENTRAL_DIRECTORY_BYTES = None
     # 源归档本身默认不限大小，能否执行只取决于真实可用磁盘空间。
-    # 解压成员、展开体积和压缩比限制仍是压缩包安全边界。
     MAX_ARCHIVE_SOURCE_BYTES = None
     MIN_WORKING_FREE_BYTES = 0
 
@@ -84,7 +85,7 @@ class ArchiveVCS(BaseVCS):
     _ZIP_DIGITAL_SIGNATURE = b"PK\x05\x05"
 
     @measured_phase("archive.extract", "读取并解压归档")
-    def __init__(self, old_archive: str, new_archive: str, *, ignore_single_root: bool = False, extraction_excludes=None):
+    def __init__(self, old_archive: str, new_archive: str, *, ignore_single_root: bool = False, extraction_excludes=None, best_effort=False):
         self.old_archive = old_archive
         self.new_archive = new_archive
         self._tmp_old = ""
@@ -162,12 +163,16 @@ class ArchiveVCS(BaseVCS):
                 self._verify_archive_source(new_capture, new_source)
                 old_root, new_root = self._tmp_old, self._tmp_new
                 if ignore_single_root:
-                    old_root, self.old_root_prefix = self._single_directory_root(
-                        self._tmp_old, "旧"
-                    )
-                    new_root, self.new_root_prefix = self._single_directory_root(
-                        self._tmp_new, "新"
-                    )
+                    try:
+                        old_root, self.old_root_prefix = self._single_directory_root(self._tmp_old, "旧")
+                        new_root, self.new_root_prefix = self._single_directory_root(self._tmp_new, "新")
+                    except (ValueError, RuntimeError) as exc:
+                        if not best_effort:
+                            raise
+                        old_root, new_root = self._tmp_old, self._tmp_new
+                        self.old_root_prefix = self.new_root_prefix = ''
+                        self.comparison_note = '忽略最外层单一文件夹未生效，已按完整包路径比较：' + str(exc)
+                if self.old_root_prefix and self.new_root_prefix:
                     self._old_metadata = self._rebase_metadata(
                         self._old_metadata, self.old_root_prefix
                     )
@@ -549,10 +554,26 @@ class ArchiveVCS(BaseVCS):
                 for info, name in decoded_members:
                     unix_mode = info.external_attr >> 16
                     file_type = stat.S_IFMT(unix_mode)
+                    # 部分 JAR 的空目录使用 0xFFFF 权限字段（如 sizeof-agent.jar）。
+                    # 仅兼容这一完整属性组合，不能凭末尾斜杠放行链接或其它特殊类型。
+                    legacy_directory = (
+                        info.create_system == 3
+                        and info.external_attr == 0xFFFF0010
+                        and info.is_dir()
+                        and info.file_size == 0
+                        and info.CRC == 0
+                    )
                     if stat.S_ISLNK(unix_mode):
                         raise ValueError(f"压缩包包含不安全的符号链接: {name}")
-                    if file_type and not (stat.S_ISREG(unix_mode) or stat.S_ISDIR(unix_mode)):
+                    if file_type and not (
+                        stat.S_ISREG(unix_mode) or stat.S_ISDIR(unix_mode) or legacy_directory
+                    ):
                         raise ValueError(f"压缩包包含不安全或不支持的特殊文件: {name}")
+                    if legacy_directory:
+                        # 兼容前仍核对本地头和空正文，损坏或加密条目照常失败。
+                        with zf.open(info) as src:
+                            if src.read(1):
+                                raise ValueError(f"压缩包目录包含非空正文: {name}")
                 for info, name in decoded_members:
                     if self._is_root_directory(name, info.is_dir()):
                         continue
@@ -616,7 +637,8 @@ class ArchiveVCS(BaseVCS):
             raise ValueError("TAR 预检展开大小与成员计划不一致")
         self._ensure_free_space(dest, self._storage_needed(source, total_size))
         duplicates = self._validate_archive_targets(dest, [(m.name, m.is_dir) for m in members])
-        if total_size / archive_size > self.MAX_COMPRESSION_RATIO:
+        if (self.MAX_COMPRESSION_RATIO is not None
+                and total_size / archive_size > self.MAX_COMPRESSION_RATIO):
             raise ValueError(f"压缩包展开比例过高，已拒绝解压: {path}")
         mode = 'r:gz' if path.lower().endswith(('.gz', '.tgz')) else (
             'r:bz2' if path.lower().endswith(('.bz2', '.tbz2')) else 'r:')
@@ -707,7 +729,8 @@ class ArchiveVCS(BaseVCS):
                         raise ValueError(
                             f"压缩包包含不安全或不支持的链接/特殊文件: {member.name}"
                         )
-                if total_size / archive_size > self.MAX_COMPRESSION_RATIO:
+                if (self.MAX_COMPRESSION_RATIO is not None
+                        and total_size / archive_size > self.MAX_COMPRESSION_RATIO):
                     raise ValueError(
                         f"压缩包展开比例过高，已拒绝解压: {path} "
                         f"({total_size / archive_size:.0f}:1)"
@@ -858,14 +881,17 @@ class ArchiveVCS(BaseVCS):
                 if not (is_dir or member.isfile()):
                     raise ValueError(f"压缩包包含不安全或不支持的链接/特殊文件: {name}")
                 if not is_dir:
-                    if size > cls.MAX_SINGLE_MEMBER_BYTES:
+                    if (cls.MAX_SINGLE_MEMBER_BYTES is not None
+                            and size > cls.MAX_SINGLE_MEMBER_BYTES):
                         raise ValueError(
                             f"压缩包单个成员展开后过大，已拒绝解压: {name} ({size} 字节)"
                         )
                     total_size += size
-                    if total_size > cls.MAX_TOTAL_UNCOMPRESSED_BYTES:
+                    if (cls.MAX_TOTAL_UNCOMPRESSED_BYTES is not None
+                            and total_size > cls.MAX_TOTAL_UNCOMPRESSED_BYTES):
                         raise ValueError("压缩包累计展开大小超过限制，已拒绝解压")
-                    if total_size > archive_size * cls.MAX_COMPRESSION_RATIO:
+                    if (cls.MAX_COMPRESSION_RATIO is not None
+                            and total_size > archive_size * cls.MAX_COMPRESSION_RATIO):
                         raise ValueError(
                             f"压缩包展开比例过高，已拒绝解压: {path} "
                             f"({total_size / archive_size:.0f}:1)"
@@ -876,7 +902,8 @@ class ArchiveVCS(BaseVCS):
                                                       stat.S_IMODE(member.mode),
                                                       member.type == tarfile.GNUTYPE_SPARSE
                                                       or any(k.startswith("GNU.sparse.") for k in effective)))
-                if len(targets) > cls.MAX_ARCHIVE_MEMBERS:
+                if (cls.MAX_ARCHIVE_MEMBERS is not None
+                        and len(targets) > cls.MAX_ARCHIVE_MEMBERS):
                     raise ValueError("压缩包成员过多，已拒绝解压")
                 cls._discard_exact(stream, size)
                 cls._skip_tar_padding(stream, size)
@@ -1040,7 +1067,7 @@ class ArchiveVCS(BaseVCS):
 
     @classmethod
     def _validate_zip_directory_limits(cls, entries: int, central_size: int):
-        if entries > cls.MAX_ARCHIVE_MEMBERS:
+        if cls.MAX_ARCHIVE_MEMBERS is not None and entries > cls.MAX_ARCHIVE_MEMBERS:
             raise ValueError(
                 f"压缩包成员过多，已拒绝解压: "
                 f"{entries} > {cls.MAX_ARCHIVE_MEMBERS}"
@@ -1069,7 +1096,7 @@ class ArchiveVCS(BaseVCS):
                     raise ValueError("ZIP 中央目录记录越界")
                 stream.seek(variable_size, os.SEEK_CUR)
                 count += 1
-                if count > cls.MAX_ARCHIVE_MEMBERS:
+                if cls.MAX_ARCHIVE_MEMBERS is not None and count > cls.MAX_ARCHIVE_MEMBERS:
                     raise ValueError("压缩包成员过多，已拒绝解压")
                 continue
             if signature == cls._ZIP_DIGITAL_SIGNATURE:
@@ -1268,7 +1295,7 @@ class ArchiveVCS(BaseVCS):
 
     @classmethod
     def _validate_archive_limits(cls, path: str, members, check_member_ratio: bool = True):
-        if len(members) > cls.MAX_ARCHIVE_MEMBERS:
+        if cls.MAX_ARCHIVE_MEMBERS is not None and len(members) > cls.MAX_ARCHIVE_MEMBERS:
             raise ValueError(
                 f"压缩包成员过多，已拒绝解压: {len(members)} > {cls.MAX_ARCHIVE_MEMBERS}"
             )
@@ -1279,17 +1306,18 @@ class ArchiveVCS(BaseVCS):
                 continue
             if size < 0:
                 raise ValueError(f"压缩包成员大小无效: {name}")
-            if size > cls.MAX_SINGLE_MEMBER_BYTES:
+            if cls.MAX_SINGLE_MEMBER_BYTES is not None and size > cls.MAX_SINGLE_MEMBER_BYTES:
                 raise ValueError(
                     f"压缩包单个成员展开后过大，已拒绝解压: {name} ({size} 字节)"
                 )
             total_size += size
-            if total_size > cls.MAX_TOTAL_UNCOMPRESSED_BYTES:
+            if (cls.MAX_TOTAL_UNCOMPRESSED_BYTES is not None
+                    and total_size > cls.MAX_TOTAL_UNCOMPRESSED_BYTES):
                 raise ValueError(
                     "压缩包累计展开大小超过限制，已拒绝解压: "
                     f"{total_size} > {cls.MAX_TOTAL_UNCOMPRESSED_BYTES} 字节"
                 )
-            if check_member_ratio and size > 0:
+            if check_member_ratio and size > 0 and cls.MAX_COMPRESSION_RATIO is not None:
                 ratio = size / max(compressed_size, 1)
                 if ratio > cls.MAX_COMPRESSION_RATIO:
                     raise ValueError(

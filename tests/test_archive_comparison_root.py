@@ -171,7 +171,7 @@ class ArchiveComparisonRootTests(unittest.TestCase):
         self.assertTrue(selected["ignore_archive_root"])
         with mock.patch("main.ArchiveVCS") as archive:
             app._create_vcs_for_task(selected)
-            archive.assert_called_once_with("old.zip", "new.zip", ignore_single_root=True)
+            archive.assert_called_once_with("old.zip", "new.zip", ignore_single_root=True, best_effort=True)
 
     def test_gui_option_visibility_task_roundtrip_and_single_generation_snapshot(self):
         old, new = self.root / "old.zip", self.root / "new.zip"

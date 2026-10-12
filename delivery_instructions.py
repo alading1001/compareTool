@@ -81,8 +81,19 @@ def write_delivery_instructions(project_results: list, output_path: str):
         dict.fromkeys(directory_delete_entries), key=str.casefold
     )
 
+    issue_lines = []
+    for project in project_results:
+        result = project['diff_result']
+        if result.comparison_note:
+            issue_lines.append(f'[{result.project_name}] {result.comparison_note}')
+        for issue in result.issues:
+            issue_lines.append(f"[{result.project_name}] [{'未完成' if issue['delivery'] else '说明'} / {issue['stage']}] {issue['path']} {issue['message']}")
+    incomplete = any(project['diff_result'].delivery_incomplete for project in project_results)
+
     lines = [
         "CompareTool 上线操作说明",
+        "交付未完成：请先补齐问题清单，不能当作完整版本直接上线。" if incomplete else "交付状态：已导出。",
+        *issue_lines,
         "========================",
         "",
         "newVersion 中保存的是本次需要提交的完整新文件。",
@@ -147,7 +158,7 @@ def write_delivery_instructions(project_results: list, output_path: str):
         note = getattr(project["diff_result"], "comparison_note", "")
         if note:
             lines.append(f"比较范围 [{project.get('project_name', '')}]：{note}")
-    with open(output_path, "w", encoding="utf-8-sig", newline="\r\n") as handle:
+    with open(output_path, "w", encoding="utf-8-sig", errors="backslashreplace", newline="\r\n") as handle:
         handle.write("\n".join(lines))
 
 

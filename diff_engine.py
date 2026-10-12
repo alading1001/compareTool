@@ -75,6 +75,14 @@ class DiffResult:
     required_directory_deletions: List[str] = field(default_factory=list)
     comparison_note: str = ""
     archive_details_enabled: bool = False
+    issues: List[dict] = field(default_factory=list)
+
+    def add_issue(self, stage, path, message, *, delivery=False):
+        self.issues.append(dict(stage=stage, path=path, message=str(message), delivery=delivery))
+
+    @property
+    def delivery_incomplete(self):
+        return any(issue['delivery'] for issue in self.issues)
 
     # 正常任务默认完整列出全部变更。数值上限只保留为测试/显式策略注入点，
     # 不能因为预计报告较大就让原本可生成的任务静默截断。
@@ -161,6 +169,9 @@ class DiffResult:
         else:
             manifest_listed_files = len(self.report_manifest_files)
         return {
+            "issue_count": len(self.issues),
+            "delivery_incomplete": self.delivery_incomplete,
+            "failed_items": sum(issue['delivery'] for issue in self.issues),
             "total_files": len(self.files),
             "added_files": added,
             "modified_files": modified,
@@ -220,9 +231,10 @@ class DiffEngine:
         vcs,
         show_full_context: bool = True,
         report_budget: Optional[dict] = None,
-        *, retain_text_contents: bool = True, detail_store=None,
+        *, retain_text_contents: bool = True, detail_store=None, best_effort=False,
     ):
         self.vcs = vcs
+        self.best_effort = best_effort
         self.retain_text_contents = retain_text_contents
         self.detail_store = detail_store
         self.show_full_context = show_full_context
@@ -265,8 +277,14 @@ class DiffEngine:
         if self._owns_report_budget:
             self._initialize_report_budget(reset=True)
         changed_files = self.vcs.get_changed_files(old_version, new_version)
+        issues = list(getattr(self.vcs, 'issues', []))
         if getattr(self.vcs, "merge_exact_renames", True):
-            changed_files = self._merge_exact_renames(changed_files, old_version, new_version)
+            try:
+                changed_files = self._merge_exact_renames(changed_files, old_version, new_version)
+            except (OSError, ValueError, RuntimeError) as exc:
+                if not self.best_effort:
+                    raise
+                issues.append(dict(stage='重命名检测', path='', message=str(exc), delivery=False))
 
         required_directories = self._infer_required_directory_deletions(
             changed_files,
@@ -281,6 +299,7 @@ class DiffEngine:
             new_version=new_version,
             required_directory_deletions=sorted(required_directories),
             comparison_note=getattr(self.vcs, "comparison_note", ""),
+            issues=issues,
         )
 
         with stage("diff.render", "生成变更文件明细"):
@@ -304,16 +323,34 @@ class DiffEngine:
                         report_detail_omitted=True,
                     )
                 else:
-                    file_diff = self._diff_file(old_version, new_version, cf)
+                    try:
+                        file_diff = self._diff_file(old_version, new_version, cf)
+                    except Exception as exc:
+                        if not self.best_effort:
+                            raise
+                        result.add_issue('内容展示', cf.path, exc)
+                        file_diff = FileDiff(cf.path, cf.change_type, old_path=cf.old_path,
+                            metadata_changes=list(cf.metadata_changes),
+                            old_executable=cf.old_executable, new_executable=cf.new_executable,
+                            old_mode=cf.old_mode, new_mode=cf.new_mode,
+                            line_counts_complete=False,
+                            side_by_side_html='<p>内容差异未完成：' + html.escape(str(exc)) + '</p>')
                     if self._report_limits_enabled:
                         self._finalize_report_entry(file_diff)
                 if not self.retain_text_contents:
                     file_diff.old_content = file_diff.new_content = ""
                 if self.detail_store is not None and not file_diff.report_detail_omitted:
                     rendered = file_diff.side_by_side_html
-                    file_diff.html_fragment = (self.detail_store.add_fragment(rendered)
-                        if isinstance(rendered, str) else self.detail_store.add_chunks(rendered))
-                    file_diff.side_by_side_html = ""
+                    try:
+                        file_diff.html_fragment = (self.detail_store.add_fragment(rendered)
+                            if isinstance(rendered, str) else self.detail_store.add_chunks(rendered))
+                        file_diff.side_by_side_html = ""
+                    except Exception as exc:
+                        if not self.best_effort:
+                            raise
+                        result.add_issue('内容展示', cf.path, exc)
+                        file_diff.html_fragment = None
+                        file_diff.side_by_side_html = '<p>内容明细暂存失败：' + html.escape(str(exc)) + '</p>'
                 result.files.append(file_diff)
                 progress(index, len(changed_files))
 

@@ -1,0 +1,199 @@
+{
+  "date": "2026-10-13",
+  "scope": "Reviewed source plus packaged module identity and actual installed Windows UI smoke; full six-mode business suite was run from source",
+  "reviews": {
+    "independent_reviewers": 2,
+    "remaining_release_blockers": 0,
+    "resolved": [
+      "directory replacement case and dependent failed files",
+      "successful partial-stage endpoint identity and digest",
+      "actual NTFS file and directory short aliases in exporter",
+      "unreadable partial-stage subtree",
+      "actual short aliases in multi-version snapshots"
+    ]
+  },
+  "tests": {
+    "prior_full_suite": {
+      "unique": 576,
+      "passed": 575,
+      "skipped": 1,
+      "reason": "Windows symbolic-link creation privilege"
+    },
+    "post_review_targeted": {
+      "unique": 209,
+      "passed": 209,
+      "new_regression_tests": 7,
+      "logs": {
+        "output_tests.log": {
+          "passed": 40,
+          "seconds": 4.714,
+          "sha256": "6512e07e8033f3f6ea466e01875fad23aa98398550f4567a9b67bc92886dec8b"
+        },
+        "related_tests.log": {
+          "passed": 89,
+          "seconds": 24.316,
+          "sha256": "e0cd681a853919719eeca33a6f5af75548c0b1ebb5c109ac9ef00479f3ecc7cf"
+        },
+        "multi_version_final.log": {
+          "passed": 80,
+          "seconds": 287.649,
+          "sha256": "5dd0a831087f49a215fc9fec71d2c49ebdace65f05e4cade1c0f3f984d86e450"
+        }
+      }
+    }
+  },
+  "build": {
+    "build": {
+      "version": "2026.09.26.1",
+      "build_id": "aa91230da5",
+      "built_at": "2026-10-13T00:34:11+08:00",
+      "commit": "78048223fa1dd3f9f460cb4dc52f3761b004d4bb",
+      "dirty": true,
+      "source_sha256": "aa91230da578b2fc06b3f41e44a3476e565d0233dd5b2ca745a68dd5e97a22e9",
+      "exe_sha256": "ffdbc5891af2476fc5ac90623bed3a1147b404e4da59350077e886e9604ba7e4"
+    },
+    "embedded_matches": true,
+    "verified_source_matches": true,
+    "packaged_modules": [
+      "app_version",
+      "archive_endpoints",
+      "archive_report",
+      "delivery_instructions",
+      "diff_engine",
+      "file_exporter",
+      "html_details",
+      "logger",
+      "main",
+      "path_safety",
+      "report_generator",
+      "stable_diff",
+      "stage_ownership",
+      "task_progress",
+      "ui_progress",
+      "vcs",
+      "vcs.archive_vcs",
+      "vcs.base",
+      "vcs.folder_vcs",
+      "vcs.git_batch",
+      "vcs.git_checkout",
+      "vcs.git_probe_batch",
+      "vcs.git_vcs",
+      "vcs.multi_version_vcs",
+      "vcs.raw_cache",
+      "vcs.svn_vcs",
+      "vcs.temp_storage"
+    ],
+    "packaged_templates": [
+      "templates/archive_details.html",
+      "templates/archive_script.html",
+      "templates/archive_style.html",
+      "templates/file_detail.html",
+      "templates/multi_report.html",
+      "templates/report.html",
+      "templates/result_issues.html"
+    ],
+    "manual_sha256": "b5d7e3c1f8f77a93a35e3641ac6588d394a07251625d77dedaf74990f5ce8df4"
+  },
+  "installation": {
+    "build": {
+      "version": "2026.09.26.1",
+      "build_id": "aa91230da5",
+      "built_at": "2026-10-13T00:34:11+08:00",
+      "commit": "78048223fa1dd3f9f460cb4dc52f3761b004d4bb",
+      "dirty": true,
+      "source_sha256": "aa91230da578b2fc06b3f41e44a3476e565d0233dd5b2ca745a68dd5e97a22e9",
+      "exe_sha256": "ffdbc5891af2476fc5ac90623bed3a1147b404e4da59350077e886e9604ba7e4"
+    },
+    "archive": "D:\\java\\applications\\CompareTool\\archive\\20261013_003845_before_aa91230da5",
+    "prior_hashes": {
+      "CompareTool.exe": "a92eff1f8e5d82734beca9161b4d30d03749ecc2cf7f920836643e41f7666ad3",
+      "CompareTool_build.json": "b7032126aecc1a9beeb49378484393ae0e79dac5542de88a9ba7c97198c4d0c7",
+      "CompareTool_使用说明书.pdf": "2a87c53d9f21d25193e152e13927df85d4abfef38940c40b9e35c2e2154fe8b0",
+      "compareTool_config.json": "d97bf312ad0897257ac41d649f755988ea1621f021eafce9218d25669a07812d"
+    },
+    "config_before": "d97bf312ad0897257ac41d649f755988ea1621f021eafce9218d25669a07812d",
+    "config_after": "d97bf312ad0897257ac41d649f755988ea1621f021eafce9218d25669a07812d",
+    "installed": {
+      "CompareTool.exe": "ffdbc5891af2476fc5ac90623bed3a1147b404e4da59350077e886e9604ba7e4",
+      "CompareTool_build.json": "b9c3b20d12d8b91cf51a875bebf3771813e0183d57f6e2e1e4deb61f77f28d65",
+      "CompareTool_使用说明书.pdf": "b5d7e3c1f8f77a93a35e3641ac6588d394a07251625d77dedaf74990f5ce8df4"
+    }
+  },
+  "installed_window": {
+    "executable": "D:\\java\\applications\\CompareTool\\CompareTool.exe",
+    "build_id": "aa91230da5",
+    "title": "代码比对报告工具 v2026.09.26.1 [aa91230da5]",
+    "hwnd": 264556,
+    "box": [
+      710,
+      0,
+      1874,
+      1439
+    ],
+    "children": [],
+    "version_dialog": "确定\n\n版本：2026.09.26.1\n构建：aa91230da5\n构建时间：2026-10-13T00:34:11+08:00\n源码基线：78048223fa1dd3f9f460cb4dc52f3761b004d4bb（构建时含未提交修改）\n源码指纹：aa91230da578b2fc06b3f41e44a3476e565d0233dd5b2ca745a68dd5e97a22e9\n\n运行文件：\nD:\\java\\applications\\CompareTool\\CompareTool.exe\n\n耗时日志目录：\nD:\\java\\applications\\CompareTool\\logs\\tasks"
+  },
+  "config_preserved_after_launch": true,
+  "manual": {
+    "pages": 17,
+    "bookmarks": 17,
+    "toc_links": 11,
+    "missing_glyphs": [],
+    "embedded_fonts": {
+      "/AAAAAA+MicrosoftYaHei-0": true,
+      "/AAAAAB+MicrosoftYaHei-0": true,
+      "/AAAAAC+MicrosoftYaHei-0": true,
+      "/AAAAAA+MicrosoftYaHei-Bold-0": true,
+      "/AAAAAB+MicrosoftYaHei-Bold-0": true
+    },
+    "out_of_bounds_characters": 0,
+    "bytes": 483534,
+    "sha256": "b5d7e3c1f8f77a93a35e3641ac6588d394a07251625d77dedaf74990f5ce8df4"
+  },
+  "closeout": {
+    "code": "changed-and-verified",
+    "runtime": "changed-and-verified",
+    "documentation": "changed-and-verified",
+    "rules": "changed-and-verified",
+    "memory": "out-of-scope; generated-read-only",
+    "workspace": "verified-current; one worktree, verification evidence retained",
+    "cleanup": "pending post-report confirmation; no cleanup performed"
+  },
+  "source_files": {
+    "app_version.py": "699f3d8ae489c646e5dad3157ffcb38a6a984a53a9093f883834b3e3d7e10571",
+    "archive_endpoints.py": "7b0739ad4ab6ffa34b516b07e4011e17678b449335998d25c70f14e4dd291058",
+    "archive_report.py": "aebe5698ee96bd91e5220a0291360b4965b48263563f646110339523d6d17c83",
+    "delivery_instructions.py": "14a6e45e46e517ea7bb841313e118ee20cd27a1bf3e702a1cc18b36f5bb02803",
+    "diff_engine.py": "089218181b6ed18c73355740b979417ec1ea541ede77cbb73736e126b445f29c",
+    "file_exporter.py": "7ff34f41143929aaf6c88b72f499342c28af855d360779afe9c141262fc36e79",
+    "html_details.py": "1b0c13e07fa7e7188dc6bbf972708cdebfd9bd3cbcce335c50a6487ccac7e325",
+    "logger.py": "8e683db696c101111d917914dc1526305a6d29b03e7a1745e9f5e9ce95c91926",
+    "main.py": "d325410ecaedf5eee7dd230e05b73f0ec03aedc180ddd3bd47047542f9441f18",
+    "path_safety.py": "9238eaa36815186d858f68425fc3b70123130b7fec5336f30a446d46416a7249",
+    "report_generator.py": "9ae1fbc7760760f21d073c0b2a1e4ec70c70bf35d1f2126b5ddd2df8c7189fcf",
+    "stable_diff.py": "86802ac128926313105b909a22acb8050eca41c84eafa5fc4577abdf67ca2d43",
+    "stage_ownership.py": "cd24ca3a26d48f3637005387f0ddf0a980b33911c09db1f4d2b759c4a0f8b787",
+    "task_progress.py": "6fec0ef94cdfa865475a5877338129574206f24232032647b3cb050b8ec753ae",
+    "templates/archive_details.html": "d108d33a12e7fa3d4cb16abc135df955472613cb1c4816b23ff07c00d7766d8e",
+    "templates/archive_script.html": "ecd2ae5d8bd844294d636282fa0a70f3bbb85006a1d0f070d68a2364db8cd1ef",
+    "templates/archive_style.html": "785b7a3e8a15f66979bc60792918017bad7ed4246ae695da09ad015a8650c8a4",
+    "templates/file_detail.html": "71997345869e21bcc964dca2d0a0b9584972ec208178db86a36cef3d4108adad",
+    "templates/multi_report.html": "9e1bfccb747dc6379e8c31f92a4808ae632592eb23e921369ab2439cf4fa18af",
+    "templates/report.html": "539395aecf3f914ceac01fe3882fa9d0eeb1be5cd1057730c4b76d9ba56d1fb4",
+    "templates/result_issues.html": "d1a1f92b6e2bfcd0f761744dbdaff4273740798aded428ef7c8c22f04550683b",
+    "ui_progress.py": "743f4917a187f00145c94d78640daaca21577c13a368923f486d59c2bf8a865a",
+    "vcs/__init__.py": "8fb86391432641e7b720313b271eecf44f5f994a4491288fd2b9c78ccb754f86",
+    "vcs/archive_vcs.py": "831ddae34674e0d80c2dd943fea196af17cd6527891415f6f2d52847b05cf41b",
+    "vcs/base.py": "a2ba203dcfc67ce6f41a1f1be0e28000ee19eae1e6c7c2e27c8dc1da70dfccea",
+    "vcs/folder_vcs.py": "2ca600e407bbd6b9a33fa5802621a2190419016da87b910bcfe3279ba2637023",
+    "vcs/git_batch.py": "1eec47f4dd0cf72c9004a0db6a3608b0ad9fb81751a0e0c7e817f5383a091e69",
+    "vcs/git_checkout.py": "213ba2ca165aa34487a2fe85dbb6643366c9156e475047b2404b859f7115b092",
+    "vcs/git_probe_batch.py": "ebd05e0cef9a02ba6abeb2f4611acdfd39ffa32e36b912b2417cb1197756ddd4",
+    "vcs/git_vcs.py": "081f2c3c6c0581b6455118e62dd93175a981102389a59357e032c6be3466ae3c",
+    "vcs/multi_version_vcs.py": "2aa0a55f362805be89102344beb90fbceef71db29a77effaaa5488e3008b0009",
+    "vcs/raw_cache.py": "b6333fa9fde388c503ff17a35130a1532a3354f94227db05c989e95db3efe8c3",
+    "vcs/svn_vcs.py": "211b8fd2415f1de5753f0b8afeca37af869cd1312330387cda09bfdba6e0c69b",
+    "vcs/temp_storage.py": "a0be4ba7bf89a34a3eabdda4234db8724922a9e557e69eb4149d55a75287b5d7"
+  },
+  "evidence_directory": "D:\\AI\\project\\compareTool_myself\\.tmp\\review_fixes_20261013"
+}

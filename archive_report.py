@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import os
 import re
 import zipfile
+from typing import Optional
 
 from path_safety import open_regular_file_no_links
 from task_progress import measured_phase, progress
@@ -55,24 +56,24 @@ def _is_lfs_pointer(path):
 
 @dataclass
 class ArchiveReportBudget:
-    """Shared across every nested package (and every project in one report)."""
-    max_depth: int = 8
-    max_members: int = 100_000
-    max_bytes: int = 10 * 1024**3
+    """全报告共享计数；默认不限规模，显式策略才限制资源用量。"""
+    max_depth: Optional[int] = None
+    max_members: Optional[int] = None
+    max_bytes: Optional[int] = None
     members: int = 0
     declared_bytes: int = 0
     actual_bytes: int = 0
 
     def reserve(self, count, size):
-        if self.members + count > self.max_members:
+        if self.max_members is not None and self.members + count > self.max_members:
             raise ValueError('包内递归比较累计成员数超过安全限制，已中止')
-        if self.declared_bytes + size > self.max_bytes:
+        if self.max_bytes is not None and self.declared_bytes + size > self.max_bytes:
             raise ValueError('包内递归比较累计展开字节超过安全限制，已中止')
         self.members += count
         self.declared_bytes += size
 
     def consume(self, size):
-        if self.actual_bytes + size > self.max_bytes:
+        if self.max_bytes is not None and self.actual_bytes + size > self.max_bytes:
             raise ValueError('包内递归比较实际展开字节超过安全限制，已中止')
         self.actual_bytes += size
 
@@ -139,11 +140,13 @@ def _same_archive_bytes(old, new):
 
 
 class _Inspector:
-    def __init__(self, show_full_context, patterns, budget, detail_store=None):
+    def __init__(self, show_full_context, patterns, budget, detail_store=None, best_effort=False):
         self.show_full_context = show_full_context
         self.patterns = list(patterns or [])
         self.budget = budget
         self.detail_store = detail_store
+        self.best_effort = best_effort
+        self.issues = []
 
     def attach(self, result, vcs=None, depth=1, chain=(), *, endpoints=None):
         from vcs.base import ChangeType
@@ -169,6 +172,12 @@ class _Inspector:
             try:
                 file.archive_details = self.inspect(old, new, depth, names)
             except Exception as exc:
+                if self.best_effort:
+                    note = '包内分析未完成，原始压缩包已保留：' + str(exc)
+                    file.archive_details = dict(status='error', members=[], note=note)
+                    self.issues.append(dict(stage='包内分析', path=' → '.join(names),
+                                            message=note, delivery=False))
+                    continue
                 raise RuntimeError(
                     f'项目 [{result.project_name}] 旧侧 [{old_name if old else "不存在"}] / '
                     f'新侧 [{file.file_path if new else "不存在"}]: {exc}'
@@ -178,7 +187,7 @@ class _Inspector:
         if old and new and _same_archive_bytes(old, new):
             return dict(status='identical', members=[],
                         note='压缩包原始字节相同，未继续展开；重命名或属性变化见上方。')
-        if depth > self.budget.max_depth:
+        if self.budget.max_depth is not None and depth > self.budget.max_depth:
             raise RuntimeError('包内递归深度超过安全限制: ' + ' → '.join(names))
         try:
             for side, path in (('旧', old), ('新', new)):
@@ -211,13 +220,14 @@ class _Inspector:
 
 @measured_phase('archive.report', '递归分析变化压缩包（仅报告）')
 def enrich_archive_reports(result, vcs=None, *, endpoints=None, show_full_context=True,
-                           exclude_patterns=(), budget=None, detail_store=None):
+                           exclude_patterns=(), budget=None, detail_store=None, best_effort=False):
     """Attach details without changing result.files, summaries, or delivery paths."""
     if endpoints is None and not isinstance(vcs, (FolderVCS, ArchiveVCS)):
         raise ValueError('此来源没有可直接借用的快照，请显式传入暂存端点')
     inspector = _Inspector(show_full_context, exclude_patterns,
                            budget if budget is not None else ArchiveReportBudget(),
-                           detail_store=detail_store)
+                           detail_store=detail_store, best_effort=best_effort)
     inspector.attach(result, vcs, endpoints=endpoints)
+    result.issues.extend(inspector.issues)
     result.archive_details_enabled = True
     return result
