@@ -1,0 +1,163 @@
+{
+  "verified_at": "2026-10-13T12:16:11+08:00",
+  "scope": "本轮审查修复、日期版本号与路径记忆的本地发布收尾；本次仅修改文档和凭证",
+  "release": {
+    "version": "2026.10.13.1",
+    "build_id": "a7c50bd53c",
+    "built_at": "2026-10-13T11:56:34+08:00",
+    "commit": "87a23c385abb55e9698a90c93606c50f93506683",
+    "dirty": false,
+    "source_sha256": "a7c50bd53cb33cd774c2f5a0c31b21fbaf23e63f09f68f815ee750b44d4e4d95",
+    "exe_sha256": "8700fa57c2790fc470662f4780ce9c3786af08b6b50214537462c98c73e38d2f"
+  },
+  "checks": {
+    "source_fingerprint_matches": true,
+    "embedded_metadata_matches": true,
+    "exe_sha256_matches": true,
+    "manual_copies_identical": true,
+    "manual_sha256": "1f5c69723b19bc82bea9ccf5d1c3b465e5b51b391a77633c9f0b2d9f4d1ae105",
+    "manual_qa": {
+      "pages": 17,
+      "bookmarks": 17,
+      "toc_links": 11,
+      "missing_glyphs": [],
+      "embedded_fonts": {
+        "/AAAAAA+MicrosoftYaHei-0": true,
+        "/AAAAAB+MicrosoftYaHei-0": true,
+        "/AAAAAC+MicrosoftYaHei-0": true,
+        "/AAAAAA+MicrosoftYaHei-Bold-0": true,
+        "/AAAAAB+MicrosoftYaHei-Bold-0": true
+      },
+      "out_of_bounds_characters": 0,
+      "bytes": 483891,
+      "sha256": "1f5c69723b19bc82bea9ccf5d1c3b465e5b51b391a77633c9f0b2d9f4d1ae105"
+    },
+    "window_smoke_evidence": ".tmp/version-path-memory-a498c187/window-smoke.json",
+    "window_smoke_sha256": "d5dc8b886c919fa040be5fff63bdb3fb240bdc666672637f16648882a6e02d0d"
+  },
+  "running_processes": [
+    {
+      "Id": 17396,
+      "Path": "D:\\AI\\project\\compareTool_myself\\dist\\CompareTool.exe",
+      "MainWindowTitle": ""
+    },
+    {
+      "Id": 37360,
+      "Path": "D:\\AI\\project\\compareTool_myself\\dist\\CompareTool.exe",
+      "MainWindowTitle": "代码比对报告工具 v2026.10.13.1 [a7c50bd53c]"
+    }
+  ],
+  "tests": {
+    "logs": [
+      {
+        "path": ".tmp/fix-last3-8a288d29/regression.log",
+        "total": 587,
+        "passed": 586,
+        "skipped": 1,
+        "sha256": "1bc301267bb3820b351b14dbe9bda7682c7ae37e15b083032c047237305da6ab"
+      },
+      {
+        "path": ".tmp/version-path-memory-a498c187/regression.log",
+        "total": 61,
+        "passed": 61,
+        "skipped": 0,
+        "sha256": "ed8a952ad6af85377d7426bb88246f4ddf3a490b767bdee1c4d7cde42fa5b1f2"
+      },
+      {
+        "path": ".tmp/version-path-memory-a498c187/task-progress.log",
+        "total": 11,
+        "passed": 11,
+        "skipped": 0,
+        "sha256": "4d1a3c8acd97ebf646f04cda2f1d24f499978d43e927b7d840e6ba6fff8f1214"
+      }
+    ],
+    "scope": "587 项完整回归针对 ff4bf16 修复；随后 87a23c3 的版本与 GUI 修改通过 72 项相关回归，未重跑全量"
+  },
+  "other_installation": {
+    "path": "D:\\java\\applications\\CompareTool",
+    "metadata": {
+      "version": "2026.09.26.1",
+      "build_id": "aa91230da5",
+      "built_at": "2026-10-13T00:34:11+08:00",
+      "commit": "78048223fa1dd3f9f460cb4dc52f3761b004d4bb",
+      "dirty": true,
+      "source_sha256": "aa91230da578b2fc06b3f41e44a3476e565d0233dd5b2ca745a68dd5e97a22e9",
+      "exe_sha256": "ffdbc5891af2476fc5ac90623bed3a1147b404e4da59350077e886e9604ba7e4"
+    },
+    "actual_exe_sha256": "0ecfe151cad85ce34fcefaf90be9a3b522d8ca3d61fff4a22b2ca9be6c692796",
+    "embedded_metadata": {
+      "version": "2026.09.26.1",
+      "build_id": "aa91230da5",
+      "built_at": "2026-10-13T08:16:50+08:00",
+      "commit": "2dfda71f0f9399bc9fb16c8938e78c02b6be67b1",
+      "dirty": false,
+      "source_sha256": "aa91230da578b2fc06b3f41e44a3476e565d0233dd5b2ca745a68dd5e97a22e9"
+    },
+    "metadata_matches_exe": false,
+    "warning": "EXE 内嵌为 08:16:50 / 2dfda71，旁置元数据为 00:34:11 / 7804822；源码指纹相同但并非同一包",
+    "status": "out-of-scope; 本轮未更新，不能用于本次新功能验收；后续更新时须成套替换 EXE 和元数据"
+  },
+  "remote": {
+    "master": "2dfda71f0f9399bc9fb16c8938e78c02b6be67b1",
+    "status": "out-of-scope; 本轮未推送"
+  },
+  "rules": {
+    "canonical": "AGENTS.md",
+    "claude_import": "@AGENTS.md",
+    "before_bytes": 35376,
+    "after_bytes": 32153,
+    "platform_budget_reference_bytes": 32768,
+    "warning": "项目规则仍超过默认预算的 70%；本轮只外移参考说明，未删业务边界"
+  },
+  "surfaces": {
+    "code": "verified-current",
+    "runtime": "verified-current",
+    "documentation": "changed-and-verified",
+    "rules": "changed-and-verified",
+    "memory": "out-of-scope; generated-read-only",
+    "workspace": "pending; 复核现场保留，清场等待汇报后明确确认"
+  },
+  "cleanup": {
+    "performed": false,
+    "status": "pending post-report user confirmation",
+    "candidates": [
+      {
+        "path": ".tmp/release_build_93a4nmc1",
+        "files": 17,
+        "bytes": 47889124,
+        "reparse_points": [],
+        "reason": "本轮 PyInstaller 中间目录；正式 EXE、旧构建归档和验证证据另行保留"
+      },
+      {
+        "path": ".tmp/release_build_4y8nszf9",
+        "files": 17,
+        "bytes": 47893558,
+        "reparse_points": [],
+        "reason": "本轮 PyInstaller 中间目录；正式 EXE、旧构建归档和验证证据另行保留"
+      },
+      {
+        "path": ".tmp/release_build_im0kppaz",
+        "files": 17,
+        "bytes": 47892654,
+        "reparse_points": [],
+        "reason": "本轮 PyInstaller 中间目录；正式 EXE、旧构建归档和验证证据另行保留"
+      }
+    ],
+    "candidate_bytes": 143675336,
+    "preserve": [
+      "dist 正式 EXE、构建元数据及 archive 旧版归档",
+      "docs/dist 使用说明书、用户配置",
+      ".tmp/review-last3-20c14189",
+      ".tmp/fix-last3-8a288d29",
+      ".tmp/version-path-memory-a498c187",
+      ".tmp/manual",
+      ".tmp/closeout-version-paths-20261013",
+      "当前运行 EXE 的解包目录及其他历史现场"
+    ]
+  },
+  "documentation_audit": {
+    "markdown_count": 25,
+    "local_link_count": 93,
+    "missing_local_links": []
+  }
+}

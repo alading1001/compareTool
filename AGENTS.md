@@ -23,33 +23,13 @@ build.bat
 
 ## 架构
 
-```
-main.py                  # tkinter GUI 入口，线程管理，配置持久化，UI 防抖
-├── vcs/
-│   ├── base.py          # BaseVCS 抽象类 + ChangedFile/ChangeType + glob 排除匹配
-│   ├── git_vcs.py       # GitVCS：git diff --raw -z --find-renames / git show / git log
-│   ├── git_checkout.py  # 隔离 Git 属性/配置快照、微小检出探针和流式文本判定
-│   ├── svn_vcs.py       # SVNVCS：svn diff --summarize / svn cat (URL+@peg) / svn log
-│   ├── folder_vcs.py    # FolderVCS：固定树身份、分块比较、快照变更端点并复核源树
-│   ├── archive_vcs.py   # ArchiveVCS：解压 zip/tar 到临时目录，委托 FolderVCS 比对
-│   └── multi_version_vcs.py # Git/SVN 多版本：历史身份追踪 + 文件级端点快照
-├── diff_engine.py       # 遍历变更、编码/格式判定、差异统计及左右 HTML
-├── stable_diff.py       # HtmlDiff 递归失败时的完整非递归差异表
-├── report_generator.py  # Jinja2 渲染 templates/report.html → 单文件 HTML
-├── file_exporter.py     # 变更文件按目录结构导出到 oldVersion/newVersion
-├── delivery_instructions.py # 生成上线删除/重命名操作说明
-├── logger.py            # 简易日志，仅 warn/error 写文件（info 为空操作），512KB 轮转
-├── templates/report.html # 单项目 HTML 报告模板（文件树 + 左右对比 + 变更清单弹窗）
-└── templates/multi_report.html # 多项目总报告模板（项目分组文件树 + 左右对比 + 变更清单弹窗）
-```
+模块职责见 [README 架构与版本标识](README.md#架构与版本标识)，实现前同时遵守下列数据流和对应合同。
 
 ### 数据流
 
-1. `main.py` 收集输入：项目路径、VCS 类型（Git/SVN/文件夹/压缩包/Git多版本/SVN多版本）、旧/新版本号或多版本列表、排除规则、输出目录
-2. 根据 VCS 类型创建 `GitVCS` / `SVNVCS` / `FolderVCS` / `ArchiveVCS` / `GitMultiVersionVCS` / `SVNMultiVersionVCS` → `get_changed_files()` 获取变更文件列表
-3. `DiffEngine.generate_diff()` 遍历文件，对文本文件生成 side-by-side HTML（标准 `HtmlDiff` 及完整非递归回退）；二进制文件跳过内容只设占位标记；内容完全一致且唯一匹配的删除+新增会合并为重命名
-4. `ReportGenerator` 用 Jinja2 渲染模板 → 单文件 HTML
-5. `FileExporter` 通过 `export_file_to_path()` 流式写入新旧变更文件，确认覆盖后先删除本次项目的报告、上线说明和 oldVersion/newVersion 项目目录，再重新生成；失败不恢复旧结果。输出批次锁覆盖删除到任务结束，新内容完整暂存后发布，不再使用旧输出备份、事务日志、HMAC 或回滚。历史恢复记录不参与新任务且原样保留。暂存物直接创建在可信输出根，保留路径边界、实际 Windows 名称碰撞及本次交付字节检查。实现或修改报告、端点写入、导出和恢复流程前，必须阅读 [报告与导出完整性合同](docs/report-and-export-contract.md)。
+六模式输入经对应 VCS 固定端点，交给 DiffEngine 生成差异和 ReportGenerator 渲染；模块流程见 [README](README.md#架构与版本标识)。
+
+`FileExporter` 通过 `export_file_to_path()` 流式写入新旧变更文件，确认覆盖后先删除本次项目的报告、上线说明和 oldVersion/newVersion 项目目录，再重新生成；失败不恢复旧结果。输出批次锁覆盖删除到任务结束，新内容完整暂存后发布，不再使用旧输出备份、事务日志、HMAC 或回滚。历史恢复记录不参与新任务且原样保留。暂存物直接创建在可信输出根，保留路径边界、实际 Windows 名称碰撞及本次交付字节检查。实现或修改报告、端点写入、导出和恢复流程前，必须阅读 [报告与导出完整性合同](docs/report-and-export-contract.md)。
 
 项目名只在能从有效项目目录、新版本文件夹或新版本压缩包推断出真实名称时自动填充。推断不到且用户未手工填写时，生成报告或添加多项目任务应直接提示失败，不使用 `project` 之类的假兜底名称。Git/SVN/Git多版本/SVN多版本模式下，项目名输入框是可编辑下拉框，会按 Git/SVN 家族记忆最近 10 个有效项目；选择最近项目时必须同步回填项目目录和项目名，并触发项目路径变化逻辑清空版本选择和版本列表，避免跨项目复用版本号；多版本只读的“生成结果”仍须显示“文件级首尾端点”。
 
@@ -68,14 +48,7 @@ newVersion/项目名/...
 
 ### VCS 类型与版本标识
 
-| 类型 | 旧版本标识 | 新版本标识 | 备注 |
-|------|-----------|-----------|------|
-| Git | commit hash / tag / branch | 同左 | `get_file_content_working` 直接读工作副本文件 |
-| SVN | `rNNNNN` 或 `NNNNN` | 同左 | `get_file_content` 使用仓库 URL + peg revision |
-| 文件夹 | 旧文件夹路径 | 新文件夹路径 | 固定树身份，只快照变更端点并复核源树；兼容 `"old"`/`"new"` 和用户输入的实际路径 |
-| 压缩包 | 旧压缩包路径 | 新压缩包路径 | 解压到临时目录后委托 `FolderVCS` 比对；支持 `.zip` / `.jar` / `.war` / `.ear` / `.aar` / `.tar` / `.tar.gz` / `.tgz` / `.tar.bz2` / `.tbz2` |
-| Git多版本 | 多个 commit hash | `文件级首尾端点` | 每个文件 old 取首次选中变更的第一父提交，new 取末次选中提交 |
-| SVN多版本 | 多个 `rNNNNN` 或 `NNNNN` | `文件级首尾端点` | 每个文件 old 取首次选中 revision 前状态，new 取末次选中 revision 后状态 |
+六模式输入及版本标识见 [README 架构与版本标识](README.md#架构与版本标识)。Git/SVN 多版本必须使用下文的文件级首尾端点语义。
 
 ### 版本列表交互
 
@@ -158,9 +131,7 @@ Git/SVN 可执行文件路径均自动探测：先查 `shutil.which`，再查 Wi
 
 ### 编码
 
-- **SVN 子进程输出**：`_run()` 读取原始字节，通过 `_decode_bytes()` 自动探测编码（UTF-8 → GBK → 回退）。影响 svn log、svn diff、svn info 等所有命令输出
-- **SVN cat / 本地文件**：同样走 `_decode_bytes()`（UTF-8 → GBK）
-- **Git 路径**：`_unescape_git_path()` 解码 `core.quotepath` 的八进制和 C 风格转义（包括 tab、换行、引号和反斜杠）。
+子进程、文件及 Git 路径解码约定见 [README 架构与版本标识](README.md#架构与版本标识)；修改解码不得丢失路径或原始导出字节。
 
 ### Shell 依赖
 
@@ -188,10 +159,9 @@ Git/SVN 可执行文件路径均自动探测：先查 `shutil.which`，再查 Wi
 ## 构建身份与任务观测
 
 - 正式版本号由 `tools/build_release.py` 按本地构建日期生成 `yyyy.MM.dd.N`，读取目标目录及旧构建归档的元数据取当天最大序号加一，跨日从 1 开始；运行时标题和版本信息均读取嵌入版本。源码显示开发版，缺失或无效元数据为 unknown，不再用源码中的固定日期充当正式版本。
-
-- 使用 `build.bat` / `tools/build_release.py` 嵌入时间、父提交、dirty 与源码指纹，源码显示 source、缺元数据显示 unknown，不猜构建号。正式入口仅 `dist/CompareTool.exe`，保留构建元数据并归档旧构建；发布仍须真实窗口冒烟。
+- 使用 `build.bat` / `tools/build_release.py` 嵌入时间、父提交、dirty 与源码指纹，源码构建号显示 source、缺元数据显示 unknown，不猜构建号。正式入口仅 `dist/CompareTool.exe`，保留构建元数据并归档旧构建；发布仍须真实窗口冒烟。
 - 观测独立于业务成败；ContextVar 隔离任务，主线程每 200ms 读最新槽，不逐文件排 Tk 回调/日志，不伪造百分比，清理和任务记录后才通知完成。阶段包含时间不能相加，使用 exclusive_seconds。
-- 耗时日志不写正文、不写入输入树；成功、失败和中断日志合计保留最近 50 组，进行中任务除外；每组过程最多 512 KiB，结束事件及摘要各最多 64 KiB。普通日志和一份备份各最多 512 KiB，单条最多 64 KiB。流程、身份测试和发布验证见 [正式版记录](docs/release-polish.md)；界面变化同步说明书。
+- 耗时日志不写正文、不写入输入树；成功、失败和中断日志合计保留最近 50 组，进行中任务除外；每组过程最多 512 KiB，结束事件及摘要各最多 64 KiB。普通日志和一份备份各最多 512 KiB，单条最多 64 KiB。任务观测机制见 [正式版记录](docs/release-polish.md)，最新发布验证从 [README](README.md#正式入口版本与任务进度) 进入；界面变化同步说明书。
 
 ## 包内递归与暂存端点
 

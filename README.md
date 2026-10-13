@@ -28,7 +28,7 @@ Windows 桌面应用，输入 Git/SVN/文件夹/压缩包 项目路径和版本�
 - 二进制/归档文件默认只标记变更；启用包内递归后，受支持归档可逐层查看文本成员，`.class` 等二进制成员仍不展示正文
 - Git/SVN 可执行文件路径自动探测（PATH → 注册表 → 常见安装目录），找不到时提示安装命令行工具
 - 中文编码自动适配（子进程输出 + 文件内容均 UTF-8 → GBK 回退）
-- 配置自动记忆，下次打开恢复上次设置
+- 配置自动记忆；文件夹、压缩包分别恢复上次的新旧路径，切换模式和正常退出后重启均可继续使用
 
 ## 运行
 
@@ -132,6 +132,8 @@ Git多版本只接受当前分支第一父历史中的提交，合并提交相�
 
 `compareTool_config.json` 自动保存上次的项目路径、VCS 类型、输出路径、多项目任务列表、最近项目列表，以及按项目路径记忆的排除规则和显示选项。写入失败会明确报错，不再显示假成功；启动时会忽略 schema 损坏或 VCS 类型未知的多项目任务，避免整个窗口无法打开。最近项目按 Git/SVN 家族分组，每组最多保留最近 10 个有效项目。输出批次名称不持久化，每次启动默认当天日期。新项目没有专属规则时，直接使用代码内置默认模板；旧版全局 `exclude_rules` 不再作为默认模板来源。
 
+文件夹、压缩包路径按模式保存到 `last_comparison_paths`；离开模式时记住输入，生成报告、保存任务或正常退出时写入配置，切换回来或下次启动时恢复。两种模式互不覆盖，暂不可用的路径仍保留；浏览按钮从已有路径所在目录打开。旧配置缺少此字段时从空路径开始。Git/SVN（含多版本）切换项目或模式时仍清空版本选择。
+
 ## 性能优化与验证
 
 较大的文本替换段会提前使用完整非递归渲染，不必等到 HtmlDiff 递归异常；小修改继续保留原来的相似行对齐。Git 原始文件读取和导出在任务内复用批量对象读取进程，属性、换行转换及固定版本语义不变。换行转换的私有暂存文件遇到 Windows 短暂替换失败时会有限重试，持续失败仍明确报错。
@@ -149,6 +151,10 @@ Windows 文件夹扫描的重复元数据查询和比较根路径解析也已优
 生成时显示真实阶段、可确定的文件处理数量及已用时间；进度条只表示当前阶段。完成后显示总耗时和日志路径。正常耗时记录在程序目录的 `logs/tasks/`，与输入目录重叠时改用独立用户目录。日志不可写不影响比较结果。
 
 构建流程见 [正式版收尾记录](docs/release-polish.md)，六模式历史实测见 [2026-09-27 EXE 验证记录](docs/release-20260927-verification.md)，2026-09-28 的历史验证见 [重复归档成员记录](docs/archive-duplicate-members.md)。旧构建保存在 `dist/archive/`，回退时不要混用不同构建的程序。
+
+正式版本号为 `yyyy.MM.dd.N`：每次打包按本地日期生成，同一输出目录及旧构建归档中的当天最大序号加一，跨日从 1 开始。标题和“版本信息”使用 EXE 内嵌版本；源码运行显示“开发版 [source]”，缺失或无效元数据显示 `unknown`。
+
+当前交付及验证边界见 [2026-10-13 版本与路径记忆发布记录](docs/release-20261013-version-paths.md)。该记录区分项目 `dist` 与其他安装副本；重新打包不会自动更新其他目录中的 EXE。
 
 ## 压缩包内部递归明细（仅报告）
 
@@ -179,4 +185,47 @@ C1 的实现、回归及测量边界见 [C1 验证记录](docs/performance-c1-ve
 
 日志保留：普通 `compareTool.log` 与一份 `.bak` 各最多 512 KiB；任务耗时日志保留最近 50 组成功、失败或中断记录，进行中任务除外。每组过程记录最多 512 KiB，结束事件和摘要各最多 64 KiB。
 
-覆盖重建、日志上限和发布目录短暂占用的有限重试见 [实现与验证记录](docs/output-regeneration.md)。2026-09-27 构建 `772b99a402` 的六模式、混合总报告及实际文件夹测试属于 [历史 EXE 验证记录](docs/release-20260927-verification.md)；重名成员的历史验证见 [2026-09-28 记录](docs/archive-duplicate-members.md)。当前尽量导出改造、审查和安装验证见 [2026-10-13 发布记录](docs/export-best-effort-verification.md)。
+覆盖重建、日志上限和发布目录短暂占用的有限重试见 [实现与验证记录](docs/output-regeneration.md)。2026-09-27 构建 `772b99a402` 的六模式、混合总报告及实际文件夹测试属于 [历史 EXE 验证记录](docs/release-20260927-verification.md)；重名成员的历史验证见 [2026-09-28 记录](docs/archive-duplicate-members.md)。尽量导出改造、审查及当日凌晨的安装验证见 [2026-10-13 历史发布记录](docs/export-best-effort-verification.md)。
+
+## 架构与版本标识
+
+1. `main.py` 收集输入：项目路径、VCS 类型（Git/SVN/文件夹/压缩包/Git多版本/SVN多版本）、旧/新版本号或多版本列表、排除规则、输出目录
+2. 根据 VCS 类型创建 `GitVCS` / `SVNVCS` / `FolderVCS` / `ArchiveVCS` / `GitMultiVersionVCS` / `SVNMultiVersionVCS` → `get_changed_files()` 获取变更文件列表
+3. `DiffEngine.generate_diff()` 遍历文件，对文本文件生成 side-by-side HTML（标准 `HtmlDiff` 及完整非递归回退）；二进制文件跳过内容只设占位标记；普通模式下内容完全一致且唯一匹配的删除+新增可合并为重命名，多版本保留端点规划器的身份结果
+4. `FileExporter` 先将可验证的新旧端点导出到暂存目录，过滤未完成项；包内递归借用实际交付的暂存端点
+5. `ReportGenerator` 渲染单文件 HTML（模板失败时生成基础清单），与上线说明及导出文件一起校验发布；详细约束见 [完整性合同](docs/report-and-export-contract.md)
+
+```
+main.py                  # tkinter GUI 入口，线程管理，配置持久化，UI 防抖
+├── vcs/
+│   ├── base.py          # BaseVCS 抽象类 + ChangedFile/ChangeType + glob 排除匹配
+│   ├── git_vcs.py       # GitVCS：git diff --raw -z --find-renames / git show / git log
+│   ├── git_checkout.py  # 隔离 Git 属性/配置快照、微小检出探针和流式文本判定
+│   ├── svn_vcs.py       # SVNVCS：svn diff --summarize / svn cat (URL+@peg) / svn log
+│   ├── folder_vcs.py    # FolderVCS：固定树身份、分块比较、快照变更端点并复核源树
+│   ├── archive_vcs.py   # ArchiveVCS：解压 zip/tar 到临时目录，委托 FolderVCS 比对
+│   └── multi_version_vcs.py # Git/SVN 多版本：历史身份追踪 + 文件级端点快照
+├── diff_engine.py       # 遍历变更、编码/格式判定、差异统计及左右 HTML
+├── stable_diff.py       # HtmlDiff 递归失败时的完整非递归差异表
+├── report_generator.py  # Jinja2 渲染 templates/report.html → 单文件 HTML
+├── file_exporter.py     # 变更文件按目录结构导出到 oldVersion/newVersion
+├── delivery_instructions.py # 生成上线删除/重命名操作说明
+├── logger.py            # 简易日志，仅 warn/error 写文件（info 为空操作），512KB 轮转
+├── templates/report.html # 单项目 HTML 报告模板（文件树 + 左右对比 + 变更清单弹窗）
+└── templates/multi_report.html # 多项目总报告模板（项目分组文件树 + 左右对比 + 变更清单弹窗）
+```
+
+| 类型 | 旧版本标识 | 新版本标识 | 备注 |
+|------|-----------|-----------|------|
+| Git | commit hash / tag / branch | 同左 | `get_file_content_working` 直接读工作副本文件 |
+| SVN | `rNNNNN` 或 `NNNNN` | 同左 | `get_file_content` 使用仓库 URL + peg revision |
+| 文件夹 | 旧文件夹路径 | 新文件夹路径 | 固定树身份，只快照变更端点并复核源树；兼容 `"old"`/`"new"` 和用户输入的实际路径 |
+| 压缩包 | 旧压缩包路径 | 新压缩包路径 | 解压到临时目录后委托 `FolderVCS` 比对；支持 `.zip` / `.jar` / `.war` / `.ear` / `.aar` / `.tar` / `.tar.gz` / `.tgz` / `.tar.bz2` / `.tbz2` |
+| Git多版本 | 多个 commit hash | `文件级首尾端点` | 每个文件 old 取首次选中变更的第一父提交，new 取末次选中提交 |
+| SVN多版本 | 多个 `rNNNNN` 或 `NNNNN` | `文件级首尾端点` | 每个文件 old 取首次选中 revision 前状态，new 取末次选中 revision 后状态 |
+
+### 编码
+
+- **SVN 子进程输出**：`_run()` 读取原始字节，通过 `_decode_bytes()` 自动探测编码（UTF-8 → GBK → 回退）。影响 svn log、svn diff、svn info 等所有命令输出
+- **SVN cat / 本地文件**：同样走 `_decode_bytes()`（UTF-8 → GBK）
+- **Git 路径**：`_unescape_git_path()` 解码 `core.quotepath` 的八进制和 C 风格转义（包括 tab、换行、引号和反斜杠）。
