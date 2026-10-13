@@ -12,7 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from app_version import APP_VERSION
+from app_version import is_release_version
 
 
 def source_fingerprint(root):
@@ -32,6 +32,22 @@ def git_output(*args):
     return result.stdout.decode("utf-8", "replace").strip() if result.returncode == 0 else ""
 
 
+def next_release_version(output, build_time):
+    """按本地构建日期编号，保留同一输出目录及归档中当天最大的序号。"""
+    prefix = build_time.strftime("%Y.%m.%d.")
+    sequence = 0
+    paths = [output / "CompareTool_build.json", *output.glob("archive/*/CompareTool_build.json")]
+    for path in paths:
+        try:
+            metadata = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        version = metadata.get("version") if isinstance(metadata, dict) else None
+        if is_release_version(version) and version.startswith(prefix):
+            sequence = max(sequence, int(version.rsplit(".", 1)[1]))
+    return prefix + str(sequence + 1)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, default=ROOT / "dist")
@@ -40,9 +56,10 @@ def main():
     (ROOT / ".tmp").mkdir(exist_ok=True)
     work = Path(tempfile.mkdtemp(prefix="release_build_", dir=ROOT / ".tmp"))
     digest = source_fingerprint(ROOT)
-    built_at = datetime.now().astimezone().isoformat(timespec="seconds")
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    info = dict(version=APP_VERSION, build_id=digest[:10], built_at=built_at,
+    build_time = datetime.now().astimezone()
+    built_at = build_time.isoformat(timespec="seconds")
+    stamp = build_time.strftime("%Y%m%d_%H%M%S")
+    info = dict(version=next_release_version(output, build_time), build_id=digest[:10], built_at=built_at,
                 commit=git_output("rev-parse", "HEAD"),
                 dirty=bool(git_output("status", "--porcelain")), source_sha256=digest)
     metadata = work / "build_info.json"

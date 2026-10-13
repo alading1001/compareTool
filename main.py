@@ -191,6 +191,17 @@ class CompareToolApp(TaskProgressUI):
         self._project_display_options = dict(raw_display_options) if isinstance(raw_display_options, dict) else {}
         self._recent_projects = self._normalize_recent_projects(self._config.get("recent_projects", []))
         self._recent_project_value_map = {}
+        raw_comparison_paths = self._config.get("last_comparison_paths", {})
+        self._last_comparison_paths = {}
+        if isinstance(raw_comparison_paths, dict):
+            for kind in ("folder", "archive"):
+                paths = raw_comparison_paths.get(kind)
+                if isinstance(paths, dict):
+                    self._last_comparison_paths[kind] = {
+                        side: paths[side].strip() if isinstance(paths.get(side), str) else ""
+                        for side in ("old_version", "new_version")
+                    }
+        self._active_vcs_type = None
         raw_multi_tasks = self._config.get("multi_tasks", [])
         self._multi_tasks = self._normalize_loaded_multi_tasks(raw_multi_tasks)
         self._editing_task_index = None
@@ -1310,13 +1321,27 @@ class CompareToolApp(TaskProgressUI):
     def _join_display_path(self, *parts: str) -> str:
         return self._display_path(os.path.join(*[p for p in parts if p]))
 
+    def _remember_comparison_paths(self, vcs_type=None):
+        vcs_type = vcs_type or self.vcs_var.get()
+        if vcs_type in ("folder", "archive"):
+            if not hasattr(self, "_last_comparison_paths"):
+                self._last_comparison_paths = {}
+            self._last_comparison_paths[vcs_type] = {
+                "old_version": self.old_version_var.get().strip(),
+                "new_version": self.new_version_var.get().strip(),
+            }
+
     def _on_vcs_changed(self):
         """VCS 类型切换时更新界面"""
+        previous_type = getattr(self, "_active_vcs_type", None)
+        if previous_type is not None:
+            self._remember_comparison_paths(previous_type)
         if hasattr(self, "recursive_archives_check"):
             self.recursive_archives_check.configure(state=(tk.NORMAL
                 if self.vcs_var.get() in SUPPORTED_VCS_TYPES else tk.DISABLED))
         self._version_request_id += 1
         vcs_type = self.vcs_var.get()
+        self._active_vcs_type = vcs_type
         is_folder = vcs_type == "folder"
         is_archive = vcs_type == "archive"
         is_multi = vcs_type in ("git_multi", "svn_multi")
@@ -1339,6 +1364,10 @@ class CompareToolApp(TaskProgressUI):
         self.new_entry.config(state=tk.NORMAL)
         self.old_version_var.set("")
         self.new_version_var.set("")
+        if is_folder or is_archive:
+            paths = self._last_comparison_paths.get(vcs_type, {})
+            self.old_version_var.set(paths.get("old_version", ""))
+            self.new_version_var.set(paths.get("new_version", ""))
         self.version_listbox.config(selectmode=tk.SINGLE)
         self.fill_selected_btn.config(text="← 填入选中版本")
         self._reset_version_list_state()
@@ -1420,17 +1449,23 @@ class CompareToolApp(TaskProgressUI):
             self._on_project_path_changed()
 
     def _browse_dir(self, var):
-        path = filedialog.askdirectory(title="选择保存目录")
+        current = var.get().strip()
+        initial_dir = current if os.path.isdir(current) else os.path.dirname(current)
+        options = {"initialdir": initial_dir} if os.path.isdir(initial_dir) else {}
+        path = filedialog.askdirectory(title="选择保存目录", **options)
         if path:
             var.set(path)
 
     def _browse_archive(self, var):
+        initial_dir = os.path.dirname(var.get().strip())
+        options = {"initialdir": initial_dir} if os.path.isdir(initial_dir) else {}
         path = filedialog.askopenfilename(
             title="选择压缩包",
             filetypes=[
                 ("压缩文件", "*.zip *.jar *.war *.ear *.aar *.tar *.tar.gz *.tgz *.tar.bz2 *.tbz2"),
                 ("所有文件", "*.*"),
-            ]
+            ],
+            **options,
         )
         if path:
             var.set(path)
@@ -2698,12 +2733,14 @@ class CompareToolApp(TaskProgressUI):
         """保存当前界面配置到文件"""
         self._save_current_exclude_rules_for_current_key()
         self._remember_recent_project(refresh=False)
+        self._remember_comparison_paths()
         data = {
             "project_path": self.dir_entry.get().strip(),
             "vcs_type": self.vcs_var.get(),
             "project_exclude_rules": self._project_exclude_rules,
             "project_display_options": self._project_display_options,
             "recent_projects": self._recent_projects,
+            "last_comparison_paths": getattr(self, "_last_comparison_paths", {}),
             "multi_tasks": self._multi_tasks,
             "output_dir": self.output_dir_var.get().strip(),
         }

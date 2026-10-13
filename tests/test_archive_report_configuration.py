@@ -99,3 +99,81 @@ class ArchiveConfigurationTests(WorkflowCase):
             text = __import__('pathlib').Path(app.report_path_var.get()).read_text(encoding='utf-8')
             self.assertIn('包内审查明细', text)
             self.assertIn('GUI_', text)
+
+    def test_folder_and_archive_paths_survive_switches_and_restart_independently(self):
+        old_folder, new_folder = self.root/'oldFolder', self.root/'newFolder'
+        old_folder.mkdir(); new_folder.mkdir()
+        old_archive, new_archive = self.root/'old.zip', self.root/'new.zip'
+        old_archive.write_bytes(package(b'old')); new_archive.write_bytes(package(b'new'))
+        expected = {
+            'folder': dict(old_version=str(old_folder), new_version=str(new_folder)),
+            'archive': dict(old_version=str(old_archive), new_version=str(new_archive)),
+        }
+        with ExitStack() as stack:
+            app = self.isolated_gui(stack, dict(vcs_type='git', output_dir=str(self.root/'output')))
+            for kind, paths in expected.items():
+                app.vcs_var.set(kind)
+                self.assertEqual('', app.old_version_var.get())
+                self.assertEqual('', app.new_version_var.get())
+                app.old_version_var.set(paths['old_version'])
+                app.new_version_var.set(paths['new_version'])
+                app._refresh_output_paths_now()
+                app._replace_exclude_text(kind + '.exclude')
+                app.ignore_archive_root_var.set(kind == 'archive')
+            app.vcs_var.set('folder')
+            self.assertEqual(expected['folder']['old_version'], app.old_version_var.get())
+            self.assertEqual(expected['folder']['new_version'], app.new_version_var.get())
+            self.assertEqual('newFolder', app.project_name_var.get())
+            self.assertEqual('folder.exclude', app._current_exclude_rules())
+            self.assertTrue(app._save_current_config())
+            saved = json.loads((self.root/'config.json').read_text(encoding='utf-8'))
+            self.assertEqual(expected, saved['last_comparison_paths'])
+            self.assertNotIn('output_batch', saved)
+        with ExitStack() as stack:
+            app = self.isolated_gui(stack, saved)
+            self.assertEqual(expected['folder']['old_version'], app.old_version_var.get())
+            self.assertEqual(expected['folder']['new_version'], app.new_version_var.get())
+            app.vcs_var.set('archive')
+            self.assertEqual(expected['archive']['old_version'], app.old_version_var.get())
+            self.assertEqual(expected['archive']['new_version'], app.new_version_var.get())
+            self.assertEqual('archive.exclude', app._current_exclude_rules())
+            self.assertTrue(app.ignore_archive_root_var.get())
+            for kind in ('git', 'svn', 'git_multi', 'svn_multi'):
+                app.vcs_var.set(kind)
+                self.assertEqual('', app.old_version_var.get())
+                self.assertEqual('文件级首尾端点' if kind.endswith('_multi') else '', app.new_version_var.get())
+
+    def test_empty_and_unavailable_paths_are_saved_without_resurrecting_old_values(self):
+        paths = dict(folder=dict(old_version='missing-old', new_version='missing-new'))
+        with ExitStack() as stack:
+            app = self.isolated_gui(stack, dict(vcs_type='folder', last_comparison_paths=paths))
+            self.assertEqual('missing-old', app.old_version_var.get())
+            app.old_version_var.set('')
+            self.assertTrue(app._save_current_config())
+            saved = json.loads((self.root/'config.json').read_text(encoding='utf-8'))
+        with ExitStack() as stack:
+            app = self.isolated_gui(stack, saved)
+            self.assertEqual('', app.old_version_var.get())
+            self.assertEqual('missing-new', app.new_version_var.get())
+
+    def test_legacy_and_invalid_path_memory_do_not_prevent_startup(self):
+        for paths in (None, [], 'bad', {'folder': [], 'archive': 'bad'},
+                      {'folder': {'old_version': None, 'new_version': []}}):
+            with self.subTest(paths=paths), ExitStack() as stack:
+                app = self.isolated_gui(stack, dict(vcs_type='folder', last_comparison_paths=paths))
+                self.assertEqual('', app.old_version_var.get())
+                self.assertEqual('', app.new_version_var.get())
+
+    def test_source_browsers_start_from_remembered_directory(self):
+        folder = self.root/'inputs'; folder.mkdir()
+        archive = folder/'new.zip'; archive.write_bytes(package(b'new'))
+        with ExitStack() as stack:
+            app = self.isolated_gui(stack, {})
+            app.old_version_var.set(str(folder))
+            with mock.patch('main.filedialog.askdirectory', return_value='') as dialog:
+                app._browse_dir(app.old_version_var)
+                self.assertEqual(str(folder), dialog.call_args.kwargs['initialdir'])
+            app.new_version_var.set(str(archive))
+            with mock.patch('main.filedialog.askopenfilename', return_value='') as dialog:
+                app._browse_archive(app.new_version_var)
+                self.assertEqual(str(folder), dialog.call_args.kwargs['initialdir'])
