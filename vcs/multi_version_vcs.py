@@ -635,6 +635,7 @@ class _MultiVersionFolderDelegate(BaseVCS):
             for index in sorted(conflicts):
                 _entity, old, new = effective[index]
                 self.issues.append(dict(stage='端点路径', path=new or old,
+                    old_path=old or '',
                     message='Windows 文件路径重名或文件/目录碰撞，冲突各方均未导出', delivery=True))
             effective = [item for index, item in enumerate(effective) if index not in conflicts]
 
@@ -1449,9 +1450,17 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
             return False
         if not raw.endswith(b'\0'):
             raise RuntimeError('Git 路径存在性查询返回不完整')
-        # 目录也视为存在，让原有普通文件校验明确拒绝，不能当作空文件。
-        return any(record.split(b'\t', 1)[-1].decode('utf-8', 'surrogateescape') == repository_path
-                   for record in raw.split(b'\0') if record)
+        for record in raw[:-1].split(b'\0'):
+            header, separator, name = record.partition(b'\t')
+            fields = header.split()
+            if not separator or len(fields) != 3:
+                raise RuntimeError('Git 路径存在性查询返回无效记录')
+            if name.decode('utf-8', 'surrogateescape') != repository_path:
+                continue
+            # 目录只承载子文件，不是这个路径的文件端点；否则合法的目录/
+            # 文件替换会与后代端点发生假碰撞。链接和子模块仍交给 mode 校验拒绝。
+            return fields[:2] != [b'040000', b'tree']
+        return False
 
     @staticmethod
     def _eligible_candidate_groups(groups, event_step: int, include_same_step=False):

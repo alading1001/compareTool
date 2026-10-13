@@ -288,7 +288,9 @@ class GitVCS(BaseVCS):
             except RuntimeError as exc:
                 if not getattr(self, 'best_effort', False):
                     raise
-                self.issues.append(dict(stage='文件类型', path=path, message=str(exc), delivery=True))
+                self.issues.append(dict(stage='文件类型', path=path,
+                    old_path=old_path if code == 'R' and not old_excluded else '',
+                    message=str(exc), delivery=True))
                 continue
             metadata = self._mode_metadata(
                 effective_old_mode, effective_new_mode

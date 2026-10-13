@@ -14,6 +14,133 @@ from diff_engine import DiffResult, FileDiff
 
 
 class BestEffortWorkflowTests(WorkflowCase):
+    def commit_index_tree(self, repo, entries, parent=None):
+        """直接提交测试索引，覆盖 Windows 工作树无法同时表示的名称和链接。"""
+        repo.cmd('read-tree', '--empty')
+        for path, (mode, content) in entries.items():
+            oid = subprocess.run([repo.executable, 'hash-object', '-w', '--stdin'],
+                cwd=repo.path, input=content, capture_output=True, check=True).stdout.decode().strip()
+            repo.cmd('update-index', '--add', '--cacheinfo', f'{mode},{oid},{path}')
+        args = ['commit-tree', repo.cmd('write-tree'), '-m', 'endpoint fixture']
+        if parent:
+            args += ['-p', parent]
+        version = repo.cmd(*args)
+        repo.cmd('update-ref', 'HEAD', version)
+        return version
+
+    def test_failed_symlink_rename_blocks_old_directory_replacement(self):
+        repo = Repository(self, 'git', 'symlinkReplacement')
+        old = self.commit_index_tree(repo, {
+            'Node/link': ('120000', b'elsewhere'),
+            'Node/ordinary.txt': ('100644', b'ordinary old'),
+            'good.txt': ('100644', b'old good'),
+        })
+        new = self.commit_index_tree(repo, {
+            'moved': ('120000', b'elsewhere'),
+            'Node': ('100644', b'replacement'),
+            'good.txt': ('100644', b'new good'),
+        }, old)
+        app, result, out = self.generate(repo.task(old, new), False)
+        self.assert_report(app, result, out, partial=True)
+        self.assertEqual(['good.txt'], [file.file_path for file in result.files])
+        self.assertEqual([], result.required_directory_deletions)
+        self.assertEqual(b'new good', (out/'newVersion/Demo/good.txt').read_bytes())
+        self.assertFalse((out/'newVersion/Demo/Node').exists())
+        self.assertFalse((out/'oldVersion/Demo/Node/ordinary.txt').exists())
+        instructions = next(out.glob('*操作说明.txt')).read_text(encoding='utf-8-sig')
+        self.assertNotIn('[删除旧目录后再写入同名文件] Demo/Node', instructions)
+        self.assertNotIn('[删除文件] Demo/Node/ordinary.txt', instructions)
+
+    def test_failed_rename_collision_blocks_old_directory_replacement(self):
+        repo = Repository(self, 'git', 'collisionReplacement')
+        old = self.commit_index_tree(repo, {
+            'Node/a.txt': ('100644', b'A' * 128),
+            'Node/b.txt': ('100644', b'B' * 128),
+            'Node/ordinary.txt': ('100644', b'ordinary old'),
+            'good.txt': ('100644', b'old good'),
+        })
+        new = self.commit_index_tree(repo, {
+            'X/dup.txt': ('100644', b'A' * 128),
+            'x/DUP.txt': ('100644', b'B' * 128),
+            'Node': ('100644', b'replacement'),
+            'good.txt': ('100644', b'new good'),
+        }, old)
+        for multi in (False, True):
+            with self.subTest(multi=multi):
+                task = repo.task(new if multi else old, new, multi=multi)
+                app, result, out = self.generate(task, False, self.root/str(multi))
+                self.assert_report(app, result, out, partial=True)
+                self.assertEqual(['good.txt'], [file.file_path for file in result.files])
+                self.assertEqual([], result.required_directory_deletions)
+                self.assertEqual(b'new good', (out/'newVersion/Demo/good.txt').read_bytes())
+                for side in ('oldVersion', 'newVersion'):
+                    self.assertEqual(['good.txt'], [path.relative_to(out/side/'Demo').as_posix()
+                        for path in (out/side/'Demo').rglob('*') if path.is_file()])
+                instructions = next(out.glob('*操作说明.txt')).read_text(encoding='utf-8-sig')
+                self.assertNotIn('[删除旧目录后再写入同名文件] Demo/Node', instructions)
+                self.assertNotIn('[删除文件] Demo/Node/ordinary.txt', instructions)
+
+    def conflict_replacement_versions(self, repo, directory_to_file, *, special=False):
+        old_path, new_path = ('Node/child.txt', 'Node') if directory_to_file else ('Node', 'Node/child.txt')
+        entries = {
+            'old.txt': ('100644', b'baseline old'),
+            old_path: ('100644', b'baseline node'),
+            'good.txt': ('100644', b'old good'),
+        }
+        baseline = self.commit_index_tree(repo, entries)
+        entries['old.txt'] = ('100644', b'selected old')
+        first = self.commit_index_tree(repo, entries, baseline)
+        del entries['old.txt']
+        del entries[old_path]
+        entries[new_path] = ('120000' if special else '100644', b'intermediate replacement')
+        middle = self.commit_index_tree(repo, entries, first)
+        entries[new_path] = ('120000' if special else '100644', b'selected replacement')
+        entries['good.txt'] = ('100644', b'new good')
+        last = self.commit_index_tree(repo, entries, middle)
+        return first, last, old_path, new_path
+
+    def test_conflict_fallback_preserves_directory_file_replacements(self):
+        for directory_to_file in (True, False):
+            with self.subTest(directory_to_file=directory_to_file):
+                repo = Repository(self, 'git', f'conflictReplacement{directory_to_file}')
+                first, last, old_path, new_path = self.conflict_replacement_versions(repo, directory_to_file)
+                expected = {'old.txt': ChangeType.DELETED, old_path: ChangeType.DELETED,
+                            new_path: ChangeType.ADDED, 'good.txt': ChangeType.MODIFIED}
+                vcs = GitMultiVersionVCS(str(repo.path), [first, last])
+                try:
+                    self.assertEqual(expected, {file.path: file.change_type for file in vcs.get_changed_files()})
+                    self.assertEqual(b'baseline node', vcs.get_file_content_raw_bytes('old', old_path))
+                    self.assertEqual(b'selected replacement', vcs.get_file_content_raw_bytes('new', new_path))
+                finally:
+                    vcs.cleanup()
+                task = repo.task(first + '\n' + last, last, multi=True)
+                app, result, out = self.generate(task, False, self.root/f'output{directory_to_file}')
+                self.assert_success(app)
+                self.assertFalse(result.delivery_incomplete)
+                self.assertEqual([], result.issues)
+                self.assertIn('降级', result.comparison_note)
+                self.assertEqual(expected, {file.file_path: file.change_type for file in result.files})
+                self.assertEqual(b'baseline node', (out/'oldVersion/Demo'/old_path).read_bytes())
+                self.assertEqual(b'selected replacement', (out/'newVersion/Demo'/new_path).read_bytes())
+                self.assertEqual(b'new good', (out/'newVersion/Demo/good.txt').read_bytes())
+                self.assertEqual(['Node'] if directory_to_file else [], result.required_directory_deletions)
+                instructions = next(out.glob('*操作说明.txt')).read_text(encoding='utf-8-sig')
+                self.assertIn('[删除文件] Demo/' + old_path, instructions)
+                if directory_to_file:
+                    self.assertIn('[删除旧目录后再写入同名文件] Demo/Node', instructions)
+
+    def test_conflict_fallback_still_rejects_symlink_endpoint(self):
+        repo = Repository(self, 'git', 'conflictSpecialReplacement')
+        first, last, _old_path, new_path = self.conflict_replacement_versions(repo, True, special=True)
+        with self.assertRaisesRegex(RuntimeError, '不是普通文件'):
+            GitMultiVersionVCS(str(repo.path), [first, last])
+        task = repo.task(first + '\n' + last, last, multi=True)
+        app, result, out = self.generate(task, False)
+        self.assert_report(app, result, out, partial=True)
+        self.assertTrue(any('不是普通文件' in issue['message'] for issue in result.issues))
+        self.assertFalse((out/'newVersion/Demo'/new_path).exists())
+        self.assertEqual(b'new good', (out/'newVersion/Demo/good.txt').read_bytes())
+
     def replacement_task(self):
         old, new = self.root/'replaceOld', self.root/'replaceNew'
         (old/'Node').mkdir(parents=True); new.mkdir()
