@@ -115,11 +115,11 @@
     "documentation": "changed-and-verified",
     "rules": "changed-and-verified",
     "memory": "out-of-scope; generated-read-only",
-    "workspace": "pending; 复核现场保留，清场等待汇报后明确确认"
+    "workspace": "changed-and-verified; 用户确认的三个构建目录已清理，交付物与验证现场保留"
   },
   "cleanup": {
-    "performed": false,
-    "status": "pending post-report user confirmation",
+    "performed": true,
+    "status": "completed after post-report user confirmation",
     "candidates": [
       {
         "path": ".tmp/release_build_93a4nmc1",
@@ -153,7 +153,13 @@
       ".tmp/manual",
       ".tmp/closeout-version-paths-20261013",
       "当前运行 EXE 的解包目录及其他历史现场"
-    ]
+    ],
+    "completed_at": "2026-10-13T14:39:35.5690497+08:00",
+    "removed_files": 51,
+    "removed_bytes": 143675336,
+    "protected_files_verified": 2830,
+    "verification_passed": true,
+    "receipt": "artifacts/release-version-paths-cleanup-20261013.json"
   },
   "documentation_audit": {
     "markdown_count": 25,

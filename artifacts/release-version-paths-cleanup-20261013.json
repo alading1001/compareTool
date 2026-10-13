@@ -1,0 +1,70 @@
+{
+  "completed_at": "2026-10-13T14:39:35.5690497+08:00",
+  "authorization": {
+    "received_at": "2026-10-13T14:39:23.4194636+08:00",
+    "user_message": "清理",
+    "context": "User approved the three build directories after the closeout report and deletion preview.",
+    "paths": [
+      ".tmp/release_build_93a4nmc1",
+      ".tmp/release_build_4y8nszf9",
+      ".tmp/release_build_im0kppaz"
+    ],
+    "preserve": "Released EXE, metadata, old archives, configuration, manuals, source and verification evidence."
+  },
+  "removed_directories": [
+    {
+      "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\release_build_93a4nmc1",
+      "files": 17,
+      "bytes": 47889124
+    },
+    {
+      "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\release_build_4y8nszf9",
+      "files": 17,
+      "bytes": 47893558
+    },
+    {
+      "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\release_build_im0kppaz",
+      "files": 17,
+      "bytes": 47892654
+    }
+  ],
+  "removed_files": 51,
+  "removed_bytes": 143675336,
+  "protected_files": 2830,
+  "protected_hash_mismatches": [],
+  "unexpected_tmp_entry_changes": [],
+  "runtime_before": [
+    {
+      "ProcessId": 17396,
+      "ExecutablePath": "D:\\AI\\project\\compareTool_myself\\dist\\CompareTool.exe"
+    },
+    {
+      "ProcessId": 37360,
+      "ExecutablePath": "D:\\AI\\project\\compareTool_myself\\dist\\CompareTool.exe"
+    }
+  ],
+  "runtime_after": [
+    {
+      "ProcessId": 17396,
+      "ExecutablePath": "D:\\AI\\project\\compareTool_myself\\dist\\CompareTool.exe"
+    },
+    {
+      "ProcessId": 37360,
+      "ExecutablePath": "D:\\AI\\project\\compareTool_myself\\dist\\CompareTool.exe"
+    }
+  ],
+  "stopped_processes": [],
+  "verification_passed": true,
+  "evidence_directory": ".tmp/cleanup-version-paths-20261013",
+  "manifest_sha256": {
+    "allowlist.json": "23bc9954dba2bac1266fe6a99f20f19e0dc8bee5b518286c41307d6b3f80a14d",
+    "protected-before.json": "925c91568a028b042d92dbeaf3f5085120e474de60f73b80b93ccda0b0a80d20",
+    "authorization.json": "28b6e854d5e0c2d1bc72f9dafaf6c1418d52c40992a2bd3df0c5e04f078c1282",
+    "result.json": "b19a9425184649ce74069cab5b2929f77d3626fc673799edf36242ab3e0d2863"
+  },
+  "post_cleanup_documentation": "保留文件摘要比对完成后，仅更新本清场凭证、原发布凭证和发布记录；应用源码及交付物未改变。",
+  "remaining_warnings": [
+    "范围外旧安装目录的 EXE 与旁置元数据仍不一致，本轮未修改。",
+    "AGENTS.md 体量仍超过默认参考预算的 70%，本轮未修改。"
+  ]
+}
