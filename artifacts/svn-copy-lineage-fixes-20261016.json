@@ -1,0 +1,519 @@
+{
+  "base_commit": "f2ef58f346feb543875c2753e31ed5701d2267f8",
+  "scope": "Local Windows source validation; EXE not rebuilt",
+  "source_fingerprint": "98e2b387f9f9e79336814103166b7b36e0878246a6362f9ced00b5a73a309207",
+  "source_files_verified": 98,
+  "source_sha256": {
+    "app_version.py": "8d22d58304f5e100a96f16f129cd32bfb67915f056ad4bd0696707dbc6a07d44",
+    "archive_endpoints.py": "7b0739ad4ab6ffa34b516b07e4011e17678b449335998d25c70f14e4dd291058",
+    "archive_report.py": "aebe5698ee96bd91e5220a0291360b4965b48263563f646110339523d6d17c83",
+    "artifacts/export-blockers-20261012.html": "05eea1394efa7920cb555b5a8cbc10e7e587302084071ccc66f021d014972fdc",
+    "delivery_instructions.py": "14a6e45e46e517ea7bb841313e118ee20cd27a1bf3e702a1cc18b36f5bb02803",
+    "diff_engine.py": "2bbb1f1165cad4290142c8d58e1babccbd8c98a63f80a382541986c80a4ded2b",
+    "docs/manual/build_manual.py": "a66abdbf1f995c802bee23999d7ed84fb2928e9e8734239ad421c07940179ece",
+    "docs/manual/verify_pdf.py": "9c98a594bce1734bfb37dcc6c001decb8e95636e77b396a7473ab4b13c215522",
+    "file_exporter.py": "6d761ab58ae3614bf1ce6c57f41c218e3a33a2cbe097a628c924eeb240cb8f6e",
+    "html_details.py": "1b0c13e07fa7e7188dc6bbf972708cdebfd9bd3cbcce335c50a6487ccac7e325",
+    "logger.py": "8e683db696c101111d917914dc1526305a6d29b03e7a1745e9f5e9ce95c91926",
+    "main.py": "e12b123e4a8d072e61d8bffedbca2e2e943c310feef5a0a56a449fd310bde75b",
+    "path_safety.py": "9238eaa36815186d858f68425fc3b70123130b7fec5336f30a446d46416a7249",
+    "report_generator.py": "9ae1fbc7760760f21d073c0b2a1e4ec70c70bf35d1f2126b5ddd2df8c7189fcf",
+    "stable_diff.py": "86802ac128926313105b909a22acb8050eca41c84eafa5fc4577abdf67ca2d43",
+    "stage_ownership.py": "cd24ca3a26d48f3637005387f0ddf0a980b33911c09db1f4d2b759c4a0f8b787",
+    "task_progress.py": "6fec0ef94cdfa865475a5877338129574206f24232032647b3cb050b8ec753ae",
+    "templates/archive_details.html": "d108d33a12e7fa3d4cb16abc135df955472613cb1c4816b23ff07c00d7766d8e",
+    "templates/archive_script.html": "ecd2ae5d8bd844294d636282fa0a70f3bbb85006a1d0f070d68a2364db8cd1ef",
+    "templates/archive_style.html": "785b7a3e8a15f66979bc60792918017bad7ed4246ae695da09ad015a8650c8a4",
+    "templates/file_detail.html": "71997345869e21bcc964dca2d0a0b9584972ec208178db86a36cef3d4108adad",
+    "templates/multi_report.html": "9e1bfccb747dc6379e8c31f92a4808ae632592eb23e921369ab2439cf4fa18af",
+    "templates/report.html": "539395aecf3f914ceac01fe3882fa9d0eeb1be5cd1057730c4b76d9ba56d1fb4",
+    "templates/result_issues.html": "d1a1f92b6e2bfcd0f761744dbdaff4273740798aded428ef7c8c22f04550683b",
+    "tests/archive_workflow_fixtures.py": "0d5af95f1dac13f6dc6a54af74248004db49d67c5f9127be43c26312a76b4262",
+    "tests/test_adversarial_regressions.py": "66fcea1aef6334d5cd498907c4422a837df1235cffc29b7586d75241d6cc1af4",
+    "tests/test_archive_comparison_root.py": "b8e614effa899a4a090e12d9d088ebef1ec519ce7bb24b2f6db00a05d4c85c38",
+    "tests/test_archive_compatibility_after_aug27.py": "35b37f9570609efbb60ad596d0fbc00ac53b0c09b5a497743592365d95024c31",
+    "tests/test_archive_duplicate_members.py": "f402cb3628632a39c091dab1b4b0ffbcb889e03445eeb77f846cf1baebede25d",
+    "tests/test_archive_excluded_trailing_names.py": "cfa3b538c0ea912da404d5dce25796b8f2228cc738ff9462e3676efb3447028e",
+    "tests/test_archive_exclusion_review.py": "f1278a7cbe95acbd1914ea1c1f32ecfd5b65e958044edbf3f3ff2bd68dcbbc75",
+    "tests/test_archive_keyboard_navigation.py": "bf3ca283a02c3a615ae1938701970722dcb398dcd6d38fbc2394bc421b6873cf",
+    "tests/test_archive_report.py": "9c426491c3fc5dcd82e273faab03712685d9b7d3dc3b5ba099c74c14fd958895",
+    "tests/test_archive_report_all_vcs.py": "8990571bd89c7a84daa435b3a6efc5b49667bd230b59ed31d02d2c3841412c1c",
+    "tests/test_archive_report_configuration.py": "e2eb0262caa37b3669ce1f25fd913384f91f19c94797ea7d386224ae2cc1d089",
+    "tests/test_archive_report_integration.py": "bec6ca52f893cc743603185fa36b270be5a115ac9fb769d2ce1d5b8a0e7ac140",
+    "tests/test_archive_report_staging.py": "ecdc2ddab8ea78f103dc7c96ab6b1d748ff15130c70d2fc181b633fe149d71ae",
+    "tests/test_archive_streaming.py": "80f2ab4ba53e04f439ff1778b25834b5a19ef9d3a01624d0412616ef8ae2e71f",
+    "tests/test_archive_unlimited_defaults.py": "2934e8c260304560d07ca1fd64e2bd27077ab19cf64634c10d75fea9af6dfdd2",
+    "tests/test_best_effort_export.py": "f3bbaeb15b1ed66c5aed473b44d42f6a81f8f136c954faf8be720196fc3e7741",
+    "tests/test_complete_export_review_fixes.py": "72d8db2a1b354616b6c860962d6494257f5312678a327db02980453f190ebd4f",
+    "tests/test_endpoint_reuse.py": "9fb544b6357bb0988e6801dc432f385130dd1b25012fc3f8d4e68c2b5f087a90",
+    "tests/test_eol_stage_retry.py": "6bc3ffe633e175ee9521d23d95d833461ceb64f5dc4dda1e34ffcd007b79aa31",
+    "tests/test_exclusion_path_flow.py": "33e01ff7f6f34ed5cf2dc6619e5d1f4bb1997cbf5a8bc5e66d811f46fac83d63",
+    "tests/test_fifth_round_adversarial_regressions.py": "bad96e26dee24d45e1e4fe852c555044420e8b939d7009bf3cd6abdbec07adaa",
+    "tests/test_folder_compatibility_after_aug27.py": "e2d233e0fe3f49110d3bb5ad8356d6f1ca92a6f576addce27d01ceb344835370",
+    "tests/test_folder_scan_edge_cases.py": "3540c806a7e0d1a2478eafce18a88b667dbecebfacf3e992d034e3cce602d058",
+    "tests/test_folder_scan_followup.py": "a2823f2a4750a33abdd99196852cc701b1303c9edcd6946d31f269e01ddd4089",
+    "tests/test_folder_scan_optimization.py": "315a4aef2721b262e343f767995b7b13398e98fde48de42e31b69a9b32b0a766",
+    "tests/test_format_changes.py": "170e268c50665daae2ba1cfa42a31df597e401c3fc32c27dcb492c7fed130e0b",
+    "tests/test_git_checkout_scope_and_svn_externals.py": "0490fc22b9e7464e174306410cf6a297b29485568b45f9939e57f1153ea679ba",
+    "tests/test_git_probe_batch.py": "da55a24e29eec933619346602dc736eb73ac7fb948cf11860f30a9e2801b6515",
+    "tests/test_gnu_sparse_extensions.py": "c77b9e03a310c507026daa5d2cadbb6fb9fafa5a917ed75a6efc2390b0ec2a2a",
+    "tests/test_history_endpoint_projection.py": "6907a501ca0b97a97aaea47899ea261e85d51d021fd4a56c7103793e44de904c",
+    "tests/test_html_detail_store.py": "8ba26e4c686f9f217092a8f1a9d7e118b4ad953b811a527ddf4cd11d98a625c7",
+    "tests/test_log_retention.py": "041db3becf7843a16a6846166a252fe20f861a389989a015deba32daea78b226",
+    "tests/test_matcher_hotspots.py": "c8aece188d76918ff419f1117e477e5a97a200f7f476e53bf17dee1f3e9d3214",
+    "tests/test_multi_version_file_endpoints.py": "b272a30128ed41eef17730ca812d1fca0cdb36241e3e16cb4c6d2f6c4cd0985b",
+    "tests/test_output_compatibility_after_aug27.py": "02b7a495c3c4819905370291fdb833c274359c76409d52dce20b6038e0a11621",
+    "tests/test_output_publish_retry.py": "46e788f38b743cf12ac0f05391accb7c986900d1e5d3fe3917ef12c2608bf906",
+    "tests/test_output_regeneration.py": "3331d00a3b6d8a13535c446efea9c21506d8babaec878dae8aed2f756401aa5b",
+    "tests/test_passthrough_and_separator_regressions.py": "12c7fa2fdbc8e9ff34c71ec5dbc355c924b25fbbdec8502bdb837c6f72731d4f",
+    "tests/test_performance_first_batch.py": "ce73a1b114848dac1191808232040a26b9bb1ed66fbea27992ef5ca1d19d89f1",
+    "tests/test_performance_next_batch.py": "8ac84404fa3148cb7f3ea8335357b341047148c9086dea870e48bbdfa67a32fd",
+    "tests/test_release_identity.py": "41b47a996e4bd52b0f8842c65d3bbed4d4c32ef19edb85edad1a534c0b1b5814",
+    "tests/test_rendering_performance_regressions.py": "5e125fbe1748ddf9ea2c3963ee0a55a474f92b4345bbb6ec97cf31fec66e4943",
+    "tests/test_report_compatibility_after_aug27.py": "85c32eedfd7e4f87324b68e5edcb11a21476973e4f0cd76c6e37edf6159ed79c",
+    "tests/test_review_regressions.py": "2a76ea2231b50be86425d22cdff23d405f71f792cbe64d1870fa369bea626598",
+    "tests/test_second_round_adversarial_regressions.py": "b75bf4813dff56d222274483153c3fb38d009be8252f8ecb6fd848ed68746667",
+    "tests/test_svn_copy_lineage_review.py": "d141b188276bc865ec48f59c3e6d9caab9d637a89c05294ba10072e2d2c7011f",
+    "tests/test_svn_exclusion_move_boundaries.py": "e90a0a357517c399dceb410c2e6357d681e80aca15ff52d1e9716ef17381085a",
+    "tests/test_task_progress.py": "45e490788a59e5eb0a681032a42d18301dec81987dc3461a6bacf0a0459a7bd3",
+    "tests/test_temp_storage.py": "d2692b01737137fb5ac25b0e3084236751b1523af256145495717d54b6f340d9",
+    "tests/test_terminal_round_adversarial_regressions.py": "949deb5d334ba3059bde780f53bf089e2c5999efcee00160cc450a735e55cda7",
+    "tests/test_vcs_compatibility_after_aug27.py": "8f60d17f03b2b6c78effdc2948d74c63f0214005182e54285543c68a50a25ffb",
+    "tests/test_zip_directory_attributes.py": "e5f727d7746ff7643db2c534feca1f68093b0f58730e1f32fa22dac6fc0c6336",
+    "tools/benchmark_archive_all_vcs.py": "32c38b681fb3c80e72aac0bf33ed222419a82f5e4c569c4e69e39d70f499a7c8",
+    "tools/benchmark_folder_scan.py": "257a56e890a4564da02c3d230a867b1ddc644236e37a10a9ed7754b2b7e1b1d9",
+    "tools/benchmark_folder_worker.py": "cedf4df4755e76d89134304f216f21947da256a666c482dcbdf5438e04abb2e8",
+    "tools/benchmark_html_details.py": "7e9a2179068be6a95d69c4704699c3ff4d40f3a2648284c00491a93256695d83",
+    "tools/benchmark_performance.py": "5a6ac07efa482d5d44c86c27e187b3c34d95aa636638890d10cffd8855149db3",
+    "tools/benchmark_render_hotspots.py": "838ddb7e7010a53cca5bc69a72526a43f5f2adb22a3888c143244a97078ed4ba",
+    "tools/build_release.py": "b86669c23aa95dcb0e4a776cbd497080c40c760414ef69028fb94b1e2e9a04f5",
+    "tools/diagnose_folder_gui.py": "f2d2a31ca8d98858d2b96d6ebabbb7f2776c5a165a65fe5180e5869829212f2b",
+    "tools/make_browser_fixture.py": "b3644b9cc4b56a35ed00442bee14b50477b65899fbeb0cd42d3be499c584bce9",
+    "ui_progress.py": "743f4917a187f00145c94d78640daaca21577c13a368923f486d59c2bf8a865a",
+    "vcs/__init__.py": "8fb86391432641e7b720313b271eecf44f5f994a4491288fd2b9c78ccb754f86",
+    "vcs/archive_vcs.py": "fa7081c2826c2c06393e40840a0089b3d765fbecdf78d0509fa94c857cd29809",
+    "vcs/base.py": "6db5e26c5cd59bce05a9e2e0092e01f57f3044914a7b358013a96649b64427a5",
+    "vcs/folder_vcs.py": "e89b7f5329b1638bf567c0ad636f4a0aecd0eda58057f74feab8e859edab4031",
+    "vcs/git_batch.py": "1eec47f4dd0cf72c9004a0db6a3608b0ad9fb81751a0e0c7e817f5383a091e69",
+    "vcs/git_checkout.py": "213ba2ca165aa34487a2fe85dbb6643366c9156e475047b2404b859f7115b092",
+    "vcs/git_probe_batch.py": "ebd05e0cef9a02ba6abeb2f4611acdfd39ffa32e36b912b2417cb1197756ddd4",
+    "vcs/git_vcs.py": "dd8b7b2178564dcca3ec4aae39e8b1c9b995f2ac9d9d2e70a5dfe562ad226b34",
+    "vcs/multi_version_vcs.py": "9c8497bea8415ce52438b1966d1971dd683fed31d79775d70938e3a9e14f0984",
+    "vcs/raw_cache.py": "b6333fa9fde388c503ff17a35130a1532a3354f94227db05c989e95db3efe8c3",
+    "vcs/svn_vcs.py": "e2f37286896cc577ded7a5b138585e85f1c468df9f23686b84b0d8d48c9ef8ce",
+    "vcs/temp_storage.py": "a0be4ba7bf89a34a3eabdda4234db8724922a9e557e69eb4149d55a75287b5d7"
+  },
+  "regression": {
+    "tests": 643,
+    "passed": 642,
+    "skipped": 1,
+    "failures": 0,
+    "errors": 0,
+    "module_count": 51,
+    "shards": [
+      {
+        "tests": 204,
+        "passed": 204,
+        "skipped": 0,
+        "seconds": 564.578,
+        "log": "D:\\AI\\project\\compareTool_myself\\.tmp\\endpoint_validation_a76b7568fc\\regression.log",
+        "log_sha256": "a08fa481e75d3b0532192f55e210c5a0ba4c0665af96ef2b3f0f6b03da7d27bd",
+        "skip_lines": [],
+        "modules": [
+          "test_adversarial_regressions",
+          "test_archive_excluded_trailing_names",
+          "test_archive_report_all_vcs",
+          "test_archive_streaming",
+          "test_endpoint_reuse",
+          "test_folder_compatibility_after_aug27",
+          "test_format_changes",
+          "test_history_endpoint_projection",
+          "test_multi_version_file_endpoints",
+          "test_passthrough_and_separator_regressions",
+          "test_rendering_performance_regressions",
+          "test_svn_copy_lineage_review",
+          "test_terminal_round_adversarial_regressions"
+        ]
+      },
+      {
+        "tests": 151,
+        "passed": 151,
+        "skipped": 0,
+        "seconds": 254.563,
+        "log": "D:\\AI\\project\\compareTool_myself\\.tmp\\endpoint_validation_804e1d9d66\\regression.log",
+        "log_sha256": "f0bed54e21bef72a243d83f0c96e62fac0409ae443feb36d6e819b1fb31b5b96",
+        "skip_lines": [],
+        "modules": [
+          "test_archive_comparison_root",
+          "test_archive_exclusion_review",
+          "test_archive_report_configuration",
+          "test_archive_unlimited_defaults",
+          "test_eol_stage_retry",
+          "test_folder_scan_edge_cases",
+          "test_git_checkout_scope_and_svn_externals",
+          "test_html_detail_store",
+          "test_output_compatibility_after_aug27",
+          "test_performance_first_batch",
+          "test_report_compatibility_after_aug27",
+          "test_svn_exclusion_move_boundaries",
+          "test_vcs_compatibility_after_aug27"
+        ]
+      },
+      {
+        "tests": 129,
+        "passed": 128,
+        "skipped": 1,
+        "seconds": 256.938,
+        "log": "D:\\AI\\project\\compareTool_myself\\.tmp\\endpoint_validation_5feab1680f\\regression.log",
+        "log_sha256": "9bcdffd8e96f6c2b26997f5d012a61282b723a49df29673deb4397253c5d3dd6",
+        "skip_lines": [
+          "test_folder_file_symlink_cannot_read_outside_root (test_review_regressions.ArchiveAndFolderRegressionTests.test_folder_file_symlink_cannot_read_outside_root) ... skipped \"当前 Windows 未允许创建测试符号链接: [WinError 1314] 客户端没有所需的特权。: 'D:\\\\\\\\AI\\\\\\\\project\\\\\\\\compareTool_myself\\\\\\\\.tmp\\\\\\\\endpoint_validation_5feab1680f\\\\\\\\source\\\\\\\\.tmp\\\\\\\\tmpg9_6m_zz\\\\\\\\secret.txt' -> 'D:\\\\\\\\AI\\\\\\\\project\\\\\\\\compareTool_myself\\\\\\\\.tmp\\\\\\\\endpoint_validation_5feab1680f\\\\\\\\source\\\\\\\\.tmp\\\\\\\\tmpg9_6m_zz\\\\\\\\new\\\\\\\\linked.txt'\""
+        ],
+        "modules": [
+          "test_archive_compatibility_after_aug27",
+          "test_archive_keyboard_navigation",
+          "test_archive_report_integration",
+          "test_best_effort_export",
+          "test_exclusion_path_flow",
+          "test_folder_scan_followup",
+          "test_git_probe_batch",
+          "test_log_retention",
+          "test_output_publish_retry",
+          "test_performance_next_batch",
+          "test_review_regressions",
+          "test_task_progress",
+          "test_zip_directory_attributes"
+        ]
+      },
+      {
+        "tests": 159,
+        "passed": 159,
+        "skipped": 0,
+        "seconds": 51.546,
+        "log": "D:\\AI\\project\\compareTool_myself\\.tmp\\endpoint_validation_311636ea7c\\regression.log",
+        "log_sha256": "b1e7948ac130fa6304883ae8fa579f660ecb977dac3f0ccea3cc8c612a4107d1",
+        "skip_lines": [],
+        "modules": [
+          "test_archive_duplicate_members",
+          "test_archive_report",
+          "test_archive_report_staging",
+          "test_complete_export_review_fixes",
+          "test_fifth_round_adversarial_regressions",
+          "test_folder_scan_optimization",
+          "test_gnu_sparse_extensions",
+          "test_matcher_hotspots",
+          "test_output_regeneration",
+          "test_release_identity",
+          "test_second_round_adversarial_regressions",
+          "test_temp_storage"
+        ]
+      }
+    ]
+  },
+  "red_regression": {
+    "log": "D:\\AI\\project\\compareTool_myself\\.tmp\\endpoint_validation_29e6d5f240\\regression.log",
+    "log_sha256": "1e1d196532fd9fafa7dd348f292a7f2da91c524ced303799f703752b21e8832b",
+    "exit_code": 1
+  },
+  "delivery_acceptance": {
+    "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\svn_copy_fix_recheck_3ee3994347\\summary.json",
+    "sha256": "1b78a491d7d28c1ae80c1cd77bcb4d962f1e9e88780c0ab3bf805b905aa24e20",
+    "scenarios": [
+      {
+        "name": "rename_all_2-4",
+        "selected": [
+          "2",
+          "4"
+        ],
+        "exclusions": "",
+        "files": [
+          [
+            "A",
+            "logs/a",
+            ""
+          ],
+          [
+            "A",
+            "release/b",
+            ""
+          ],
+          [
+            "D",
+            "old/a",
+            ""
+          ]
+        ],
+        "incomplete": false,
+        "output": "D:\\AI\\project\\compareTool_myself\\.tmp\\svn_copy_fix_recheck_3ee3994347\\rename_all_2-4",
+        "hashes": {
+          "Demo_上线操作说明.txt": "6909cc9a532f5b3f5563ee24e5e973903b4bd25b41f73d98312ea411c88577a8",
+          "newVersion/Demo/logs/a": "7692c3ad3540bb803c020b3aee66cd8887123234ea0c6e7143c0add73ff431ed",
+          "newVersion/Demo/release/b": "3fc4ccfe745870e2c0d99f71f30ff0656c8dedd41cc1d7d3d376b0dbe685e2f3",
+          "oldVersion/Demo/old/a": "f9194e73f9e9459e3450ea10a179cdf77aafa695beecd3b9344a98d111622243",
+          "report.html": "60d32b4c26b57fe8dd9b8d77ef03ab6935a669aa7943f842744a2ed275fec841"
+        },
+        "note": "重命名身份不确定的 1 个文件组已按真实路径降级为删除、新增或同路径修改。"
+      },
+      {
+        "name": "rename_excluded_2-4",
+        "selected": [
+          "2",
+          "4"
+        ],
+        "exclusions": "logs/**",
+        "files": [
+          [
+            "A",
+            "release/b",
+            ""
+          ],
+          [
+            "D",
+            "old/a",
+            ""
+          ]
+        ],
+        "incomplete": false,
+        "output": "D:\\AI\\project\\compareTool_myself\\.tmp\\svn_copy_fix_recheck_3ee3994347\\rename_excluded_2-4",
+        "hashes": {
+          "Demo_上线操作说明.txt": "6909cc9a532f5b3f5563ee24e5e973903b4bd25b41f73d98312ea411c88577a8",
+          "newVersion/Demo/release/b": "3fc4ccfe745870e2c0d99f71f30ff0656c8dedd41cc1d7d3d376b0dbe685e2f3",
+          "oldVersion/Demo/old/a": "f9194e73f9e9459e3450ea10a179cdf77aafa695beecd3b9344a98d111622243",
+          "report.html": "12d4946aab7978c9886507b87fdc54949dcf576265d1205435f177597a4e3e99"
+        },
+        "note": "重命名身份不确定的 1 个文件组已按真实路径降级为删除、新增或同路径修改。"
+      },
+      {
+        "name": "move_dir_all_2-4",
+        "selected": [
+          "2",
+          "4"
+        ],
+        "exclusions": "",
+        "files": [
+          [
+            "A",
+            "final/a",
+            ""
+          ],
+          [
+            "A",
+            "logs/a",
+            ""
+          ],
+          [
+            "D",
+            "old/a",
+            ""
+          ]
+        ],
+        "incomplete": false,
+        "output": "D:\\AI\\project\\compareTool_myself\\.tmp\\svn_copy_fix_recheck_3ee3994347\\move_dir_all_2-4",
+        "hashes": {
+          "Demo_上线操作说明.txt": "6909cc9a532f5b3f5563ee24e5e973903b4bd25b41f73d98312ea411c88577a8",
+          "newVersion/Demo/final/a": "3fc4ccfe745870e2c0d99f71f30ff0656c8dedd41cc1d7d3d376b0dbe685e2f3",
+          "newVersion/Demo/logs/a": "7692c3ad3540bb803c020b3aee66cd8887123234ea0c6e7143c0add73ff431ed",
+          "oldVersion/Demo/old/a": "f9194e73f9e9459e3450ea10a179cdf77aafa695beecd3b9344a98d111622243",
+          "report.html": "0e022303937b8bd8c77b233e6942305d552f832b3cd7a927c68e19926a8d260c"
+        },
+        "note": "重命名身份不确定的 1 个文件组已按真实路径降级为删除、新增或同路径修改。"
+      },
+      {
+        "name": "move_dir_excluded_2-4",
+        "selected": [
+          "2",
+          "4"
+        ],
+        "exclusions": "logs/**",
+        "files": [
+          [
+            "A",
+            "final/a",
+            ""
+          ],
+          [
+            "D",
+            "old/a",
+            ""
+          ]
+        ],
+        "incomplete": false,
+        "output": "D:\\AI\\project\\compareTool_myself\\.tmp\\svn_copy_fix_recheck_3ee3994347\\move_dir_excluded_2-4",
+        "hashes": {
+          "Demo_上线操作说明.txt": "6909cc9a532f5b3f5563ee24e5e973903b4bd25b41f73d98312ea411c88577a8",
+          "newVersion/Demo/final/a": "3fc4ccfe745870e2c0d99f71f30ff0656c8dedd41cc1d7d3d376b0dbe685e2f3",
+          "oldVersion/Demo/old/a": "f9194e73f9e9459e3450ea10a179cdf77aafa695beecd3b9344a98d111622243",
+          "report.html": "4e3ff57bc39278789b3a7631f3d9b8255c7e162691a1c4902aac913ab641acbc"
+        },
+        "note": "重命名身份不确定的 1 个文件组已按真实路径降级为删除、新增或同路径修改。"
+      },
+      {
+        "name": "delete_child_all_2-4",
+        "selected": [
+          "2",
+          "4"
+        ],
+        "exclusions": "",
+        "files": [
+          [
+            "R",
+            "release/a",
+            "old/a"
+          ]
+        ],
+        "incomplete": false,
+        "output": "D:\\AI\\project\\compareTool_myself\\.tmp\\svn_copy_fix_recheck_3ee3994347\\delete_child_all_2-4",
+        "hashes": {
+          "Demo_上线操作说明.txt": "8ccc9f207f4f15a536775039cf415dc4915a74e9bc60a0bf85996e0946f173f6",
+          "newVersion/Demo/release/a": "3fc4ccfe745870e2c0d99f71f30ff0656c8dedd41cc1d7d3d376b0dbe685e2f3",
+          "oldVersion/Demo/old/a": "f9194e73f9e9459e3450ea10a179cdf77aafa695beecd3b9344a98d111622243",
+          "report.html": "ea6eb525d827238f49a4ff0235459725c174621a43fe47be94dfa2db077c4a0e"
+        },
+        "note": ""
+      },
+      {
+        "name": "delete_child_excluded_2-4",
+        "selected": [
+          "2",
+          "4"
+        ],
+        "exclusions": "logs/**",
+        "files": [
+          [
+            "R",
+            "release/a",
+            "old/a"
+          ]
+        ],
+        "incomplete": false,
+        "output": "D:\\AI\\project\\compareTool_myself\\.tmp\\svn_copy_fix_recheck_3ee3994347\\delete_child_excluded_2-4",
+        "hashes": {
+          "Demo_上线操作说明.txt": "8ccc9f207f4f15a536775039cf415dc4915a74e9bc60a0bf85996e0946f173f6",
+          "newVersion/Demo/release/a": "3fc4ccfe745870e2c0d99f71f30ff0656c8dedd41cc1d7d3d376b0dbe685e2f3",
+          "oldVersion/Demo/old/a": "f9194e73f9e9459e3450ea10a179cdf77aafa695beecd3b9344a98d111622243",
+          "report.html": "abf782913efdc6918492472ba5037d241fa74b6c8955f55b0c47868f33785651"
+        },
+        "note": ""
+      },
+      {
+        "name": "replace_child_all_2-4",
+        "selected": [
+          "2",
+          "4"
+        ],
+        "exclusions": "",
+        "files": [
+          [
+            "R",
+            "release/a",
+            "old/a"
+          ]
+        ],
+        "incomplete": false,
+        "output": "D:\\AI\\project\\compareTool_myself\\.tmp\\svn_copy_fix_recheck_3ee3994347\\replace_child_all_2-4",
+        "hashes": {
+          "Demo_上线操作说明.txt": "8ccc9f207f4f15a536775039cf415dc4915a74e9bc60a0bf85996e0946f173f6",
+          "newVersion/Demo/release/a": "3fc4ccfe745870e2c0d99f71f30ff0656c8dedd41cc1d7d3d376b0dbe685e2f3",
+          "oldVersion/Demo/old/a": "f9194e73f9e9459e3450ea10a179cdf77aafa695beecd3b9344a98d111622243",
+          "report.html": "14b0844aeef16fb69db4704a464087fe2a22f755007d16b49849e0e212e4d796"
+        },
+        "note": ""
+      },
+      {
+        "name": "replace_child_excluded_2-4",
+        "selected": [
+          "2",
+          "4"
+        ],
+        "exclusions": "logs/**",
+        "files": [
+          [
+            "R",
+            "release/a",
+            "old/a"
+          ]
+        ],
+        "incomplete": false,
+        "output": "D:\\AI\\project\\compareTool_myself\\.tmp\\svn_copy_fix_recheck_3ee3994347\\replace_child_excluded_2-4",
+        "hashes": {
+          "Demo_上线操作说明.txt": "8ccc9f207f4f15a536775039cf415dc4915a74e9bc60a0bf85996e0946f173f6",
+          "newVersion/Demo/release/a": "3fc4ccfe745870e2c0d99f71f30ff0656c8dedd41cc1d7d3d376b0dbe685e2f3",
+          "oldVersion/Demo/old/a": "f9194e73f9e9459e3450ea10a179cdf77aafa695beecd3b9344a98d111622243",
+          "report.html": "61669453d213fe0ba4f85488f7ccca503db1ef518770724eea34a96ad6521a65"
+        },
+        "note": ""
+      },
+      {
+        "name": "excluded_replacement_all_2-4",
+        "selected": [
+          "2",
+          "4"
+        ],
+        "exclusions": "",
+        "files": [
+          [
+            "M",
+            "keep",
+            ""
+          ]
+        ],
+        "incomplete": false,
+        "output": "D:\\AI\\project\\compareTool_myself\\.tmp\\svn_copy_fix_recheck_3ee3994347\\excluded_replacement_all_2-4",
+        "hashes": {
+          "Demo_上线操作说明.txt": "a3e621752f98176ad415f229ee87291075a39d4db821604583c94dbf5bb6da62",
+          "newVersion/Demo/keep": "3fc4ccfe745870e2c0d99f71f30ff0656c8dedd41cc1d7d3d376b0dbe685e2f3",
+          "oldVersion/Demo/keep": "f9194e73f9e9459e3450ea10a179cdf77aafa695beecd3b9344a98d111622243",
+          "report.html": "fe2a32f4a6d5553beae87f152bbe2bc4b8d6d46830cd2009328dd401483c84d7"
+        },
+        "note": ""
+      },
+      {
+        "name": "excluded_replacement_excluded_2-4",
+        "selected": [
+          "2",
+          "4"
+        ],
+        "exclusions": "logs/**",
+        "files": [
+          [
+            "M",
+            "keep",
+            ""
+          ]
+        ],
+        "incomplete": false,
+        "output": "D:\\AI\\project\\compareTool_myself\\.tmp\\svn_copy_fix_recheck_3ee3994347\\excluded_replacement_excluded_2-4",
+        "hashes": {
+          "Demo_上线操作说明.txt": "a3e621752f98176ad415f229ee87291075a39d4db821604583c94dbf5bb6da62",
+          "newVersion/Demo/keep": "3fc4ccfe745870e2c0d99f71f30ff0656c8dedd41cc1d7d3d376b0dbe685e2f3",
+          "oldVersion/Demo/keep": "f9194e73f9e9459e3450ea10a179cdf77aafa695beecd3b9344a98d111622243",
+          "report.html": "5889e066a7c756ace8dbc8e13f9fd998058a58c142943231ad5323d172c74dc3"
+        },
+        "note": ""
+      },
+      {
+        "name": "excluded_replacement_all_3",
+        "selected": [
+          "3"
+        ],
+        "exclusions": "",
+        "files": [
+          [
+            "A",
+            "logs/a",
+            ""
+          ]
+        ],
+        "incomplete": false,
+        "output": "D:\\AI\\project\\compareTool_myself\\.tmp\\svn_copy_fix_recheck_3ee3994347\\excluded_replacement_all_3",
+        "hashes": {
+          "Demo_上线操作说明.txt": "a3e621752f98176ad415f229ee87291075a39d4db821604583c94dbf5bb6da62",
+          "newVersion/Demo/logs/a": "e569dbda12a505b3a8ffb7e15e568b1569574c0c364c430bc132355d0a07162a",
+          "report.html": "999f9a81887f5e5479e02003718e45496c3761c84e872cb9c18e4eb452dc48ce"
+        },
+        "note": ""
+      }
+    ]
+  },
+  "existing_exe_sha256": "a189c45ff1765d3aca86f7e413ca79e8c49ed11fb94179a8949d07c392d5f8f0"
+}

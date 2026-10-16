@@ -2504,43 +2504,76 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         return normalized[len(prefix) + 1:]
 
     @staticmethod
-    def _svn_history_forks(changes, raw_changes):
-        """保留 D/A 分叉的因果关联，供跨选中端点时按真实路径重新规划。
+    def _svn_copy_origin(path, structural_changes, *, include_self=True):
+        """按最近的新增/替换边界解析 copy 来源；显式重建会截断父目录继承。"""
+        current = path if include_self else path.rpartition('/')[0]
+        while current:
+            item = structural_changes.get(current)
+            if item is not None:
+                if item.action == 'D' or not item.copyfrom_path:
+                    return None
+                return item.copyfrom_path.rstrip('/') + path[len(current):], current != path
+            current = current.rpartition('/')[0]
+        return None
 
-        目录只建前缀索引，每个删除文件沿自身祖先查询；普通 copy 或有
-        唯一自然继承身份的 R 不加入分叉，避免把独立复制误并到源文件。
+    @staticmethod
+    def _svn_history_forks(changes, raw_changes):
+        """按实际存活文件确认 copy/move，保留跨选中端点的分叉因果关系。
+
+        不能只数 R，也不能只数原始目录 copy：一个 R 加一个继承 A 仍可能
+        分叉，而多个目录 copy 中某个后代被删后只剩一个真实目标。来源按
+        目标的最近结构边界查询，避免把重建文件或嵌套覆盖误算为父目录副本。
         """
         renames = {}
+        live = {}
         for change in changes:
             if change.action == 'R':
                 renames.setdefault(change.old_path, []).append(change)
-        multiple = {source for source, items in renames.items() if len(items) > 1}
-        if multiple:
-            changes = [change for change in changes
-                       if not (change.action == 'R' and change.old_path in multiple)]
-            for source in sorted(multiple):
-                changes.append(_HistoryChange('D', source))
-                changes.extend(_HistoryChange('A', item.path) for item in renames[source])
+            if change.action in ('A', 'M', 'R'):
+                live.setdefault(change.path, set()).add(change.action)
         removed = {item.path for item in changes if item.action == 'D'}
-        targets_in_step = {item.path for item in changes if item.action in ('A', 'M', 'R')}
-        directories, files = {}, {}
-        for item in raw_changes:
-            if item.action not in ('A', 'R') or not item.copyfrom_path:
+        structural = {item.path: item for item in raw_changes
+                      if item.action in ('A', 'R', 'D') and not item.project_root_transition}
+        candidates, inherited = {}, {}
+        for target in live:
+            origin = SVNMultiVersionVCS._svn_copy_origin(target, structural)
+            if origin is None:
                 continue
-            index = directories if item.kind == 'dir' else files
-            index.setdefault(item.copyfrom_path.rstrip('/'), []).append(item.path.rstrip('/'))
-        forks = {}
-        for source in removed:
-            targets = set(files.get(source, ()))
-            ancestor = source.rpartition('/')[0]
-            while ancestor:
-                suffix = source[len(ancestor):]
-                targets.update(target + suffix for target in directories.get(ancestor, ()))
-                ancestor = ancestor.rpartition('/')[0]
-            targets.update(item.path for item in renames.get(source, ()) if source in multiple)
-            targets.intersection_update(targets_in_step)
+            source, from_directory = origin
+            candidates.setdefault(source, set()).add(target)
+            if from_directory:
+                inherited.setdefault(source, set()).add(target)
+        for source, items in renames.items():
+            candidates.setdefault(source, set()).update(item.path for item in items)
+        forks, reconnect = {}, {}
+        for source in removed | set(renames):
+            targets = candidates.get(source, set())
+            source_renames = renames.get(source, ())
+            if (len(source_renames) == 1
+                    and source_renames[0].path in inherited.get(source, ())):
+                # 既有目录 move 的自然后缀仍在时，额外的子文件/子目录 copy
+                # 是独立文件，不能将它们并入已经确认的自然继承链。
+                continue
             if len(targets) > 1:
                 forks[source] = targets
+            elif targets and not source_renames:
+                target = next(iter(targets))
+                if live[target] <= {'A', 'M'} and 'A' in live[target]:
+                    reconnect[source] = target
+                else:
+                    # 目标覆盖了其它旧身份时仍按真实路径重建，不猜 rename。
+                    forks[source] = targets
+        reconnected_targets = set(reconnect.values())
+        changes = [item for item in changes if not (
+            item.action == 'R' and item.old_path in forks
+            or item.action == 'D' and item.path in reconnect
+            or item.action in ('A', 'M') and item.path in reconnected_targets)]
+        for source in forks:
+            if source in renames:
+                changes.append(_HistoryChange('D', source))
+                changes.extend(_HistoryChange('A', item.path) for item in renames[source])
+        changes.extend(_HistoryChange('R', target, source)
+                       for source, target in reconnect.items())
         # 不依赖 XML 记录顺序；重复 D/A 不得被 planner 作为第二次变化处理。
         unique = {(item.action, item.path, item.old_path): item for item in changes}
         priority = {'D': 0, 'R': 1, 'A': 2, 'M': 3}
@@ -2554,6 +2587,21 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         selected: bool = False,
     ) -> List[_HistoryChange]:
         # copy/move 必须消费完整项目历史；业务规则只过滤最后的真实端点。
+        structural = {item.path: item for item in raw_changes
+                      if item.action in ('A', 'R', 'D') and not item.project_root_transition}
+        normalized = []
+        for item in raw_changes:
+            if (item.action == 'R'
+                    and self._svn_copy_origin(item.path, structural, include_self=False)
+                    and not self._svn_node_exists(item.path, revision - 1)):
+                # 祖先 copy 先继承后被替换的子节点，在真实 r-1 中不存在。
+                # 保留新的 copyfrom（若有），按 A 参与完整历史规划；旧来源
+                # 的移动/删除仍由父目录展开负责，不能读取虚构的 target@r-1。
+                item = _SVNPathChange(
+                    'A', item.kind, item.path, item.copyfrom_path, item.copyfrom_rev,
+                    item.copyfrom_historical, item.props_modified, item.project_root_transition)
+            normalized.append(item)
+        raw_changes = normalized
         files = [item for item in raw_changes if item.kind != "dir"]
         directories = [item for item in raw_changes if item.kind == "dir"]
         changes: List[_HistoryChange] = []
@@ -2875,8 +2923,9 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         consumed_deleted_files = set()
         moved_file_sources = set()
         moved_file_targets = set()
-        moved_target_prefixes = {
-            item.path.rstrip("/") for item in directory_moves
+        copied_target_prefixes = {
+            item.path.rstrip("/") for item in directories
+            if item.action in ('A', 'R') and item.copyfrom_path
         }
         for item in files:
             if item.path in inherited_directory_targets:
@@ -2887,7 +2936,7 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                 continue
             if (
                 item.action == "D"
-                and _path_is_covered_by_prefix(item.path, moved_target_prefixes)
+                and _path_is_covered_by_prefix(item.path, copied_target_prefixes)
                 and not node_exists(item.path, revision - 1)
             ):
                 # 同 revision 内由目录 copy 临时产生、随后又被子 move 删除的

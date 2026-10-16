@@ -151,6 +151,7 @@ newVersion/<new_path> = new_f 的完整文件内容
 15. 多版本界面与单项目报告使用“选中版本 / 生成结果”，不得伪装成统一“旧版本 / 新版本”；
 16. 真实 NTFS 文件及目录短别名碰撞时拒绝冲突路径；严格 API 失败，桌面尽量交付可验证文件并列明未完成。独立合法的 `~` 路径仍可使用；已确认删除的旧输出不恢复。
 17. 业务排除只投影最终真实端点，不删除中间历史身份或 copy 竞争目标。先移入排除目录再移出仍追踪同一文件；真实分叉保留 D/A/M，不能因某个目标排除而猜测唯一 rename。跨未选版本和连续未选分叉按文件级因果组重新规划，不能残留中间旧路径；只有一侧参与选中的无关 copy 不扩大候选集合。文件/目录替换先区分两侧，目录替换不得间接删除被排除的旧后代。快照固定后更改规则必须新建任务。回归见 `tests/test_history_endpoint_projection.py`、`tests/test_exclusion_path_flow.py`、`tests/test_svn_exclusion_move_boundaries.py`。
+18. SVN 同 revision 的多个目录 copy 必须按每个文件实际存活的目标确认身份：其它副本已删除时连接唯一目标，不得重新导出消失的源路径；显式子文件改名和另一个继承副本同时存在时保留全部分叉目标，排除规则不能改变判断。最近的显式重建或嵌套 copy 截断父目录来源继承；新复制目录内的临时删除、替换节点在真实 r-1 不存在时，不得虚构旧端点或阻断独立文件。回归见 `tests/test_svn_copy_lineage_review.py`，同时核对报告、manifest、导出字节及上线删除/重命名说明。
 
 主要回归用例位于 `tests/test_multi_version_file_endpoints.py`、`tests/test_review_regressions.py`、`tests/test_adversarial_regressions.py`、`tests/test_terminal_round_adversarial_regressions.py`、`tests/test_complete_export_review_fixes.py`，以及五个 `tests/test_*_compatibility_after_aug27.py` 兼容性套件。
 

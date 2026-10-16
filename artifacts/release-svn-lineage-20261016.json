@@ -1,0 +1,251 @@
+{
+  "metadata": {
+    "version": "2026.10.16.2",
+    "build_id": "98e2b387f9",
+    "built_at": "2026-10-16T22:43:02+08:00",
+    "commit": "f2ef58f346feb543875c2753e31ed5701d2267f8",
+    "dirty": true,
+    "source_sha256": "98e2b387f9f9e79336814103166b7b36e0878246a6362f9ced00b5a73a309207",
+    "exe_sha256": "17966128b692addfc0163feb47b574ec7a456d7355297f5143239cbeb49623c7"
+  },
+  "embedded_metadata_matches": true,
+  "source_matches_full_regression": true,
+  "manual_bytes_match": true,
+  "manual_sha256": "ee58ab468d67631ce2c26bf924b9f58f0cfe983efc4b5db943aabc5d06f86877",
+  "original_dist_config_sha256": "95fd3423682d58a74c0ffb049fa6e08d7f1e87b23004015060e24bc5022f620f",
+  "formal_exe_path": "D:\\AI\\project\\compareTool_myself\\dist\\CompareTool.exe",
+  "smoke_exe_path": "D:\\AI\\project\\compareTool_myself\\.tmp\\release_20261016_svn_lineage_98e2b387\\smoke-app\\CompareTool.exe",
+  "smoke_copy_sha256": "17966128b692addfc0163feb47b574ec7a456d7355297f5143239cbeb49623c7",
+  "tasks": [
+    {
+      "project_name": "UniqueSurvivor",
+      "vcs_type": "svn_multi",
+      "project_path": "D:\\AI\\project\\compareTool_myself\\.tmp\\review_latest_4b1ef54b88\\delete_child\\work",
+      "old_version": "2,4",
+      "new_version": "文件级首尾端点",
+      "exclude_rules": "logs/**",
+      "show_project_root": true,
+      "show_full_context": true,
+      "recursive_archives": false
+    },
+    {
+      "project_name": "ForkRename",
+      "vcs_type": "svn_multi",
+      "project_path": "D:\\AI\\project\\compareTool_myself\\.tmp\\review_latest_4b1ef54b88\\rename\\work",
+      "old_version": "2,4",
+      "new_version": "文件级首尾端点",
+      "exclude_rules": "",
+      "show_project_root": true,
+      "show_full_context": true,
+      "recursive_archives": false
+    },
+    {
+      "project_name": "ExcludedReplacement",
+      "vcs_type": "svn_multi",
+      "project_path": "D:\\AI\\project\\compareTool_myself\\.tmp\\review_latest_4b1ef54b88\\excluded_replacement\\work",
+      "old_version": "2,4",
+      "new_version": "文件级首尾端点",
+      "exclude_rules": "logs/**",
+      "show_project_root": true,
+      "show_full_context": true,
+      "recursive_archives": false
+    },
+    {
+      "project_name": "ArchiveSmoke",
+      "vcs_type": "archive",
+      "project_path": "",
+      "old_version": "D:\\AI\\project\\compareTool_myself\\.tmp\\exclusion_release_20261016_959c02dc\\inputs\\115.tar",
+      "new_version": "D:\\AI\\project\\compareTool_myself\\.tmp\\exclusion_release_20261016_959c02dc\\inputs\\97.tar",
+      "exclude_rules": "**/logs/**",
+      "show_project_root": true,
+      "show_full_context": true,
+      "recursive_archives": true,
+      "ignore_archive_root": false
+    }
+  ],
+  "formal_window": {
+    "version_dialog_verified": true,
+    "normal_close_verified": true,
+    "actual_path_verified": true
+  },
+  "exe_business_smoke": {
+    "byte_identical_copy": true,
+    "projects": 4,
+    "files": 7,
+    "exported_files": 11,
+    "incomplete": false,
+    "issue_count": 0,
+    "original_three_findings_passed": true,
+    "recursive_archive_passed": true,
+    "report": "D:\\AI\\project\\compareTool_myself\\.tmp\\release_20261016_svn_lineage_98e2b387\\output\\20261016\\multi_run_20261016_231930_793_3d525cc5\\multi_compare_report_20261016_231930_793.html",
+    "task_id": "20261016_231936_00f7f99ad4f3",
+    "seconds": 3.396298,
+    "exports_sha256": {
+      "oldVersion/ExcludedReplacement/keep": "f9194e73f9e9459e3450ea10a179cdf77aafa695beecd3b9344a98d111622243",
+      "oldVersion/ArchiveSmoke/shepherd/config.txt": "01d09d19c2139a46aebfb577780d123d7396e97201bc7ead210a2ebff8239dee",
+      "oldVersion/ArchiveSmoke/shepherd/lib/app.jar": "a99dc5b34e32ce292ba1c3a47b62c082db91af4201c94454b4a84ffeca2244f0",
+      "oldVersion/ForkRename/old/a": "f9194e73f9e9459e3450ea10a179cdf77aafa695beecd3b9344a98d111622243",
+      "oldVersion/UniqueSurvivor/old/a": "f9194e73f9e9459e3450ea10a179cdf77aafa695beecd3b9344a98d111622243",
+      "newVersion/ExcludedReplacement/keep": "3fc4ccfe745870e2c0d99f71f30ff0656c8dedd41cc1d7d3d376b0dbe685e2f3",
+      "newVersion/ArchiveSmoke/shepherd/config.txt": "7aa7a5359173d05b63cfd682e3c38487f3cb4f7f1d60659fe59fab1505977d4c",
+      "newVersion/ArchiveSmoke/shepherd/lib/app.jar": "b11480e3bcb3d5eb595e818a48f8832935147aa5bfdb5e50ca62ec819d0e9bc1",
+      "newVersion/ForkRename/logs/a": "7692c3ad3540bb803c020b3aee66cd8887123234ea0c6e7143c0add73ff431ed",
+      "newVersion/ForkRename/release/b": "3fc4ccfe745870e2c0d99f71f30ff0656c8dedd41cc1d7d3d376b0dbe685e2f3",
+      "newVersion/UniqueSurvivor/release/a": "3fc4ccfe745870e2c0d99f71f30ff0656c8dedd41cc1d7d3d376b0dbe685e2f3"
+    },
+    "report_sha256": "7e11b6c8b436813df28c91dc885291a243a8e9c5d585483002bcb804298f02f2",
+    "instructions_sha256": "945ce632c4ee90d0b5c65a75aa6106e0a856b3581372a60fb1fb9e45775675a8",
+    "normal_close_verified": true
+  },
+  "original_dist_config_restored": true,
+  "limits": [
+    "Local synthetic SVN and recursive TAR/JAR scenarios; onsite inputs not validated",
+    "Full regression ran on identical source, not inside EXE",
+    "Other installed copies were not updated"
+  ],
+  "scope": "本地 Windows 正式 EXE 构建与真实窗口、混合任务冒烟；完整回归在同源码独立副本运行",
+  "full_regression": {
+    "tests": 643,
+    "passed": 642,
+    "skipped": 1,
+    "failures": 0,
+    "errors": 0,
+    "modules": 51,
+    "source_files_verified": 98,
+    "evidence": "artifacts/svn-copy-lineage-fixes-20261016.json",
+    "skip_reason": "Windows test symlink creation returned WinError 1314"
+  },
+  "additional_review": {
+    "results": {
+      "native_revision_tree_and_byte_cases": 28,
+      "gap_selection_and_exclusion_cases": 10,
+      "report_export_instruction_checks": 38,
+      "failures": 0,
+      "confirmed_findings": []
+    },
+    "evidence": {
+      "results.json": {
+        "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\svn_lineage_matrix_a110884382\\results.json",
+        "sha256": "b6a52396dcaa9b3485a6d414ec1804ecda5d93ec2451ae6ca576f8d2d2d54516"
+      },
+      "gap-results.json": {
+        "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\svn_lineage_matrix_a110884382\\gap-results.json",
+        "sha256": "11ae044702cbe53b2a619370b26c0fcd57242797fbd20bafe938aa2d061c238b"
+      },
+      "presentation-results.json": {
+        "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\svn_lineage_matrix_a110884382\\presentation-results.json",
+        "sha256": "0189fb2f75eab3a075266d091e858cfb65342e10e7434a4bfd793f167d09d7d7"
+      }
+    }
+  },
+  "task_summary": {
+    "schema": "comparetool.task.v1",
+    "task_id": "20261016_231936_00f7f99ad4f3",
+    "mode": "multi",
+    "build": {
+      "version": "2026.10.16.2",
+      "build_id": "98e2b387f9",
+      "built_at": "2026-10-16T22:43:02+08:00",
+      "commit": "f2ef58f346feb543875c2753e31ed5701d2267f8",
+      "dirty": true,
+      "source_sha256": "98e2b387f9f9e79336814103166b7b36e0878246a6362f9ced00b5a73a309207"
+    },
+    "success": true,
+    "seconds": 3.396298,
+    "phases": {
+      "output.clear": {
+        "calls": 1,
+        "seconds": 0.009804900000744965,
+        "exclusive_seconds": 0.009804900000744965
+      },
+      "diff.render": {
+        "calls": 5,
+        "seconds": 0.04056670000136364,
+        "exclusive_seconds": 0.04056670000136364
+      },
+      "diff.total": {
+        "calls": 5,
+        "seconds": 0.050693899998805136,
+        "exclusive_seconds": 0.010019899998951587
+      },
+      "project.prepare": {
+        "calls": 4,
+        "seconds": 2.681519700003264,
+        "exclusive_seconds": 2.580924200005029
+      },
+      "archive.extract": {
+        "calls": 2,
+        "seconds": 0.08409609999944223,
+        "exclusive_seconds": 0.08409609999944223
+      },
+      "diff.renames": {
+        "calls": 2,
+        "seconds": 0.00010729999848990701,
+        "exclusive_seconds": 0.00010729999848990701
+      },
+      "output.export": {
+        "calls": 4,
+        "seconds": 0.19679719999840017,
+        "exclusive_seconds": 0.19679719999840017
+      },
+      "output.commit": {
+        "calls": 5,
+        "seconds": 0.16210579999824404,
+        "exclusive_seconds": 0.16210579999824404
+      },
+      "archive.stage_bind": {
+        "calls": 1,
+        "seconds": 0.02445160000024771,
+        "exclusive_seconds": 0.02445160000024771
+      },
+      "archive.report": {
+        "calls": 1,
+        "seconds": 0.05552929999976186,
+        "exclusive_seconds": 0.02133479999974952
+      },
+      "report.write_multi": {
+        "calls": 1,
+        "seconds": 0.041739600001164945,
+        "exclusive_seconds": 0.041739600001164945
+      },
+      "output.instructions": {
+        "calls": 1,
+        "seconds": 0.011512400000356138,
+        "exclusive_seconds": 0.011512400000356138
+      }
+    },
+    "counts": {
+      "overwrite_targets": 0,
+      "project_count": 4,
+      "html_fragment_count": 8,
+      "html_fragment_bytes": 6502,
+      "issue_count": 0,
+      "failed_items": 0,
+      "delivery_incomplete": false,
+      "total_files": 7,
+      "added_files": 2,
+      "modified_files": 3,
+      "format_changed_files": 0,
+      "deleted_files": 1,
+      "renamed_files": 1,
+      "required_directory_deletions": 0,
+      "total_added_lines": 5,
+      "total_deleted_lines": 4,
+      "skipped_line_count_files": 1,
+      "report_omitted_files": 0,
+      "line_counts_complete": false
+    },
+    "error_type": null,
+    "log_error": "",
+    "status": "completed"
+  },
+  "evidence": {
+    ".tmp/release_20261016_svn_lineage_98e2b387/build.log": "d25141b8659d245a4b2e6f24fde1fb182c97dcb54e2a586b78901ef0629441e4",
+    ".tmp/release_20261016_svn_lineage_98e2b387/formal-version-ui.txt": "ad1bbd807dcceee7ff6ef0cf3f491974e1f8fb6bad9ad20e8c2fe4fc1c7ddc81",
+    ".tmp/release_20261016_svn_lineage_98e2b387/smoke-completion-ui.txt": "cea64e06e440083ada00684e11bfdd2af6266a12bbe8bedc4ff360c28c6978b1",
+    ".tmp/release_20261016_svn_lineage_98e2b387/finalize.py": "0848a28d78ab7ee67cb9e1f15aba72fd06a43285313e987fd5a4a4a6d2ecc9c5",
+    ".tmp/release_20261016_svn_lineage_98e2b387/publish_evidence.py": "ba2fc5bcc5efd9cbc414929433ff478206e18886e0f8bcd622c66be32a6370d8",
+    ".tmp/release_20261016_svn_lineage_98e2b387/smoke-app/logs/tasks/task_20261016_231936_00f7f99ad4f3.json": "8c0f2f77a90478375d8daf184b8280e1058099db137f1e63c8bf6e8df2e922cb"
+  },
+  "archived_previous_build": "dist/archive/20261016_224302_release_build_uxlk144y"
+}
