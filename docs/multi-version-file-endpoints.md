@@ -148,6 +148,7 @@ newVersion/<new_path> = new_f 的完整文件内容
 14. 单/多项目确认覆盖后清除本次旧结果；独立文件或项目失败记录未完成，其余继续；无法安全写入或发布时失败且不恢复，无关项目和历史运行目录保留；
 15. 多版本界面与单项目报告使用“选中版本 / 生成结果”，不得伪装成统一“旧版本 / 新版本”；
 16. 真实 NTFS 文件及目录短别名碰撞时拒绝冲突路径；严格 API 失败，桌面尽量交付可验证文件并列明未完成。独立合法的 `~` 路径仍可使用；已确认删除的旧输出不恢复。
+17. 排除目录及后代不参与历史身份竞争，已排除目录 copy 不能让剩余唯一 move 被降级；跨选中步骤先移入排除目录、再移出时，保留真实删除与新增。SVN 同 revision 目录移动及子文件改名仍保留原始删除目录的名称映射，以识别不存在于旧版的中间路径，但已排除来源不能参加显式 rename 候选或端点确认。SVN 文件/目录替换先区分两侧，排除新文件仍须保留旧目录中未排除文件的删除，排除新目录后代仍须保留旧侧普通文件的删除。回归见 `tests/test_exclusion_path_flow.py`、`tests/test_svn_exclusion_move_boundaries.py`。
 
 主要回归用例位于 `tests/test_multi_version_file_endpoints.py`、`tests/test_review_regressions.py`、`tests/test_adversarial_regressions.py`、`tests/test_terminal_round_adversarial_regressions.py`、`tests/test_complete_export_review_fixes.py`，以及五个 `tests/test_*_compatibility_after_aug27.py` 兼容性套件。
 

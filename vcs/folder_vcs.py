@@ -271,11 +271,14 @@ class FolderVCS(BaseVCS):
         files, directories = self._walk_tree(
             source, apply_excludes=True, validate_file_links=False
         )
+        # 整树已排除的目录只保留名称拓扑，不再打开身份；其余目录、文件
+        # 仍按捕获、读取前后和最终复核固定同一批源状态。
         initial_directory_identities = {
             relative_path: self._directory_identity(
                 self._resolve_file_path(source, relative_path, check_leaf_link=False)
             )
             for relative_path in directories
+            if not self._should_prune_directory(relative_path)
         }
         initial_file_signatures = {}
         progress(0, len(files))
@@ -459,8 +462,8 @@ class FolderVCS(BaseVCS):
             result = list(self._captured_changed_files)
             old_dirs = set(self._captured_old_directories)
         else:
-            old_files, old_dirs = self._walk_tree(self.old_dir)
-            new_files, _new_dirs = self._walk_tree(self.new_dir)
+            old_files, old_dirs = self._walk_tree(self.old_dir, apply_excludes=True)
+            new_files, _new_dirs = self._walk_tree(self.new_dir, apply_excludes=True)
 
             result = []
 

@@ -386,14 +386,10 @@ class ArchiveVCS(BaseVCS):
         # Keep all names in original creation order. Only member bodies may be
         # discarded. Canonical directory spelling follows the existing Windows
         # directory creator, including implicit directories and later casing.
-        if (getattr(self, "_sparse_patterns", None) is None
-                or any(m.legacy_sparse for m in members)):
-            # Sparse TAR stores physical extents but exposes a different logical
-            # length/name. Preserve the existing full extractor for this format;
-            # do not guess its expansion plan or switch disks after writing.
+        if getattr(self, "_sparse_patterns", None) is None:
             return total_size
         path = self._archive_source_name(source)
-        roots, directories, leaves = {}, {}, []
+        roots, directories, leaves, names = {}, {}, [], []
         root_file = False
         for m in members:
             if self._is_root_directory(m.name, m.is_dir):
@@ -406,6 +402,7 @@ class ArchiveVCS(BaseVCS):
                 current = list(directories.setdefault(key, tuple([*current, part])))
             actual = current if m.is_dir else [*current, parts[-1]]
             roots.setdefault(windows_path_key(actual[0]), actual[0])
+            names.append((m.name, "/".join(actual), m.is_dir))
             if not m.is_dir:
                 root_file = root_file or len(actual) == 1
                 leaves.append(("/".join(actual), m.size))
@@ -429,8 +426,49 @@ class ArchiveVCS(BaseVCS):
         # Never select a full-extraction fallback after choosing this disk.
         overhead = (len(leaves) + len(directories) + 1) * 4096
         required = retained + overhead + max(1024 * 1024, retained // 20)
-        self._sparse_plans[path] = (MappingProxyType(decisions), prefix, required)
+        # 已排除的尾随点/空格名称只保存在逻辑计划中，不尝试创建 Windows
+        # 无法保真的占位文件。仍按原名校验边界、碰撞和重复成员正文。
+        virtual_names = set()
+        for name, relative, is_dir in names:
+            if not self._has_trailing_name(name):
+                continue
+            compared = relative[len(prefix)+1:] if prefix else relative
+            excluded = (any(self._match_glob_pattern(compared, rule, True)
+                            or self._match_glob_pattern(compared + "/", rule, True)
+                            for rule in self._sparse_patterns) if is_dir
+                        else not decisions[relative])
+            if excluded:
+                virtual_names.add(posixpath.normpath(name.replace("\\", "/")))
+        self._sparse_plans[path] = (
+            MappingProxyType(decisions), prefix, required, frozenset(virtual_names))
         return required
+
+    @staticmethod
+    def _has_trailing_name(name):
+        return any(part not in ("", ".", "..") and part.endswith((" ", "."))
+                   for part in name.replace("\\", "/").split("/"))
+
+    def _virtual_names(self, source):
+        plan = getattr(self, "_sparse_plans", {}).get(self._archive_source_name(source))
+        return plan[3] if plan is not None else frozenset()
+
+    def _validate_extraction_targets(self, source, dest, members):
+        return self._validate_archive_targets(
+            dest, members, virtual_names=self._virtual_names(source))
+
+    def _member_extract_target(self, source, dest, name, directory_cache):
+        if posixpath.normpath(name.replace("\\", "/")) not in self._virtual_names(source):
+            return self._safe_extract_target(dest, name)
+        # 保留可保真的祖先占位，避免排除后改变最外层目录的结构判定。
+        ancestors = []
+        for part in name.replace("\\", "/").split("/"):
+            if part not in ("", ".", "..") and part.endswith((" ", ".")):
+                break
+            ancestors.append(part)
+        if any(part not in ("", ".") for part in ancestors):
+            self._ensure_archive_directory(
+                dest, self._safe_extract_target(dest, "/".join(ancestors)), directory_cache)
+        return None
 
     def _storage_needed(self, source, total_size):
         plan = getattr(self, "_sparse_plans", {}).get(self._archive_source_name(source))
@@ -442,8 +480,11 @@ class ArchiveVCS(BaseVCS):
 
     def _copy_archive_payload(self, source, target, size, archive_source, dest, path, *, digest=None):
         plan = getattr(self, "_sparse_plans", {}).get(self._archive_source_name(archive_source))
-        keep = True
-        if plan is not None:
+        keep = path is not None
+        if path is None:
+            if plan is None:
+                raise ValueError("未落盘的归档成员缺少固定排除计划")
+        elif plan is not None:
             relative = os.path.relpath(path, dest).replace("\\", "/")
             if relative not in plan[0]:
                 raise ValueError("归档实际成员路径与不可变提取计划不一致: " + relative)
@@ -476,10 +517,14 @@ class ArchiveVCS(BaseVCS):
             seen[name] = (old_size, old_attributes, old_digest, count + 1, actual_target)
             return actual_target
         digest = hashlib.sha256() if name in duplicates else None
-        target, dst = self._open_archive_member_target(dest, target, directory_cache)
-        with dst:
-            self._copy_archive_payload(source, dst, size, archive_source, dest, target,
+        if target is None:
+            self._copy_archive_payload(source, None, size, archive_source, dest, None,
                                        digest=digest)
+        else:
+            target, dst = self._open_archive_member_target(dest, target, directory_cache)
+            with dst:
+                self._copy_archive_payload(source, dst, size, archive_source, dest, target,
+                                           digest=digest)
         if digest is not None:
             seen[name] = (size, attributes, digest.digest(), 1, target)
         return target
@@ -510,15 +555,16 @@ class ArchiveVCS(BaseVCS):
                     members = tuple(_TarMemberPlan(self._fix_zip_filename(info), info.file_size,
                         tarfile.DIRTYPE if info.is_dir() else tarfile.REGTYPE,
                         stat.S_IMODE(info.external_attr >> 16)) for info in infos)
-                    self._validate_archive_targets(os.path.join(os.path.dirname(path),
+                    required = self._prepare_sparse_storage(source, members, total)
+                    self._validate_extraction_targets(source, os.path.join(os.path.dirname(path),
                         ".comparetool_archive_preflight"), [(m.name, m.is_dir) for m in members])
-                    return self._prepare_sparse_storage(source, members, total)
+                    return required
             finally:
                 source.seek(0)
         if self._is_tar(path):
             root = os.path.join(os.path.dirname(path), ".comparetool_archive_preflight")
-            total, members = self._get_tar_plan(source, root)
-            return self._prepare_sparse_storage(source, members, total)
+            total, _members = self._get_tar_plan(source, root)
+            return self._storage_needed(source, total)
         raise ValueError(f"不支持的压缩格式: {path}")
 
     def _extract_zip(self, source, dest: str, metadata: dict = None):
@@ -545,8 +591,8 @@ class ArchiveVCS(BaseVCS):
                 decoded_members = [
                     (info, self._fix_zip_filename(info)) for info in members
                 ]
-                duplicates = self._validate_archive_targets(
-                    dest,
+                duplicates = self._validate_extraction_targets(
+                    source, dest,
                     [(name, info.is_dir()) for info, name in decoded_members],
                 )
                 directory_cache = {}
@@ -569,19 +615,32 @@ class ArchiveVCS(BaseVCS):
                         stat.S_ISREG(unix_mode) or stat.S_ISDIR(unix_mode) or legacy_directory
                     ):
                         raise ValueError(f"压缩包包含不安全或不支持的特殊文件: {name}")
-                    if legacy_directory:
-                        # 兼容前仍核对本地头和空正文，损坏或加密条目照常失败。
+                    if info.is_dir():
+                        # 所有目录（包括不落盘的排除项）都必须是真正的空
+                        # 成员，并打开校验本地头、加密标志和空正文 CRC。
+                        if info.file_size:
+                            raise ValueError(f"压缩包目录包含非空正文: {name}")
+                        position = source.tell()
+                        try:
+                            source.seek(info.header_offset + 6)
+                            local_flags = self._read_exact(source, 2)
+                        finally:
+                            source.seek(position)
+                        # ZipFile.open() checks central-directory encryption,
+                        # but does not compare a damaged local encryption flag.
+                        if (int.from_bytes(local_flags, 'little') ^ info.flag_bits) & 0x41:
+                            raise zipfile.BadZipFile(
+                                f"ZIP 目录本地头与中央目录的加密标志不一致: {name}")
                         with zf.open(info) as src:
                             if src.read(1):
                                 raise ValueError(f"压缩包目录包含非空正文: {name}")
                 for info, name in decoded_members:
                     if self._is_root_directory(name, info.is_dir()):
                         continue
-                    target = self._safe_extract_target(dest, name)
+                    target = self._member_extract_target(source, dest, name, directory_cache)
                     if info.is_dir():
-                        self._ensure_archive_directory(
-                            dest, target, directory_cache
-                        )
+                        if target is not None:
+                            self._ensure_archive_directory(dest, target, directory_cache)
                     else:
                         # 先确认成员流可读，再创建目标。若加密/损坏 ZIP 在
                         # zf.open() 抛错，不能遗留未关闭的目标句柄和空文件。
@@ -594,7 +653,7 @@ class ArchiveVCS(BaseVCS):
                         unix_mode = info.external_attr >> 16
                         file_type = stat.S_IFMT(unix_mode)
                         if (
-                            info.create_system == 3
+                            target is not None and info.create_system == 3
                             and (file_type == 0 or stat.S_ISREG(unix_mode))
                         ):
                             relative = os.path.relpath(target, dest).replace("\\", "/")
@@ -615,7 +674,29 @@ class ArchiveVCS(BaseVCS):
         key = self._archive_source_name(source)
         if key not in plans:
             members = []
-            size = self._preflight_tar(source, dest, member_plan=members)
+            def validate_targets(root, targets):
+                storage_members = members
+                if (getattr(self, "_sparse_patterns", None) is not None
+                        and any(m.legacy_sparse for m in members)):
+                    # Sparse headers describe physical extents; tarfile supplies
+                    # the real logical name/length (including GNU.sparse.name).
+                    # Keep the compatibility parser and never estimate logical
+                    # endpoints from raw headers or disable unrelated excludes.
+                    try:
+                        with tarfile.open(fileobj=_BorrowedBinaryStream(source), mode='r:*') as tf:
+                            storage_members = tuple(
+                                _TarMemberPlan(m.name, m.size, m.type, stat.S_IMODE(m.mode))
+                                for m in tf.getmembers())
+                    finally:
+                        source.seek(0)
+                self._prepare_sparse_storage(source, storage_members,
+                                             sum(m.size for m in storage_members if not m.is_dir))
+                if storage_members is not members:
+                    self._validate_extraction_targets(
+                        source, root, [(m.name, m.is_dir) for m in storage_members])
+                return self._validate_extraction_targets(source, root, targets)
+            size = self._preflight_tar(source, dest, member_plan=members,
+                                       target_validator=validate_targets)
             plans[key] = (size, tuple(members))
         return plans[key]
 
@@ -636,7 +717,7 @@ class ArchiveVCS(BaseVCS):
         if total_size != planned_size:
             raise ValueError("TAR 预检展开大小与成员计划不一致")
         self._ensure_free_space(dest, self._storage_needed(source, total_size))
-        duplicates = self._validate_archive_targets(dest, [(m.name, m.is_dir) for m in members])
+        duplicates = self._validate_extraction_targets(source, dest, [(m.name, m.is_dir) for m in members])
         if (self.MAX_COMPRESSION_RATIO is not None
                 and total_size / archive_size > self.MAX_COMPRESSION_RATIO):
             raise ValueError(f"压缩包展开比例过高，已拒绝解压: {path}")
@@ -665,9 +746,10 @@ class ArchiveVCS(BaseVCS):
                     tf.members.clear()
                     if self._is_root_directory(member.name, member.isdir()):
                         continue
-                    target = self._safe_extract_target(dest, member.name)
+                    target = self._member_extract_target(source, dest, member.name, directory_cache)
                     if member.isdir():
-                        self._ensure_archive_directory(dest, target, directory_cache)
+                        if target is not None:
+                            self._ensure_archive_directory(dest, target, directory_cache)
                         continue
                     if not member.isfile():
                         raise ValueError(f"压缩包包含不安全或不支持的链接/特殊文件: {member.name}")
@@ -680,9 +762,10 @@ class ArchiveVCS(BaseVCS):
                             member.name, (stat.S_IMODE(member.mode), member.uid, member.gid,
                                           member.uname, member.gname), duplicates, seen,
                         )
-                    relative = os.path.relpath(target, dest).replace("\\", "/")
-                    metadata[relative] = {"mode": f"{stat.S_IMODE(member.mode):04o}",
-                                          "executable": bool(member.mode & 0o111)}
+                    if target is not None:
+                        relative = os.path.relpath(target, dest).replace("\\", "/")
+                        metadata[relative] = {"mode": f"{stat.S_IMODE(member.mode):04o}",
+                                              "executable": bool(member.mode & 0o111)}
                 if index != len(members):
                     raise ValueError("TAR 提取提前结束，缺少预检成员")
                 self._remember_duplicate_members(source, seen)
@@ -700,7 +783,7 @@ class ArchiveVCS(BaseVCS):
         if os.path.normcase(path) not in getattr(
             self, "_preflighted_sources", set()
         ):
-            self._preflight_tar(source, dest)
+            self._get_tar_plan(source, dest)
         mode = 'r:gz' if path.lower().endswith(('.gz', '.tgz')) else \
                'r:bz2' if path.lower().endswith(('.bz2', '.tbz2')) else 'r'
         archive_size = max(self._archive_stream_size(source), 1)
@@ -715,9 +798,9 @@ class ArchiveVCS(BaseVCS):
                     [(member.name, member.size, archive_size, member.isdir()) for member in members],
                     check_member_ratio=False,
                 )
-                self._ensure_free_space(dest, total_size)
-                duplicates = self._validate_archive_targets(
-                    dest,
+                self._ensure_free_space(dest, self._storage_needed(source, total_size))
+                duplicates = self._validate_extraction_targets(
+                    source, dest,
                     [(member.name, member.isdir()) for member in members],
                 )
                 directory_cache = {}
@@ -738,11 +821,10 @@ class ArchiveVCS(BaseVCS):
                 for member in members:
                     if self._is_root_directory(member.name, member.isdir()):
                         continue
-                    target = self._safe_extract_target(dest, member.name)
+                    target = self._member_extract_target(source, dest, member.name, directory_cache)
                     if member.isdir():
-                        self._ensure_archive_directory(
-                            dest, target, directory_cache
-                        )
+                        if target is not None:
+                            self._ensure_archive_directory(dest, target, directory_cache)
                         continue
                     src = tf.extractfile(member)
                     if src is None:
@@ -753,17 +835,18 @@ class ArchiveVCS(BaseVCS):
                             member.name, (stat.S_IMODE(member.mode), member.uid, member.gid,
                                           member.uname, member.gname), duplicates, seen,
                         )
-                    relative = os.path.relpath(target, dest).replace("\\", "/")
-                    metadata[relative] = {
-                        "mode": f"{stat.S_IMODE(member.mode):04o}",
-                        "executable": bool(member.mode & 0o111),
-                    }
+                    if target is not None:
+                        relative = os.path.relpath(target, dest).replace("\\", "/")
+                        metadata[relative] = {
+                            "mode": f"{stat.S_IMODE(member.mode):04o}",
+                            "executable": bool(member.mode & 0o111),
+                        }
                 self._remember_duplicate_members(source, seen)
         finally:
             source.seek(0)
 
     @classmethod
-    def _preflight_tar(cls, source, dest: str, *, member_plan=None):
+    def _preflight_tar(cls, source, dest: str, *, member_plan=None, target_validator=None):
         """在 tarfile 解析 PAX/GNU 扩展前先做有界流式头检查。
 
         tarfile.getmembers() 会先把长文件名/PAX 载荷整体读入内存；这里先从
@@ -773,7 +856,8 @@ class ArchiveVCS(BaseVCS):
             with open_regular_file_no_links(
                 os.fsdecode(source), deny_writes=True
             ) as opened:
-                return cls._preflight_tar(opened, dest, member_plan=member_plan)
+                return cls._preflight_tar(opened, dest, member_plan=member_plan,
+                                          target_validator=target_validator)
         path = cls._archive_source_name(source)
         lower = path.lower()
         targets = []
@@ -908,7 +992,7 @@ class ArchiveVCS(BaseVCS):
                 cls._discard_exact(stream, size)
                 cls._skip_tar_padding(stream, size)
         source.seek(0)
-        cls._validate_archive_targets(dest, targets)
+        (target_validator or cls._validate_archive_targets)(dest, targets)
         return total_size
 
     @staticmethod
@@ -1256,15 +1340,28 @@ class ArchiveVCS(BaseVCS):
         return is_dir and normalized == "."
 
     @classmethod
-    def _validate_archive_targets(cls, dest: str, members):
+    def _validate_archive_targets(cls, dest: str, members, *, virtual_names=frozenset()):
         """拒绝路径碰撞；返回名称逐字一致、还需核对正文的重复文件候选。"""
         targets = {}
         duplicates = set()
         for name, is_dir in members:
             if cls._is_root_directory(name, is_dir):
                 continue
-            target = cls._safe_extract_target(dest, name)
-            relative = os.path.relpath(target, os.path.abspath(dest)).replace("\\", "/")
+            raw = name.replace("\\", "/")
+            if posixpath.normpath(raw) in virtual_names:
+                # 仅对不会写盘的已排除成员容忍尾随点/空格。校验用名称仍
+                # 保留绝对路径、盘符、..、ADS 和保留名，不能由排除规则藏住。
+                checked_parts = []
+                for part in raw.split("/"):
+                    checked = part if part in ("", ".", "..") else part.rstrip(" .")
+                    if part and not checked:
+                        raise ValueError(f"压缩包包含不安全路径: {name}")
+                    checked_parts.append(checked)
+                cls._safe_extract_target(dest, "/".join(checked_parts))
+                relative = "/".join(part for part in raw.split("/") if part not in ("", "."))
+            else:
+                target = cls._safe_extract_target(dest, name)
+                relative = os.path.relpath(target, os.path.abspath(dest)).replace("\\", "/")
             parts = tuple(windows_path_key(part) for part in relative.split("/"))
             normalized_name = relative.replace("\\", "/")
             previous = targets.get(parts)
@@ -1361,6 +1458,8 @@ class ArchiveVCS(BaseVCS):
         self.required_directory_deletions = self._folder.required_directory_deletions
         by_path = {item.path: item for item in files}
         for path in sorted(set(self._old_metadata) | set(self._new_metadata)):
+            if self._is_excluded(path):
+                continue
             old = self._old_metadata.get(path)
             new = self._new_metadata.get(path)
             item = by_path.get(path)

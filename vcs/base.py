@@ -61,10 +61,15 @@ class BaseVCS(ABC):
             if not pattern.endswith("/**"):
                 continue
             directory_pattern = pattern[:-3].rstrip("/")
-            if directory_pattern and self._match_glob_pattern(
-                directory, directory_pattern, implicit_any_depth=False
-            ):
-                return True
+            ancestor = directory
+            while directory_pattern and ancestor:
+                if self._match_glob_pattern(
+                    ancestor, directory_pattern, implicit_any_depth=False
+                ):
+                    return True
+                # 同一条规则已经完整覆盖祖先时，其所有后代同样可剪枝。
+                # 不能把不同规则拼起来证明覆盖，也不能把 foo/* 当成整树。
+                ancestor = ancestor.rpartition("/")[0]
         return False
 
     def _match_glob(self, path: str, pattern: str) -> bool:

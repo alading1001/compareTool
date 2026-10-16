@@ -1,0 +1,81 @@
+{
+  "schema": "comparetool.release.exclusions.v1",
+  "metadata": {
+    "version": "2026.10.16.1",
+    "build_id": "959c02dc5e",
+    "built_at": "2026-10-16T16:48:15+08:00",
+    "commit": "a0cd25b017fb6602d8016240b3682a27a0403071",
+    "dirty": true,
+    "source_sha256": "959c02dc5ebf5e077be634c569e98c9706bbc11e8aa423514011cf159f5f2e2f",
+    "exe_sha256": "a189c45ff1765d3aca86f7e413ca79e8c49ed11fb94179a8949d07c392d5f8f0"
+  },
+  "source_regression": {
+    "total": 625,
+    "passed": 624,
+    "skipped": 1,
+    "failed": 0
+  },
+  "source_sha256": "959c02dc5ebf5e077be634c569e98c9706bbc11e8aa423514011cf159f5f2e2f",
+  "embedded_metadata_matches": true,
+  "manual_bytes_match": true,
+  "formal_window": {
+    "title": "代码比对报告工具 v2026.10.16.1 [959c02dc5e]",
+    "version_dialog_verified": true,
+    "normal_close_verified": true
+  },
+  "exe_business_smoke": {
+    "byte_identical_copy": true,
+    "rules": "**/logs/**",
+    "recursive_archives": true,
+    "excluded_path": "shepherd/logs/weblog/weblog.",
+    "changed_files": 2,
+    "issue_count": 0,
+    "delivery_incomplete": false,
+    "manifest_files": 2,
+    "nested_kept_member": "app/kept.txt",
+    "excluded_members_absent": true,
+    "original_jar_bytes_preserved": true,
+    "exported_sha256": {
+      "old": {
+        "shepherd/config.txt": "01d09d19c2139a46aebfb577780d123d7396e97201bc7ead210a2ebff8239dee",
+        "shepherd/lib/app.jar": "a99dc5b34e32ce292ba1c3a47b62c082db91af4201c94454b4a84ffeca2244f0"
+      },
+      "new": {
+        "shepherd/config.txt": "7aa7a5359173d05b63cfd682e3c38487f3cb4f7f1d60659fe59fab1505977d4c",
+        "shepherd/lib/app.jar": "b11480e3bcb3d5eb595e818a48f8832935147aa5bfdb5e50ca62ec819d0e9bc1"
+      }
+    },
+    "task_id": "20261016_165255_5c1f39881a2d",
+    "seconds": 0.412111
+  },
+  "original_dist_config_restored": true,
+  "git_svn_process_checks": {
+    "paths": 10,
+    "processes": 141,
+    "unreaped": 0
+  },
+  "evidence": {
+    "full_regression": {
+      "path": ".tmp/exclusion_audit_20261016_78c2f131/regression.log",
+      "sha256": "0da488463f7952cff1c1abaac05df911b554d0864a0709c9fa6531e25f363fb2"
+    },
+    "independent_review": {
+      "path": ".tmp/exclusion_audit_20261016_78c2f131/audit.json",
+      "sha256": "70cee437cdd97958b4624253c0982e15910506518985a0f3755c7d8806c39e3d"
+    },
+    "build": {
+      "path": ".tmp/exclusion_release_20261016_959c02dc/build-elevated.log",
+      "sha256": "f6221fa2dd7259ab5524719b62d07244aedcb07509c374e1e300da7ad9422279"
+    },
+    "release_verification": {
+      "path": ".tmp/exclusion_release_20261016_959c02dc/release-verification.json",
+      "sha256": "97e04533735155885a8dcd9fd4873a02ba35a872f4a439e8c309b7f4eeb54c75"
+    }
+  },
+  "limits": [
+    "synthetic onsite-like archive fixture; original onsite archives not supplied",
+    "packaged EXE startup/version/normal close and one recursive archive scenario",
+    "other installed EXE and metadata copies were not replaced",
+    "dist artifacts remain local under existing Git ignore rules"
+  ]
+}
