@@ -290,6 +290,32 @@ class DiffEngine:
             changed_files,
             getattr(self.vcs, "required_directory_deletions", []) or [],
         )
+        # 业务排除不允许被整目录替换绕过。这里只使用已捕获的名称，不能
+        # 为此读取排除正文；实际依赖组由 exporter 统一退出交付。
+        new_paths = {windows_path_key(item.path): item.path for item in changed_files
+                     if item.change_type in (ChangeType.ADDED, ChangeType.RENAMED)}
+        blocked = set()
+        excluded_old = {windows_path_key(path): path
+                        for path in getattr(self.vcs, 'excluded_old_paths', ())}
+        for path in excluded_old.values():
+            key = windows_path_key(path)
+            while key:
+                if key in new_paths:
+                    blocked.add(new_paths[key])
+                key = key.rpartition('\\')[0]
+        for key in new_paths:
+            ancestor = key.rpartition('\\')[0]
+            while ancestor:
+                if ancestor in excluded_old:
+                    blocked.add(excluded_old[ancestor])
+                ancestor = ancestor.rpartition('\\')[0]
+        for path in sorted(blocked):
+            if not self.best_effort:
+                raise RuntimeError('路径替换会间接删除被排除的旧内容: ' + path)
+            if path not in required_directories:
+                required_directories.append(path)
+            issues.append(dict(stage='目录替换依赖', path=path, old_path=path,
+                               message='路径替换会间接删除被排除的旧内容，相关变化未交付', delivery=True))
 
         result = DiffResult(
             project_path=self.vcs.project_path,

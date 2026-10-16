@@ -1,0 +1,565 @@
+{
+  "base_commit": "ac32e991acdb6bf750de2351bd0067c5a1c895ac",
+  "scope": "source only; existing EXE not rebuilt",
+  "existing_exe_sha256": "a189c45ff1765d3aca86f7e413ca79e8c49ed11fb94179a8949d07c392d5f8f0",
+  "regression": {
+    "tests": 639,
+    "passed": 638,
+    "skipped": 1,
+    "failures": 0,
+    "errors": 0,
+    "module_count": 50,
+    "shards": [
+      {
+        "tests": 220,
+        "passed": 220,
+        "skipped": 0,
+        "seconds": 587.391,
+        "log": "D:\\AI\\project\\compareTool_myself\\.tmp\\endpoint_validation_a6f4401261\\regression.log",
+        "modules": [
+          "test_adversarial_regressions",
+          "test_archive_excluded_trailing_names",
+          "test_archive_report_all_vcs",
+          "test_archive_streaming",
+          "test_endpoint_reuse",
+          "test_folder_compatibility_after_aug27",
+          "test_format_changes",
+          "test_history_endpoint_projection",
+          "test_multi_version_file_endpoints",
+          "test_passthrough_and_separator_regressions",
+          "test_rendering_performance_regressions",
+          "test_svn_exclusion_move_boundaries",
+          "test_vcs_compatibility_after_aug27"
+        ],
+        "log_sha256": "30097761f82cd6988d3cb221f7e9faad940f683098413f02f23b7f24a0143a2e",
+        "skip_lines": []
+      },
+      {
+        "tests": 133,
+        "passed": 133,
+        "skipped": 0,
+        "seconds": 232.703,
+        "log": "D:\\AI\\project\\compareTool_myself\\.tmp\\endpoint_validation_b2349aa13e\\regression.log",
+        "modules": [
+          "test_archive_comparison_root",
+          "test_archive_exclusion_review",
+          "test_archive_report_configuration",
+          "test_archive_unlimited_defaults",
+          "test_eol_stage_retry",
+          "test_folder_scan_edge_cases",
+          "test_git_checkout_scope_and_svn_externals",
+          "test_html_detail_store",
+          "test_output_compatibility_after_aug27",
+          "test_performance_first_batch",
+          "test_report_compatibility_after_aug27",
+          "test_task_progress",
+          "test_zip_directory_attributes"
+        ],
+        "log_sha256": "8e17b2fa7a127c03ff4649f3d15296528e948c400639dd8b203930a479ac845a",
+        "skip_lines": []
+      },
+      {
+        "tests": 119,
+        "passed": 118,
+        "skipped": 1,
+        "seconds": 262.281,
+        "log": "D:\\AI\\project\\compareTool_myself\\.tmp\\endpoint_validation_67cd55dae2\\regression.log",
+        "modules": [
+          "test_archive_compatibility_after_aug27",
+          "test_archive_keyboard_navigation",
+          "test_archive_report_integration",
+          "test_best_effort_export",
+          "test_exclusion_path_flow",
+          "test_folder_scan_followup",
+          "test_git_probe_batch",
+          "test_log_retention",
+          "test_output_publish_retry",
+          "test_performance_next_batch",
+          "test_review_regressions",
+          "test_temp_storage"
+        ],
+        "log_sha256": "2056649787926839dad22aacf56e926bb205222adfc4d85b4badebbfb2652025",
+        "skip_lines": [
+          "test_folder_file_symlink_cannot_read_outside_root (test_review_regressions.ArchiveAndFolderRegressionTests.test_folder_file_symlink_cannot_read_outside_root) ... skipped \"当前 Windows 未允许创建测试符号链接: [WinError 1314] 客户端没有所需的特权。: 'D:\\\\\\\\AI\\\\\\\\project\\\\\\\\compareTool_myself\\\\\\\\.tmp\\\\\\\\endpoint_validation_67cd55dae2\\\\\\\\source\\\\\\\\.tmp\\\\\\\\tmp2crire44\\\\\\\\secret.txt' -> 'D:\\\\\\\\AI\\\\\\\\project\\\\\\\\compareTool_myself\\\\\\\\.tmp\\\\\\\\endpoint_validation_67cd55dae2\\\\\\\\source\\\\\\\\.tmp\\\\\\\\tmp2crire44\\\\\\\\new\\\\\\\\linked.txt'\""
+        ]
+      },
+      {
+        "tests": 167,
+        "passed": 167,
+        "skipped": 0,
+        "seconds": 59.109,
+        "log": "D:\\AI\\project\\compareTool_myself\\.tmp\\endpoint_validation_b8f270aed6\\regression.log",
+        "modules": [
+          "test_archive_duplicate_members",
+          "test_archive_report",
+          "test_archive_report_staging",
+          "test_complete_export_review_fixes",
+          "test_fifth_round_adversarial_regressions",
+          "test_folder_scan_optimization",
+          "test_gnu_sparse_extensions",
+          "test_matcher_hotspots",
+          "test_output_regeneration",
+          "test_release_identity",
+          "test_second_round_adversarial_regressions",
+          "test_terminal_round_adversarial_regressions"
+        ],
+        "log_sha256": "52c6f4a56faaec03ebbe4ac45894e0ca95c70aa3161b4ef21ae1ddf525643628",
+        "skip_lines": []
+      }
+    ]
+  },
+  "validated_source_sha256": {
+    "app_version.py": "8d22d58304f5e100a96f16f129cd32bfb67915f056ad4bd0696707dbc6a07d44",
+    "archive_endpoints.py": "7b0739ad4ab6ffa34b516b07e4011e17678b449335998d25c70f14e4dd291058",
+    "archive_report.py": "aebe5698ee96bd91e5220a0291360b4965b48263563f646110339523d6d17c83",
+    "artifacts/export-blockers-20261012.html": "05eea1394efa7920cb555b5a8cbc10e7e587302084071ccc66f021d014972fdc",
+    "delivery_instructions.py": "14a6e45e46e517ea7bb841313e118ee20cd27a1bf3e702a1cc18b36f5bb02803",
+    "diff_engine.py": "2bbb1f1165cad4290142c8d58e1babccbd8c98a63f80a382541986c80a4ded2b",
+    "docs/manual/build_manual.py": "a66abdbf1f995c802bee23999d7ed84fb2928e9e8734239ad421c07940179ece",
+    "docs/manual/verify_pdf.py": "9c98a594bce1734bfb37dcc6c001decb8e95636e77b396a7473ab4b13c215522",
+    "file_exporter.py": "6d761ab58ae3614bf1ce6c57f41c218e3a33a2cbe097a628c924eeb240cb8f6e",
+    "html_details.py": "1b0c13e07fa7e7188dc6bbf972708cdebfd9bd3cbcce335c50a6487ccac7e325",
+    "logger.py": "8e683db696c101111d917914dc1526305a6d29b03e7a1745e9f5e9ce95c91926",
+    "main.py": "e12b123e4a8d072e61d8bffedbca2e2e943c310feef5a0a56a449fd310bde75b",
+    "path_safety.py": "9238eaa36815186d858f68425fc3b70123130b7fec5336f30a446d46416a7249",
+    "report_generator.py": "9ae1fbc7760760f21d073c0b2a1e4ec70c70bf35d1f2126b5ddd2df8c7189fcf",
+    "stable_diff.py": "86802ac128926313105b909a22acb8050eca41c84eafa5fc4577abdf67ca2d43",
+    "stage_ownership.py": "cd24ca3a26d48f3637005387f0ddf0a980b33911c09db1f4d2b759c4a0f8b787",
+    "task_progress.py": "6fec0ef94cdfa865475a5877338129574206f24232032647b3cb050b8ec753ae",
+    "templates/archive_details.html": "d108d33a12e7fa3d4cb16abc135df955472613cb1c4816b23ff07c00d7766d8e",
+    "templates/archive_script.html": "ecd2ae5d8bd844294d636282fa0a70f3bbb85006a1d0f070d68a2364db8cd1ef",
+    "templates/archive_style.html": "785b7a3e8a15f66979bc60792918017bad7ed4246ae695da09ad015a8650c8a4",
+    "templates/file_detail.html": "71997345869e21bcc964dca2d0a0b9584972ec208178db86a36cef3d4108adad",
+    "templates/multi_report.html": "9e1bfccb747dc6379e8c31f92a4808ae632592eb23e921369ab2439cf4fa18af",
+    "templates/report.html": "539395aecf3f914ceac01fe3882fa9d0eeb1be5cd1057730c4b76d9ba56d1fb4",
+    "templates/result_issues.html": "d1a1f92b6e2bfcd0f761744dbdaff4273740798aded428ef7c8c22f04550683b",
+    "tests/archive_workflow_fixtures.py": "0d5af95f1dac13f6dc6a54af74248004db49d67c5f9127be43c26312a76b4262",
+    "tests/test_adversarial_regressions.py": "66fcea1aef6334d5cd498907c4422a837df1235cffc29b7586d75241d6cc1af4",
+    "tests/test_archive_comparison_root.py": "b8e614effa899a4a090e12d9d088ebef1ec519ce7bb24b2f6db00a05d4c85c38",
+    "tests/test_archive_compatibility_after_aug27.py": "35b37f9570609efbb60ad596d0fbc00ac53b0c09b5a497743592365d95024c31",
+    "tests/test_archive_duplicate_members.py": "f402cb3628632a39c091dab1b4b0ffbcb889e03445eeb77f846cf1baebede25d",
+    "tests/test_archive_excluded_trailing_names.py": "cfa3b538c0ea912da404d5dce25796b8f2228cc738ff9462e3676efb3447028e",
+    "tests/test_archive_exclusion_review.py": "f1278a7cbe95acbd1914ea1c1f32ecfd5b65e958044edbf3f3ff2bd68dcbbc75",
+    "tests/test_archive_keyboard_navigation.py": "bf3ca283a02c3a615ae1938701970722dcb398dcd6d38fbc2394bc421b6873cf",
+    "tests/test_archive_report.py": "9c426491c3fc5dcd82e273faab03712685d9b7d3dc3b5ba099c74c14fd958895",
+    "tests/test_archive_report_all_vcs.py": "8990571bd89c7a84daa435b3a6efc5b49667bd230b59ed31d02d2c3841412c1c",
+    "tests/test_archive_report_configuration.py": "e2eb0262caa37b3669ce1f25fd913384f91f19c94797ea7d386224ae2cc1d089",
+    "tests/test_archive_report_integration.py": "bec6ca52f893cc743603185fa36b270be5a115ac9fb769d2ce1d5b8a0e7ac140",
+    "tests/test_archive_report_staging.py": "ecdc2ddab8ea78f103dc7c96ab6b1d748ff15130c70d2fc181b633fe149d71ae",
+    "tests/test_archive_streaming.py": "80f2ab4ba53e04f439ff1778b25834b5a19ef9d3a01624d0412616ef8ae2e71f",
+    "tests/test_archive_unlimited_defaults.py": "2934e8c260304560d07ca1fd64e2bd27077ab19cf64634c10d75fea9af6dfdd2",
+    "tests/test_best_effort_export.py": "f3bbaeb15b1ed66c5aed473b44d42f6a81f8f136c954faf8be720196fc3e7741",
+    "tests/test_complete_export_review_fixes.py": "72d8db2a1b354616b6c860962d6494257f5312678a327db02980453f190ebd4f",
+    "tests/test_endpoint_reuse.py": "9fb544b6357bb0988e6801dc432f385130dd1b25012fc3f8d4e68c2b5f087a90",
+    "tests/test_eol_stage_retry.py": "6bc3ffe633e175ee9521d23d95d833461ceb64f5dc4dda1e34ffcd007b79aa31",
+    "tests/test_exclusion_path_flow.py": "33e01ff7f6f34ed5cf2dc6619e5d1f4bb1997cbf5a8bc5e66d811f46fac83d63",
+    "tests/test_fifth_round_adversarial_regressions.py": "bad96e26dee24d45e1e4fe852c555044420e8b939d7009bf3cd6abdbec07adaa",
+    "tests/test_folder_compatibility_after_aug27.py": "e2d233e0fe3f49110d3bb5ad8356d6f1ca92a6f576addce27d01ceb344835370",
+    "tests/test_folder_scan_edge_cases.py": "3540c806a7e0d1a2478eafce18a88b667dbecebfacf3e992d034e3cce602d058",
+    "tests/test_folder_scan_followup.py": "a2823f2a4750a33abdd99196852cc701b1303c9edcd6946d31f269e01ddd4089",
+    "tests/test_folder_scan_optimization.py": "315a4aef2721b262e343f767995b7b13398e98fde48de42e31b69a9b32b0a766",
+    "tests/test_format_changes.py": "170e268c50665daae2ba1cfa42a31df597e401c3fc32c27dcb492c7fed130e0b",
+    "tests/test_git_checkout_scope_and_svn_externals.py": "0490fc22b9e7464e174306410cf6a297b29485568b45f9939e57f1153ea679ba",
+    "tests/test_git_probe_batch.py": "da55a24e29eec933619346602dc736eb73ac7fb948cf11860f30a9e2801b6515",
+    "tests/test_gnu_sparse_extensions.py": "c77b9e03a310c507026daa5d2cadbb6fb9fafa5a917ed75a6efc2390b0ec2a2a",
+    "tests/test_history_endpoint_projection.py": "6907a501ca0b97a97aaea47899ea261e85d51d021fd4a56c7103793e44de904c",
+    "tests/test_html_detail_store.py": "8ba26e4c686f9f217092a8f1a9d7e118b4ad953b811a527ddf4cd11d98a625c7",
+    "tests/test_log_retention.py": "041db3becf7843a16a6846166a252fe20f861a389989a015deba32daea78b226",
+    "tests/test_matcher_hotspots.py": "c8aece188d76918ff419f1117e477e5a97a200f7f476e53bf17dee1f3e9d3214",
+    "tests/test_multi_version_file_endpoints.py": "b272a30128ed41eef17730ca812d1fca0cdb36241e3e16cb4c6d2f6c4cd0985b",
+    "tests/test_output_compatibility_after_aug27.py": "02b7a495c3c4819905370291fdb833c274359c76409d52dce20b6038e0a11621",
+    "tests/test_output_publish_retry.py": "46e788f38b743cf12ac0f05391accb7c986900d1e5d3fe3917ef12c2608bf906",
+    "tests/test_output_regeneration.py": "3331d00a3b6d8a13535c446efea9c21506d8babaec878dae8aed2f756401aa5b",
+    "tests/test_passthrough_and_separator_regressions.py": "12c7fa2fdbc8e9ff34c71ec5dbc355c924b25fbbdec8502bdb837c6f72731d4f",
+    "tests/test_performance_first_batch.py": "ce73a1b114848dac1191808232040a26b9bb1ed66fbea27992ef5ca1d19d89f1",
+    "tests/test_performance_next_batch.py": "8ac84404fa3148cb7f3ea8335357b341047148c9086dea870e48bbdfa67a32fd",
+    "tests/test_release_identity.py": "41b47a996e4bd52b0f8842c65d3bbed4d4c32ef19edb85edad1a534c0b1b5814",
+    "tests/test_rendering_performance_regressions.py": "5e125fbe1748ddf9ea2c3963ee0a55a474f92b4345bbb6ec97cf31fec66e4943",
+    "tests/test_report_compatibility_after_aug27.py": "85c32eedfd7e4f87324b68e5edcb11a21476973e4f0cd76c6e37edf6159ed79c",
+    "tests/test_review_regressions.py": "2a76ea2231b50be86425d22cdff23d405f71f792cbe64d1870fa369bea626598",
+    "tests/test_second_round_adversarial_regressions.py": "b75bf4813dff56d222274483153c3fb38d009be8252f8ecb6fd848ed68746667",
+    "tests/test_svn_exclusion_move_boundaries.py": "e90a0a357517c399dceb410c2e6357d681e80aca15ff52d1e9716ef17381085a",
+    "tests/test_task_progress.py": "45e490788a59e5eb0a681032a42d18301dec81987dc3461a6bacf0a0459a7bd3",
+    "tests/test_temp_storage.py": "d2692b01737137fb5ac25b0e3084236751b1523af256145495717d54b6f340d9",
+    "tests/test_terminal_round_adversarial_regressions.py": "949deb5d334ba3059bde780f53bf089e2c5999efcee00160cc450a735e55cda7",
+    "tests/test_vcs_compatibility_after_aug27.py": "8f60d17f03b2b6c78effdc2948d74c63f0214005182e54285543c68a50a25ffb",
+    "tests/test_zip_directory_attributes.py": "e5f727d7746ff7643db2c534feca1f68093b0f58730e1f32fa22dac6fc0c6336",
+    "tools/benchmark_archive_all_vcs.py": "32c38b681fb3c80e72aac0bf33ed222419a82f5e4c569c4e69e39d70f499a7c8",
+    "tools/benchmark_folder_scan.py": "257a56e890a4564da02c3d230a867b1ddc644236e37a10a9ed7754b2b7e1b1d9",
+    "tools/benchmark_folder_worker.py": "cedf4df4755e76d89134304f216f21947da256a666c482dcbdf5438e04abb2e8",
+    "tools/benchmark_html_details.py": "7e9a2179068be6a95d69c4704699c3ff4d40f3a2648284c00491a93256695d83",
+    "tools/benchmark_performance.py": "5a6ac07efa482d5d44c86c27e187b3c34d95aa636638890d10cffd8855149db3",
+    "tools/benchmark_render_hotspots.py": "838ddb7e7010a53cca5bc69a72526a43f5f2adb22a3888c143244a97078ed4ba",
+    "tools/build_release.py": "b86669c23aa95dcb0e4a776cbd497080c40c760414ef69028fb94b1e2e9a04f5",
+    "tools/diagnose_folder_gui.py": "f2d2a31ca8d98858d2b96d6ebabbb7f2776c5a165a65fe5180e5869829212f2b",
+    "tools/make_browser_fixture.py": "b3644b9cc4b56a35ed00442bee14b50477b65899fbeb0cd42d3be499c584bce9",
+    "ui_progress.py": "743f4917a187f00145c94d78640daaca21577c13a368923f486d59c2bf8a865a",
+    "vcs/__init__.py": "8fb86391432641e7b720313b271eecf44f5f994a4491288fd2b9c78ccb754f86",
+    "vcs/archive_vcs.py": "fa7081c2826c2c06393e40840a0089b3d765fbecdf78d0509fa94c857cd29809",
+    "vcs/base.py": "6db5e26c5cd59bce05a9e2e0092e01f57f3044914a7b358013a96649b64427a5",
+    "vcs/folder_vcs.py": "e89b7f5329b1638bf567c0ad636f4a0aecd0eda58057f74feab8e859edab4031",
+    "vcs/git_batch.py": "1eec47f4dd0cf72c9004a0db6a3608b0ad9fb81751a0e0c7e817f5383a091e69",
+    "vcs/git_checkout.py": "213ba2ca165aa34487a2fe85dbb6643366c9156e475047b2404b859f7115b092",
+    "vcs/git_probe_batch.py": "ebd05e0cef9a02ba6abeb2f4611acdfd39ffa32e36b912b2417cb1197756ddd4",
+    "vcs/git_vcs.py": "dd8b7b2178564dcca3ec4aae39e8b1c9b995f2ac9d9d2e70a5dfe562ad226b34",
+    "vcs/multi_version_vcs.py": "ab3613c813c095d2e333687cadca9d8c011aefdc94ce13230a50438814ebfa7d",
+    "vcs/raw_cache.py": "b6333fa9fde388c503ff17a35130a1532a3354f94227db05c989e95db3efe8c3",
+    "vcs/svn_vcs.py": "e2f37286896cc577ded7a5b138585e85f1c468df9f23686b84b0d8d48c9ef8ce",
+    "vcs/temp_storage.py": "a0be4ba7bf89a34a3eabdda4234db8724922a9e557e69eb4149d55a75287b5d7"
+  },
+  "native_sparse": {
+    "native_tar": "C:\\Windows\\system32\\tar.EXE",
+    "cases": [
+      {
+        "extents": 5,
+        "format": ".tar",
+        "names": [
+          "sparse.dat",
+          "keep.txt",
+          "logs/skip.txt"
+        ],
+        "length": 8192,
+        "sha256": "b93d6ee59e270f84cca3b1c43d474dffe9f0c5e9c7099644d310a8e9f81409df",
+        "matched": true
+      },
+      {
+        "extents": 5,
+        "format": ".tar.gz",
+        "names": [
+          "sparse.dat",
+          "keep.txt",
+          "logs/skip.txt"
+        ],
+        "length": 8192,
+        "sha256": "b93d6ee59e270f84cca3b1c43d474dffe9f0c5e9c7099644d310a8e9f81409df",
+        "matched": true
+      },
+      {
+        "extents": 5,
+        "format": ".tar.bz2",
+        "names": [
+          "sparse.dat",
+          "keep.txt",
+          "logs/skip.txt"
+        ],
+        "length": 8192,
+        "sha256": "b93d6ee59e270f84cca3b1c43d474dffe9f0c5e9c7099644d310a8e9f81409df",
+        "matched": true
+      },
+      {
+        "extents": 27,
+        "format": ".tar",
+        "names": [
+          "sparse.dat",
+          "keep.txt",
+          "logs/skip.txt"
+        ],
+        "length": 8192,
+        "sha256": "fc656dfb61186b39b36bb2ab8070ebd704a4b7d45d19edf4965920413e0dee1e",
+        "matched": true
+      },
+      {
+        "extents": 27,
+        "format": ".tar.gz",
+        "names": [
+          "sparse.dat",
+          "keep.txt",
+          "logs/skip.txt"
+        ],
+        "length": 8192,
+        "sha256": "fc656dfb61186b39b36bb2ab8070ebd704a4b7d45d19edf4965920413e0dee1e",
+        "matched": true
+      },
+      {
+        "extents": 27,
+        "format": ".tar.bz2",
+        "names": [
+          "sparse.dat",
+          "keep.txt",
+          "logs/skip.txt"
+        ],
+        "length": 8192,
+        "sha256": "fc656dfb61186b39b36bb2ab8070ebd704a4b7d45d19edf4965920413e0dee1e",
+        "matched": true
+      }
+    ]
+  },
+  "delivery": {
+    "cases": [
+      {
+        "output": "D:\\AI\\project\\compareTool_myself\\.tmp\\delivery_acceptance_241b9c3f97\\git",
+        "partial": false,
+        "report_items": 3,
+        "old_files": 3,
+        "new_files": 3,
+        "deletions": [],
+        "directory_deletions": [],
+        "hashes": {
+          "oldVersion/git/keep.txt": "01d09d19c2139a46aebfb577780d123d7396e97201bc7ead210a2ebff8239dee",
+          "oldVersion/git/config/汉字&name.txt": "30bb93a53cf47fe4e800a303c495f1f4b898878786cad4034cd37ea1b55fbc03",
+          "oldVersion/git/lib/app.jar": "c27f0866f6f6ac560663b85bea4042770e237b58e2f75d978533d3b6dd3ab6fc",
+          "newVersion/git/keep.txt": "7aa7a5359173d05b63cfd682e3c38487f3cb4f7f1d60659fe59fab1505977d4c",
+          "newVersion/git/config/汉字&name.txt": "e0f498d43b5abfdd45d012cded3bdde2637bbc06bcca1389f430e0f5777b9521",
+          "newVersion/git/lib/app.jar": "1b698e329fbbe7ff8ed3c8f461dc83ef2875f1feb3a2a858d1443122057376f3"
+        },
+        "matched": true,
+        "report_sha256": "68fb8ffc50abea905a41d81bf63397a31acc1cb2a6a3798f4a46bfa9bd42ce9a",
+        "instructions_sha256": "a3e621752f98176ad415f229ee87291075a39d4db821604583c94dbf5bb6da62"
+      },
+      {
+        "output": "D:\\AI\\project\\compareTool_myself\\.tmp\\delivery_acceptance_241b9c3f97\\git_multi",
+        "partial": false,
+        "report_items": 3,
+        "old_files": 3,
+        "new_files": 3,
+        "deletions": [],
+        "directory_deletions": [],
+        "hashes": {
+          "oldVersion/git_multi/keep.txt": "01d09d19c2139a46aebfb577780d123d7396e97201bc7ead210a2ebff8239dee",
+          "oldVersion/git_multi/config/汉字&name.txt": "30bb93a53cf47fe4e800a303c495f1f4b898878786cad4034cd37ea1b55fbc03",
+          "oldVersion/git_multi/lib/app.jar": "c27f0866f6f6ac560663b85bea4042770e237b58e2f75d978533d3b6dd3ab6fc",
+          "newVersion/git_multi/keep.txt": "7aa7a5359173d05b63cfd682e3c38487f3cb4f7f1d60659fe59fab1505977d4c",
+          "newVersion/git_multi/config/汉字&name.txt": "e0f498d43b5abfdd45d012cded3bdde2637bbc06bcca1389f430e0f5777b9521",
+          "newVersion/git_multi/lib/app.jar": "1b698e329fbbe7ff8ed3c8f461dc83ef2875f1feb3a2a858d1443122057376f3"
+        },
+        "matched": true,
+        "report_sha256": "4410805ce086b3034a9163a464c961546658fc81c3042663325fea1ccfa60c6e",
+        "instructions_sha256": "a3e621752f98176ad415f229ee87291075a39d4db821604583c94dbf5bb6da62"
+      },
+      {
+        "output": "D:\\AI\\project\\compareTool_myself\\.tmp\\delivery_acceptance_241b9c3f97\\svn",
+        "partial": false,
+        "report_items": 3,
+        "old_files": 3,
+        "new_files": 3,
+        "deletions": [],
+        "directory_deletions": [],
+        "hashes": {
+          "oldVersion/svn/keep.txt": "01d09d19c2139a46aebfb577780d123d7396e97201bc7ead210a2ebff8239dee",
+          "oldVersion/svn/config/汉字&name.txt": "30bb93a53cf47fe4e800a303c495f1f4b898878786cad4034cd37ea1b55fbc03",
+          "oldVersion/svn/lib/app.jar": "c27f0866f6f6ac560663b85bea4042770e237b58e2f75d978533d3b6dd3ab6fc",
+          "newVersion/svn/keep.txt": "7aa7a5359173d05b63cfd682e3c38487f3cb4f7f1d60659fe59fab1505977d4c",
+          "newVersion/svn/config/汉字&name.txt": "e0f498d43b5abfdd45d012cded3bdde2637bbc06bcca1389f430e0f5777b9521",
+          "newVersion/svn/lib/app.jar": "1b698e329fbbe7ff8ed3c8f461dc83ef2875f1feb3a2a858d1443122057376f3"
+        },
+        "matched": true,
+        "report_sha256": "3bd39d40413a36b979e8445d6d3fd61d24412cd152629084b1466413e0d7f513",
+        "instructions_sha256": "a3e621752f98176ad415f229ee87291075a39d4db821604583c94dbf5bb6da62"
+      },
+      {
+        "output": "D:\\AI\\project\\compareTool_myself\\.tmp\\delivery_acceptance_241b9c3f97\\svn_multi",
+        "partial": false,
+        "report_items": 3,
+        "old_files": 3,
+        "new_files": 3,
+        "deletions": [],
+        "directory_deletions": [],
+        "hashes": {
+          "oldVersion/svn_multi/keep.txt": "01d09d19c2139a46aebfb577780d123d7396e97201bc7ead210a2ebff8239dee",
+          "oldVersion/svn_multi/config/汉字&name.txt": "30bb93a53cf47fe4e800a303c495f1f4b898878786cad4034cd37ea1b55fbc03",
+          "oldVersion/svn_multi/lib/app.jar": "c27f0866f6f6ac560663b85bea4042770e237b58e2f75d978533d3b6dd3ab6fc",
+          "newVersion/svn_multi/keep.txt": "7aa7a5359173d05b63cfd682e3c38487f3cb4f7f1d60659fe59fab1505977d4c",
+          "newVersion/svn_multi/config/汉字&name.txt": "e0f498d43b5abfdd45d012cded3bdde2637bbc06bcca1389f430e0f5777b9521",
+          "newVersion/svn_multi/lib/app.jar": "1b698e329fbbe7ff8ed3c8f461dc83ef2875f1feb3a2a858d1443122057376f3"
+        },
+        "matched": true,
+        "report_sha256": "e39cb714a8943d5f5b46f7a20a8db79aab410ebef0aa194f7cc8bc21503b79c6",
+        "instructions_sha256": "a3e621752f98176ad415f229ee87291075a39d4db821604583c94dbf5bb6da62"
+      },
+      {
+        "output": "D:\\AI\\project\\compareTool_myself\\.tmp\\delivery_acceptance_241b9c3f97\\folder",
+        "partial": false,
+        "report_items": 3,
+        "old_files": 3,
+        "new_files": 3,
+        "deletions": [],
+        "directory_deletions": [],
+        "hashes": {
+          "oldVersion/folder/keep.txt": "01d09d19c2139a46aebfb577780d123d7396e97201bc7ead210a2ebff8239dee",
+          "oldVersion/folder/config/汉字&name.txt": "30bb93a53cf47fe4e800a303c495f1f4b898878786cad4034cd37ea1b55fbc03",
+          "oldVersion/folder/lib/app.jar": "c27f0866f6f6ac560663b85bea4042770e237b58e2f75d978533d3b6dd3ab6fc",
+          "newVersion/folder/keep.txt": "7aa7a5359173d05b63cfd682e3c38487f3cb4f7f1d60659fe59fab1505977d4c",
+          "newVersion/folder/config/汉字&name.txt": "e0f498d43b5abfdd45d012cded3bdde2637bbc06bcca1389f430e0f5777b9521",
+          "newVersion/folder/lib/app.jar": "1b698e329fbbe7ff8ed3c8f461dc83ef2875f1feb3a2a858d1443122057376f3"
+        },
+        "matched": true,
+        "report_sha256": "6a29a9e6f6aa6d903ecde6a5d5a2cc556801510cc9f60ecd81ad9977b4656efb",
+        "instructions_sha256": "a3e621752f98176ad415f229ee87291075a39d4db821604583c94dbf5bb6da62"
+      },
+      {
+        "output": "D:\\AI\\project\\compareTool_myself\\.tmp\\delivery_acceptance_241b9c3f97\\archive",
+        "partial": false,
+        "report_items": 3,
+        "old_files": 3,
+        "new_files": 3,
+        "deletions": [],
+        "directory_deletions": [],
+        "hashes": {
+          "oldVersion/archive/keep.txt": "01d09d19c2139a46aebfb577780d123d7396e97201bc7ead210a2ebff8239dee",
+          "oldVersion/archive/config/汉字&name.txt": "30bb93a53cf47fe4e800a303c495f1f4b898878786cad4034cd37ea1b55fbc03",
+          "oldVersion/archive/lib/app.jar": "c27f0866f6f6ac560663b85bea4042770e237b58e2f75d978533d3b6dd3ab6fc",
+          "newVersion/archive/keep.txt": "7aa7a5359173d05b63cfd682e3c38487f3cb4f7f1d60659fe59fab1505977d4c",
+          "newVersion/archive/config/汉字&name.txt": "e0f498d43b5abfdd45d012cded3bdde2637bbc06bcca1389f430e0f5777b9521",
+          "newVersion/archive/lib/app.jar": "1b698e329fbbe7ff8ed3c8f461dc83ef2875f1feb3a2a858d1443122057376f3"
+        },
+        "matched": true,
+        "report_sha256": "629f8aefb5acb9dd7f29252b270f4c34b56cce88eadf3cf439971ecf9fc3f227",
+        "instructions_sha256": "a3e621752f98176ad415f229ee87291075a39d4db821604583c94dbf5bb6da62"
+      },
+      {
+        "output": "D:\\AI\\project\\compareTool_myself\\.tmp\\delivery_acceptance_241b9c3f97\\mixed",
+        "partial": false,
+        "report_items": 15,
+        "old_files": 15,
+        "new_files": 15,
+        "deletions": [],
+        "directory_deletions": [],
+        "hashes": {
+          "oldVersion/folder/keep.txt": "01d09d19c2139a46aebfb577780d123d7396e97201bc7ead210a2ebff8239dee",
+          "oldVersion/git/keep.txt": "01d09d19c2139a46aebfb577780d123d7396e97201bc7ead210a2ebff8239dee",
+          "oldVersion/svn/keep.txt": "01d09d19c2139a46aebfb577780d123d7396e97201bc7ead210a2ebff8239dee",
+          "oldVersion/archive/config/汉字&name.txt": "30bb93a53cf47fe4e800a303c495f1f4b898878786cad4034cd37ea1b55fbc03",
+          "oldVersion/archive/lib/app.jar": "c27f0866f6f6ac560663b85bea4042770e237b58e2f75d978533d3b6dd3ab6fc",
+          "oldVersion/folder/config/汉字&name.txt": "30bb93a53cf47fe4e800a303c495f1f4b898878786cad4034cd37ea1b55fbc03",
+          "oldVersion/folder/lib/app.jar": "c27f0866f6f6ac560663b85bea4042770e237b58e2f75d978533d3b6dd3ab6fc",
+          "oldVersion/git/config/汉字&name.txt": "30bb93a53cf47fe4e800a303c495f1f4b898878786cad4034cd37ea1b55fbc03",
+          "oldVersion/git/lib/app.jar": "c27f0866f6f6ac560663b85bea4042770e237b58e2f75d978533d3b6dd3ab6fc",
+          "oldVersion/git_multi/config/汉字&name.txt": "30bb93a53cf47fe4e800a303c495f1f4b898878786cad4034cd37ea1b55fbc03",
+          "oldVersion/git_multi/lib/app.jar": "c27f0866f6f6ac560663b85bea4042770e237b58e2f75d978533d3b6dd3ab6fc",
+          "oldVersion/svn/config/汉字&name.txt": "30bb93a53cf47fe4e800a303c495f1f4b898878786cad4034cd37ea1b55fbc03",
+          "oldVersion/svn/lib/app.jar": "c27f0866f6f6ac560663b85bea4042770e237b58e2f75d978533d3b6dd3ab6fc",
+          "oldVersion/svn_multi/config/汉字&name.txt": "30bb93a53cf47fe4e800a303c495f1f4b898878786cad4034cd37ea1b55fbc03",
+          "oldVersion/svn_multi/lib/app.jar": "c27f0866f6f6ac560663b85bea4042770e237b58e2f75d978533d3b6dd3ab6fc",
+          "newVersion/folder/keep.txt": "7aa7a5359173d05b63cfd682e3c38487f3cb4f7f1d60659fe59fab1505977d4c",
+          "newVersion/git/keep.txt": "7aa7a5359173d05b63cfd682e3c38487f3cb4f7f1d60659fe59fab1505977d4c",
+          "newVersion/svn/keep.txt": "7aa7a5359173d05b63cfd682e3c38487f3cb4f7f1d60659fe59fab1505977d4c",
+          "newVersion/archive/config/汉字&name.txt": "e0f498d43b5abfdd45d012cded3bdde2637bbc06bcca1389f430e0f5777b9521",
+          "newVersion/archive/lib/app.jar": "1b698e329fbbe7ff8ed3c8f461dc83ef2875f1feb3a2a858d1443122057376f3",
+          "newVersion/folder/config/汉字&name.txt": "e0f498d43b5abfdd45d012cded3bdde2637bbc06bcca1389f430e0f5777b9521",
+          "newVersion/folder/lib/app.jar": "1b698e329fbbe7ff8ed3c8f461dc83ef2875f1feb3a2a858d1443122057376f3",
+          "newVersion/git/config/汉字&name.txt": "e0f498d43b5abfdd45d012cded3bdde2637bbc06bcca1389f430e0f5777b9521",
+          "newVersion/git/lib/app.jar": "1b698e329fbbe7ff8ed3c8f461dc83ef2875f1feb3a2a858d1443122057376f3",
+          "newVersion/git_multi/config/汉字&name.txt": "e0f498d43b5abfdd45d012cded3bdde2637bbc06bcca1389f430e0f5777b9521",
+          "newVersion/git_multi/lib/app.jar": "1b698e329fbbe7ff8ed3c8f461dc83ef2875f1feb3a2a858d1443122057376f3",
+          "newVersion/svn/config/汉字&name.txt": "e0f498d43b5abfdd45d012cded3bdde2637bbc06bcca1389f430e0f5777b9521",
+          "newVersion/svn/lib/app.jar": "1b698e329fbbe7ff8ed3c8f461dc83ef2875f1feb3a2a858d1443122057376f3",
+          "newVersion/svn_multi/config/汉字&name.txt": "e0f498d43b5abfdd45d012cded3bdde2637bbc06bcca1389f430e0f5777b9521",
+          "newVersion/svn_multi/lib/app.jar": "1b698e329fbbe7ff8ed3c8f461dc83ef2875f1feb3a2a858d1443122057376f3"
+        },
+        "matched": true,
+        "report_sha256": "49bd38b5585226c695706f7a3420f1bf38ee433fbea5d758155f2c9f78f9a147",
+        "instructions_sha256": "a3e621752f98176ad415f229ee87291075a39d4db821604583c94dbf5bb6da62"
+      },
+      {
+        "output": "D:\\AI\\project\\compareTool_myself\\.tmp\\delivery_acceptance_241b9c3f97\\svn-fork",
+        "partial": false,
+        "report_items": 2,
+        "old_files": 1,
+        "new_files": 1,
+        "deletions": [
+          [
+            "删除文件",
+            "Demo/old/a"
+          ]
+        ],
+        "directory_deletions": [],
+        "hashes": {
+          "oldVersion/Demo/old/a": "f9194e73f9e9459e3450ea10a179cdf77aafa695beecd3b9344a98d111622243",
+          "newVersion/Demo/release/a": "3fc4ccfe745870e2c0d99f71f30ff0656c8dedd41cc1d7d3d376b0dbe685e2f3"
+        },
+        "matched": true,
+        "report_sha256": "6f3f2b2476e83c7e2ec62a7056aa6a9c869b42e98ea61a63aba06624ed674d39",
+        "instructions_sha256": "6909cc9a532f5b3f5563ee24e5e973903b4bd25b41f73d98312ea411c88577a8"
+      },
+      {
+        "output": "D:\\AI\\project\\compareTool_myself\\.tmp\\delivery_acceptance_241b9c3f97\\svn-fork-node-False",
+        "partial": false,
+        "report_items": 3,
+        "old_files": 1,
+        "new_files": 2,
+        "deletions": [
+          [
+            "删除文件",
+            "Demo/old/a"
+          ]
+        ],
+        "directory_deletions": [],
+        "hashes": {
+          "oldVersion/Demo/old/a": "f9194e73f9e9459e3450ea10a179cdf77aafa695beecd3b9344a98d111622243",
+          "newVersion/Demo/release/a": "3fc4ccfe745870e2c0d99f71f30ff0656c8dedd41cc1d7d3d376b0dbe685e2f3",
+          "newVersion/Demo/old/a/child": "c9b7eed6d5125afb000866ea08a00809f64438e0817c57ef1a39b711d591a29e"
+        },
+        "matched": true,
+        "report_sha256": "75ad0e0d6cd64cd71a4b2924f4b02da133965be8514e0615fa768070d21e8c0d",
+        "instructions_sha256": "6909cc9a532f5b3f5563ee24e5e973903b4bd25b41f73d98312ea411c88577a8"
+      },
+      {
+        "output": "D:\\AI\\project\\compareTool_myself\\.tmp\\delivery_acceptance_241b9c3f97\\svn-fork-node-True",
+        "partial": false,
+        "report_items": 4,
+        "old_files": 2,
+        "new_files": 2,
+        "deletions": [
+          [
+            "删除文件",
+            "Demo/old/a"
+          ],
+          [
+            "删除文件",
+            "Demo/target/a/child"
+          ]
+        ],
+        "directory_deletions": [
+          "Demo/target/a"
+        ],
+        "hashes": {
+          "oldVersion/Demo/old/a": "f9194e73f9e9459e3450ea10a179cdf77aafa695beecd3b9344a98d111622243",
+          "oldVersion/Demo/target/a/child": "7bb46e8a95ef05fc3d6447f6b57aa4e2ba7e1578388a22d5b734d05cfed52f22",
+          "newVersion/Demo/release/a": "3fc4ccfe745870e2c0d99f71f30ff0656c8dedd41cc1d7d3d376b0dbe685e2f3",
+          "newVersion/Demo/target/a": "7692c3ad3540bb803c020b3aee66cd8887123234ea0c6e7143c0add73ff431ed"
+        },
+        "matched": true,
+        "report_sha256": "d963cabe38c97500302949515050e8d56cfb6bb85508cb4a732ec45ed91b2f4b",
+        "instructions_sha256": "ddef44f0c1c7da4aafea8a24095632f110d19bbe747dc66c26335be17ec2db66"
+      },
+      {
+        "output": "D:\\AI\\project\\compareTool_myself\\.tmp\\delivery_acceptance_241b9c3f97\\partial-0",
+        "partial": true,
+        "report_items": 1,
+        "old_files": 1,
+        "new_files": 1,
+        "deletions": [],
+        "directory_deletions": [],
+        "hashes": {
+          "oldVersion/Demo/keep": "cba06b5736faf67e54b07b561eae94395e774c517a7d910a54369e1263ccfbd4",
+          "newVersion/Demo/keep": "11507a0e2f5e69d5dfa40a62a1bd7b6ee57e6bcd85c67c9b8431b36fff21c437"
+        },
+        "matched": true,
+        "report_sha256": "b8a95889be15f1cb9237acf5beb6e410ffa2fb4b1376683621c742956f939b6a",
+        "instructions_sha256": "7daded97a154775da8ef0912cd6fc138af4b3de1f2dd830f526b6b751a16ec8d"
+      },
+      {
+        "output": "D:\\AI\\project\\compareTool_myself\\.tmp\\delivery_acceptance_241b9c3f97\\partial-1",
+        "partial": true,
+        "report_items": 1,
+        "old_files": 1,
+        "new_files": 1,
+        "deletions": [],
+        "directory_deletions": [],
+        "hashes": {
+          "oldVersion/Demo/keep": "cba06b5736faf67e54b07b561eae94395e774c517a7d910a54369e1263ccfbd4",
+          "newVersion/Demo/keep": "11507a0e2f5e69d5dfa40a62a1bd7b6ee57e6bcd85c67c9b8431b36fff21c437"
+        },
+        "matched": true,
+        "report_sha256": "ed5d1f344b7f59a65c0459c83fe418f589434f89bc4c8217f9f17d379e524fa7",
+        "instructions_sha256": "60885bf982010a8f358433f17dc313c5832e5cc751d376d6474b6e00bc02acdc"
+      }
+    ],
+    "all_matched": true
+  },
+  "manual": {
+    "pages": 17,
+    "docs_dist_identical": true,
+    "sha256": "ee58ab468d67631ce2c26bf924b9f58f0cfe983efc4b5db943aabc5d06f86877"
+  }
+}

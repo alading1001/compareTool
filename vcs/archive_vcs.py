@@ -961,6 +961,43 @@ class ArchiveVCS(BaseVCS):
                         raise ValueError(f"tar PAX size 无效: {name}") from exc
                 if size < 0:
                     raise ValueError(f"tar PAX size 无效: {name}")
+                stored_size = size
+                if member.type == tarfile.GNUTYPE_SPARSE:
+                    # Old GNU sparse 的扩展映射块位于正文之前，不计入头中的
+                    # physical size。先消费并验证映射，随后只跳过实际数据块。
+                    try:
+                        logical_size = tarfile.nti(header[483:495])
+                        extents = [(tarfile.nti(header[pos:pos + 12]),
+                                    tarfile.nti(header[pos + 12:pos + 24]))
+                                   for pos in range(386, 482, 24)]
+                        extended = bool(header[482])
+                        while extended:
+                            block = cls._read_exact(stream, 512)
+                            if metadata_records is not None:
+                                metadata_records += 1
+                                if metadata_records > cls.MAX_TAR_METADATA_RECORDS:
+                                    raise ValueError('tar 扩展元数据记录过多')
+                            if metadata_size is not None:
+                                metadata_size += 512
+                                if metadata_size > cls.MAX_TAR_METADATA_BYTES:
+                                    raise ValueError('tar 扩展元数据累计过大')
+                            extents.extend((tarfile.nti(block[pos:pos + 12]),
+                                            tarfile.nti(block[pos + 12:pos + 24]))
+                                           for pos in range(0, 504, 24))
+                            extended = bool(block[504])
+                        end, consumed = 0, 0
+                        for offset, length in extents:
+                            if (offset < 0 or length < 0 or offset + length > logical_size
+                                    or length and offset < end):
+                                raise ValueError('范围越界或重叠')
+                            if length:
+                                end = offset + length
+                                consumed += length
+                        if logical_size < 0 or consumed != stored_size:
+                            raise ValueError('映射长度与实际正文不一致')
+                        size = logical_size
+                    except ValueError as exc:
+                        raise ValueError(f'GNU sparse 映射无效: {name}: {exc}') from exc
                 is_dir = member.isdir()
                 if not (is_dir or member.isfile()):
                     raise ValueError(f"压缩包包含不安全或不支持的链接/特殊文件: {name}")
@@ -989,8 +1026,8 @@ class ArchiveVCS(BaseVCS):
                 if (cls.MAX_ARCHIVE_MEMBERS is not None
                         and len(targets) > cls.MAX_ARCHIVE_MEMBERS):
                     raise ValueError("压缩包成员过多，已拒绝解压")
-                cls._discard_exact(stream, size)
-                cls._skip_tar_padding(stream, size)
+                cls._discard_exact(stream, stored_size)
+                cls._skip_tar_padding(stream, stored_size)
         source.seek(0)
         (target_validator or cls._validate_archive_targets)(dest, targets)
         return total_size
@@ -1455,6 +1492,13 @@ class ArchiveVCS(BaseVCS):
                                    or tuple(self._folder.exclude_patterns) != fixed):
             raise ValueError("内部归档提取排除计划已被改变")
         files = self._folder.get_changed_files("old", "new")
+        self.excluded_old_paths.update(self._folder.excluded_old_paths)
+        plan = self._sparse_plans.get(os.path.abspath(self.old_archive))
+        if plan is not None:
+            decisions, prefix, _required, _virtual = plan
+            self.excluded_old_paths.update(
+                path[len(prefix) + 1:] if prefix else path
+                for path, keep in decisions.items() if not keep)
         self.required_directory_deletions = self._folder.required_directory_deletions
         by_path = {item.path: item for item in files}
         for path in sorted(set(self._old_metadata) | set(self._new_metadata)):

@@ -140,16 +140,16 @@ class ExclusionPathFlowTests(WorkflowCase):
         vcs._svn_node_exists = mock.Mock(return_value=True)
         return vcs
 
-    def test_excluded_svn_directory_is_not_expanded(self):
+    def test_excluded_svn_directory_retains_history_metadata(self):
         vcs = self.svn_delegate(['**/logs/**'])
-        vcs._list_svn_files = mock.Mock(side_effect=AssertionError('已排除目录不应查询成员'))
+        vcs._list_svn_files = mock.Mock(return_value=['logs/a.txt'])
         raw = [_SVNPathChange('D', 'dir', 'logs', None, None),
                _SVNPathChange('M', 'file', 'keep.txt', None, None)]
         changes = vcs._expand_svn_changes(raw, 3, _EndpointPlanner(), selected=True)
-        self.assertEqual([('M', 'keep.txt', '')],
+        self.assertEqual([('D', 'logs/a.txt', ''), ('M', 'keep.txt', '')],
                          [(c.action, c.path, c.old_path) for c in changes])
 
-    def test_excluded_svn_copy_does_not_compete_for_rename_identity(self):
+    def test_excluded_svn_copy_preserves_real_fork(self):
         vcs = self.svn_delegate(['**/logs/**'])
         listing = {'app': ['app/a.txt'], 'release': ['release/a.txt'],
                    'logs/copy': ['logs/copy/a.txt']}
@@ -158,22 +158,23 @@ class ExclusionPathFlowTests(WorkflowCase):
                _SVNPathChange('A', 'dir', 'release', 'app', 2),
                _SVNPathChange('A', 'dir', 'logs/copy', 'app', 2)]
         changes = vcs._expand_svn_changes(raw, 3, _EndpointPlanner(), selected=True)
-        self.assertEqual([('R', 'release/a.txt', 'app/a.txt')],
+        self.assertEqual([('D', 'app/a.txt', ''), ('A', 'logs/copy/a.txt', ''),
+                          ('A', 'release/a.txt', '')],
                          [(c.action, c.path, c.old_path) for c in changes])
 
-    def test_svn_list_filters_files_without_over_pruning_partial_globs(self):
+    def test_svn_history_list_is_independent_of_business_rules(self):
         vcs = self.svn_delegate(['logs/*'])
         vcs._svn_file_url = mock.Mock(return_value='file:///test/logs@3')
         vcs._run_bytes = mock.Mock(return_value=(
             b'<lists><list><entry kind="file"><name>a.txt</name></entry>'
             b'<entry kind="file"><name>nested/b.txt</name></entry></list></lists>'))
-        self.assertEqual(['logs/nested/b.txt'], vcs._list_svn_files('logs', 3))
+        self.assertEqual(['logs/a.txt', 'logs/nested/b.txt'], vcs._list_svn_files('logs', 3))
         vcs.set_exclude_patterns(['**/logs/**'])
         vcs._run_bytes.reset_mock()
-        self.assertEqual([], vcs._list_svn_files('logs', 3))
-        vcs._run_bytes.assert_not_called()
+        self.assertEqual(['logs/a.txt', 'logs/nested/b.txt'], vcs._list_svn_files('logs', 3))
+        vcs._run_bytes.assert_called_once()
 
-    def test_git_and_svn_history_crossing_exclusion_becomes_delete_and_add(self):
+    def test_git_and_svn_intermediate_exclusion_preserves_rename(self):
         for kind in ('git', 'svn'):
             with self.subTest(kind=kind):
                 repo = Repository(self, kind, kind)
@@ -187,7 +188,7 @@ class ExclusionPathFlowTests(WorkflowCase):
                 app, result, output = self.generate(task, output=self.root / (kind + '-output'))
                 self.assert_success(app)
                 self.assertFalse(result.delivery_incomplete)
-                self.assertEqual({'app/a.txt': ChangeType.DELETED, 'app/b.txt': ChangeType.ADDED},
+                self.assertEqual({'app/b.txt': ChangeType.RENAMED},
                                  {f.file_path: f.change_type for f in result.files})
                 self.assertEqual(b'kept payload\n', (output / 'oldVersion/Demo/app/a.txt').read_bytes())
                 self.assertEqual(b'kept payload\n', (output / 'newVersion/Demo/app/b.txt').read_bytes())

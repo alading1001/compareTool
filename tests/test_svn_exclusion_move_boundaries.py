@@ -88,7 +88,7 @@ class SVNExclusionMoveBoundaryTests(WorkflowCase):
             with self.subTest(patterns=patterns):
                 self.assertEqual(expected, self.files_for(repo, revision, patterns))
 
-    def test_excluded_fork_target_does_not_compete_for_child_identity(self):
+    def test_excluded_fork_target_does_not_change_child_identity(self):
         repo = Repository(self, 'svn', 'fork')
         repo.commit({'old/a.txt': b'A\n'})
         repo.cmd('move', 'old', 'new')
@@ -99,12 +99,12 @@ class SVNExclusionMoveBoundaryTests(WorkflowCase):
                 ([], {('D', 'old/a.txt', ''), ('A', 'new/b.txt', ''),
                       ('A', 'new/c.txt', '')}),
                 (['old/a.txt'], {('A', 'new/b.txt', ''), ('A', 'new/c.txt', '')}),
-                (['new/b.txt'], {('R', 'new/c.txt', 'old/a.txt')}),
-                (['new/c.txt'], {('R', 'new/b.txt', 'old/a.txt')})):
+                (['new/b.txt'], {('D', 'old/a.txt', ''), ('A', 'new/c.txt', '')}),
+                (['new/c.txt'], {('D', 'old/a.txt', ''), ('A', 'new/b.txt', '')})):
             with self.subTest(patterns=patterns):
                 self.assertEqual(expected, self.files_for(repo, revision, patterns))
 
-    def test_excluded_directory_copy_does_not_compete_for_move_identity(self):
+    def test_excluded_directory_copy_does_not_change_fork_identity(self):
         repo = Repository(self, 'svn', 'directory-fork')
         repo.commit({'old/a.txt': b'A\n', 'old/sub/k.txt': b'K\n',
                      'logs/anchor': b'fixed\n'})
@@ -116,11 +116,11 @@ class SVNExclusionMoveBoundaryTests(WorkflowCase):
                 ([], {('D', 'old/' + suffix, '') for suffix in sources}
                  | {('A', prefix + suffix, '') for prefix in ('release/', 'logs/copy/')
                     for suffix in sources}),
-                (['logs/**'], {('R', 'release/' + suffix, 'old/' + suffix)
-                               for suffix in sources}),
+                (['logs/**'], {('D', 'old/' + suffix, '') for suffix in sources}
+                 | {('A', 'release/' + suffix, '') for suffix in sources}),
                 (['old/**', 'logs/**'], {('A', 'release/' + suffix, '')
                                          for suffix in sources}),
-                (['release/**'], {('R', 'logs/copy/' + suffix, 'old/' + suffix)
-                                  for suffix in sources})):
+                (['release/**'], {('D', 'old/' + suffix, '') for suffix in sources}
+                 | {('A', 'logs/copy/' + suffix, '') for suffix in sources})):
             with self.subTest(patterns=patterns):
                 self.assertEqual(expected, self.files_for(repo, revision, patterns))

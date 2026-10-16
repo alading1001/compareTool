@@ -184,7 +184,7 @@ class CheckoutScopeTests(unittest.TestCase):
             self.assertEqual([('before.txt', 'after.txt')],
                              [(f.old_path, f.file_path) for f in diff.files if f.change_type.value == 'R'])
 
-    def test_subproject_excludes_and_unselected_moves_apply_before_identity(self):
+    def test_subproject_final_excludes_preserve_history_and_project_scope(self):
         old = self.commit({'app/a.txt': b'a\n', 'app/skip/old.txt': b'skip\n', 'other/out.txt': b'other\n'})
         first = self.commit({'app/a.txt': b'selected first\n', 'app/skip/old.txt': b'skip\n', 'other/out.txt': b'other\n'}, old)
         middle = self.commit({'app/renamed.txt': b'selected first\n', 'app/skip/new.txt': b'skip\n', 'other/out.txt': b'other\n'}, first)
@@ -194,7 +194,18 @@ class CheckoutScopeTests(unittest.TestCase):
         diff, actual = self.exported(vcs, vcs.old_version_label, vcs.new_version_label, 'selected')
         self.assertEqual({'a.txt': b'a\n'}, actual['old'])
         self.assertEqual({'renamed.txt': b'selected last\n'}, actual['new'])
-        self.assertEqual('R', diff.files[0].change_type.value)
+        # 完整历史保留另一个 rename 候选，允许按真实路径降级，不能因
+        # skip/** 不交付就提前删除该候选、强行认定唯一 R。
+        self.assertEqual({('D', 'a.txt'), ('A', 'renamed.txt')},
+                         {(file.change_type.value, file.file_path) for file in diff.files})
+        self.assertIn('降级', diff.comparison_note)
+        unfiltered = GitMultiVersionVCS(str(self.repo / 'app'), [first, last])
+        self.addCleanup(unfiltered.cleanup)
+        _, all_bytes = self.exported(unfiltered, unfiltered.old_version_label,
+                                     unfiltered.new_version_label, 'unfiltered')
+        for side in ('old', 'new'):
+            self.assertEqual(actual[side], {path: data for path, data in all_bytes[side].items()
+                                           if not path.startswith('skip/')})
 
     def test_frozen_external_attributes_and_config_are_reused(self):
         old = self.commit({'app/a.txt': b'old\n'})

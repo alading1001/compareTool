@@ -224,8 +224,10 @@ class FileExporter:
             keys = set()
             if file.change_type != ChangeType.DELETED:
                 key = windows_path_key(file.file_path)
-                if key in groups:
-                    keys.add(key)
+                while key:
+                    if key in groups:
+                        keys.add(key)
+                    key = key.rpartition('\\')[0]
             if file.change_type != ChangeType.ADDED:
                 key = windows_path_key(file.old_path or file.file_path)
                 while key:

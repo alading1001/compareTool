@@ -202,6 +202,7 @@ class GitVCS(BaseVCS):
 
     @measured_phase('git.changes', '查询 Git 版本差异')
     def get_changed_files(self, old_version: str, new_version: str) -> List[ChangedFile]:
+        self.excluded_old_paths = set()
         pinned = self._pin_versions_stable((old_version, new_version))
         old_endpoint = pinned[str(old_version)]
         new_endpoint = pinned[str(new_version)]
@@ -254,6 +255,10 @@ class GitVCS(BaseVCS):
                     code, old_path, old_mode = "A", "", "000000"
             elif path is None:
                 continue
+
+            previous_path = old_path if code in ('R', 'C') else path
+            if old_mode != '000000' and self._is_excluded(previous_path):
+                self.excluded_old_paths.add(previous_path)
 
             old_excluded = False
             new_excluded = False

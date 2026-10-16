@@ -142,6 +142,12 @@ class ArchiveStreamingTests(WorkflowCase):
                 {'Foo/A.class':b'b','foo/keep.txt':b'new'},['Foo/*.class'],False)]
         for old,new,patterns,root in cases:
             paths=self.archives(old,new)
+            if 'classes' in new:
+                # 两种提取策略都不得用目录替换绕过旧后代的排除。
+                for sparse in (False, True):
+                    with self.assertRaisesRegex(RuntimeError, '间接删除'):
+                        self.result(paths, patterns, sparse, root)
+                continue
             _,a=self.result(paths,patterns,False,root)
             _,b=self.result(paths,patterns,True,root)
             self.assertEqual(self.identity(a),self.identity(b))

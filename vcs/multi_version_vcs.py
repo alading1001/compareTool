@@ -502,6 +502,16 @@ class _EndpointPlanner:
                 previous = by_path.setdefault(path, entity)
                 if previous is not entity:
                     union((previous, entity))
+        # 同一路径在文件与目录之间切换时，后代也是该生命周期的依赖。
+        # 将已知文件路径逐级查询祖先，避免目录被文件覆盖时漏掉未选删除
+        # 的旧子文件；只连接完整路径分量，不扩展到同目录的无关兄弟。
+        for path, entity in by_path.items():
+            ancestor = path.rpartition('/')[0]
+            while ancestor:
+                previous = by_path.get(ancestor)
+                if previous is not None:
+                    union((previous, entity))
+                ancestor = ancestor.rpartition('/')[0]
         conflict_roots = {root(entity) for group in self._conflicts for entity in group}
         groups = {}
         for entity in self._entities:
@@ -598,26 +608,8 @@ class _MultiVersionFolderDelegate(BaseVCS):
         if exclude_patterns:
             super().set_exclude_patterns(exclude_patterns)
 
-    def _filter_history_changes(self, changes: List[_HistoryChange]) -> List[_HistoryChange]:
-        """历史身份判断前应用同一排除边界；跨边界 rename 降级为 A/D。"""
-        filtered = []
-        for change in changes:
-            if change.action == "R":
-                old_excluded = self._is_excluded(change.old_path)
-                new_excluded = self._is_excluded(change.path)
-                if old_excluded and new_excluded:
-                    continue
-                if old_excluded:
-                    filtered.append(_HistoryChange("A", change.path))
-                elif new_excluded:
-                    filtered.append(_HistoryChange("D", change.old_path))
-                else:
-                    filtered.append(change)
-            elif not self._is_excluded(change.path):
-                filtered.append(change)
-        return filtered
-
     def _finish_plan(self, entities: List[_LogicalFile], content_writer, raw_content_writer, *, derive_writer=None):
+        self._snapshot_excludes = tuple(self.exclude_patterns)
         os.makedirs(self._old_dir, exist_ok=True)
         os.makedirs(self._new_dir, exist_ok=True)
         os.makedirs(self._old_raw_dir, exist_ok=True)
@@ -633,6 +625,8 @@ class _MultiVersionFolderDelegate(BaseVCS):
         )
         effective = []
         for entity in ordered:
+            if entity.old_path is not None and self._is_excluded(entity.old_path):
+                self.excluded_old_paths.add(entity.old_path)
             old_path = (
                 entity.old_path
                 if entity.old_path is not None and not self._is_excluded(entity.old_path)
@@ -960,6 +954,10 @@ class _MultiVersionFolderDelegate(BaseVCS):
                 )
 
     def set_exclude_patterns(self, patterns: List[str]):
+        normalized = tuple(p.strip() for p in patterns if p.strip())
+        if (hasattr(self, '_snapshot_excludes')
+                and normalized != self._snapshot_excludes):
+            raise ValueError('多版本端点已固定，更改排除规则请重新创建比对任务')
         super().set_exclude_patterns(patterns)
         if self._folder:
             self._folder.set_exclude_patterns(patterns)
@@ -967,6 +965,8 @@ class _MultiVersionFolderDelegate(BaseVCS):
             self._raw_folder.set_exclude_patterns(patterns)
 
     def _to_folder_ver(self, version: str) -> str:
+        if tuple(self.exclude_patterns) != self._snapshot_excludes:
+            raise ValueError('多版本端点已固定，更改排除规则请重新创建比对任务')
         # GUI/旧配置中的多选版本可能用换行、逗号或分号保存，不能依赖
         # selected_versions_label 的格式来识别 old。多版本模式的新端点标签是固定的，
         # 因此只显式识别 new，其余调用方传入的选中版本表达式都应读取 old。
@@ -975,6 +975,8 @@ class _MultiVersionFolderDelegate(BaseVCS):
         return "old"
 
     def get_changed_files(self, old_version: str = "", new_version: str = "") -> List[ChangedFile]:
+        if tuple(self.exclude_patterns) != self._snapshot_excludes:
+            raise ValueError('多版本端点已固定，更改排除规则请重新创建比对任务')
         return self._filter_files(list(self._planned_files))
 
     def get_file_content(self, version: str, file_path: str) -> str:
@@ -1699,7 +1701,7 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
     def _filter_git_history_changes(
         self, changes: List[_HistoryChange]
     ) -> List[_HistoryChange]:
-        return self._filter_history_changes(changes)
+        return changes
 
     def _reserve_git_pair_candidates(self, count: int, label: str):
         if count <= 0 or self.MAX_GIT_RENAME_PAIR_CANDIDATES is None:
@@ -2223,6 +2225,7 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         ])
         history = self._parse_svn_history_bytes(output)
         planner = _EndpointPlanner()
+        fork_events = []
         for revision in sorted(history):
             if revision > last_revision:
                 continue
@@ -2230,7 +2233,37 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
             changes = self._expand_svn_changes(
                 history[revision], revision, planner, selected=is_selected
             )
-            planner.apply(changes, is_selected, str(revision - 1), str(revision))
+            changes, forks = self._svn_history_forks(changes, history[revision])
+            resolved = planner.apply(changes, is_selected, str(revision - 1), str(revision))
+            removed = {change.path: entity for change, entity, _ in resolved
+                       if change.action == 'D'}
+            targets_by_path = {change.path: entity for change, entity, _ in resolved
+                               if change.action in ('A', 'M', 'R')}
+            for source, targets in forks.items():
+                source_entity = removed[source]
+                target_entities = {targets_by_path[path] for path in targets}
+                group = {source_entity} | target_entities
+                planner._potential_groups.append(group)
+                fork_events.append((planner.current_step, source_entity, target_entities))
+
+        # 选中端点可能隔着多次未选分叉。沿事件时序传播前/后选中关联，
+        # 避免只检查紧邻分叉而漏掉中间没有选中修改的路径。
+        before, linked = {}, []
+        for step, source, targets in fork_events:
+            first = min(before.get(source, float('inf')),
+                        source.first_selected_step or float('inf'))
+            crosses = first <= step
+            linked.append(crosses)
+            if crosses:
+                for target in targets:
+                    before[target] = min(before.get(target, float('inf')), first)
+        after = {}
+        for (step, source, targets), crosses in zip(reversed(fork_events), reversed(linked)):
+            last = max(max(after.get(target, 0), target.last_selected_step) for target in targets)
+            if last >= step:
+                after[source] = max(after.get(source, 0), last)
+                if crosses:
+                    planner.mark_conflict({source} | targets)
 
         entities, conflicts = planner.delivery_plan(self._svn_path_exists)
         if conflicts:
@@ -2243,7 +2276,10 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         )
 
     def _svn_path_exists(self, version, path):
-        return self._svn_node_exists(path, int(version))
+        revision = int(version)
+        # 冲突组按文件路径重建端点；目录只能作为容器，不能占据文件槽位。
+        return (self._svn_node_exists(path, revision)
+                and self._svn_node_kind(path, revision) == 'file')
 
     def _parse_revisions(self) -> List[int]:
         revisions = []
@@ -2467,6 +2503,49 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
             return None
         return normalized[len(prefix) + 1:]
 
+    @staticmethod
+    def _svn_history_forks(changes, raw_changes):
+        """保留 D/A 分叉的因果关联，供跨选中端点时按真实路径重新规划。
+
+        目录只建前缀索引，每个删除文件沿自身祖先查询；普通 copy 或有
+        唯一自然继承身份的 R 不加入分叉，避免把独立复制误并到源文件。
+        """
+        renames = {}
+        for change in changes:
+            if change.action == 'R':
+                renames.setdefault(change.old_path, []).append(change)
+        multiple = {source for source, items in renames.items() if len(items) > 1}
+        if multiple:
+            changes = [change for change in changes
+                       if not (change.action == 'R' and change.old_path in multiple)]
+            for source in sorted(multiple):
+                changes.append(_HistoryChange('D', source))
+                changes.extend(_HistoryChange('A', item.path) for item in renames[source])
+        removed = {item.path for item in changes if item.action == 'D'}
+        targets_in_step = {item.path for item in changes if item.action in ('A', 'M', 'R')}
+        directories, files = {}, {}
+        for item in raw_changes:
+            if item.action not in ('A', 'R') or not item.copyfrom_path:
+                continue
+            index = directories if item.kind == 'dir' else files
+            index.setdefault(item.copyfrom_path.rstrip('/'), []).append(item.path.rstrip('/'))
+        forks = {}
+        for source in removed:
+            targets = set(files.get(source, ()))
+            ancestor = source.rpartition('/')[0]
+            while ancestor:
+                suffix = source[len(ancestor):]
+                targets.update(target + suffix for target in directories.get(ancestor, ()))
+                ancestor = ancestor.rpartition('/')[0]
+            targets.update(item.path for item in renames.get(source, ()) if source in multiple)
+            targets.intersection_update(targets_in_step)
+            if len(targets) > 1:
+                forks[source] = targets
+        # 不依赖 XML 记录顺序；重复 D/A 不得被 planner 作为第二次变化处理。
+        unique = {(item.action, item.path, item.old_path): item for item in changes}
+        priority = {'D': 0, 'R': 1, 'A': 2, 'M': 3}
+        return sorted(unique.values(), key=lambda item: (priority[item.action], item.path, item.old_path)), forks
+
     def _expand_svn_changes(
         self,
         raw_changes: List[_SVNPathChange],
@@ -2474,14 +2553,9 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         planner: _EndpointPlanner,
         selected: bool = False,
     ) -> List[_HistoryChange]:
-        # 先排除再参与 copy/move 的来源竞争。根移动记录仍服务于固定 URL
-        # 的历史映射，不能按普通目录过滤。跨边界的另一侧由真实 A/D 保留。
-        files = [item for item in raw_changes if item.kind != "dir"
-                 and (not self._is_excluded(item.path)
-                      or item.action == "R" and not self._is_excluded_tree(item.path))]
-        directories = [item for item in raw_changes if item.kind == "dir"
-                       and (item.project_root_transition or not self._is_excluded_tree(item.path)
-                            or item.action == "R" and not self._is_excluded(item.path))]
+        # copy/move 必须消费完整项目历史；业务规则只过滤最后的真实端点。
+        files = [item for item in raw_changes if item.kind != "dir"]
+        directories = [item for item in raw_changes if item.kind == "dir"]
         changes: List[_HistoryChange] = []
 
         def predecessor_endpoint(item: _SVNPathChange):
@@ -2516,7 +2590,7 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                 normalized_files.append(item)
         # R 的新旧节点可能分别是文件和目录，须先拆开再按各自路径排除；
         # 不能因新文件被排除，顺带漏掉旧目录内未排除文件的真实删除。
-        files = [item for item in normalized_files if not self._is_excluded(item.path)]
+        files = normalized_files
         normalized_directories = []
         for item in directories:
             old_path, old_revision = predecessor_endpoint(item)
@@ -2542,8 +2616,7 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                 ))
             else:
                 normalized_directories.append(item)
-        directories = [item for item in normalized_directories
-                       if item.project_root_transition or not self._is_excluded_tree(item.path)]
+        directories = normalized_directories
         included_directories = []
         if selected:
             for item in directories:
@@ -2769,10 +2842,7 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                 # 原后缀在目标目录仍然存在，当前记录只是从它复制出一个新
                 # 文件，不是把原文件重命名到 item.path。
                 ordinary_directory_copy_targets.add(item.path)
-            elif not self._is_excluded(item.copyfrom_path):
-                # 单侧排除已切断文件身份。保留目录结构用于抑制临时路径，
-                # 但不能把不存在于过滤后旧集合的来源加入显式 rename 竞争；
-                # 下方文件展开及最终过滤会保留真实新侧的 A。
+            else:
                 explicit_move_candidates.setdefault(item.copyfrom_path, set()).add(
                     item.path
                 )
@@ -2952,7 +3022,7 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         # 替换目标必须先移除旧身份，再把 copyfrom 源连接到该路径；普通
         # source D 先发生也没关系，R 会从 planner._deleted 中恢复同一实体。
         priority = {"D": 0, "R": 1, "A": 2, "M": 3}
-        for item in sorted(self._filter_history_changes(changes),
+        for item in sorted(changes,
                            key=lambda value: (priority[value.action], value.path, value.old_path)):
             key = (item.action, item.path, item.old_path)
             if key not in seen:
@@ -3039,8 +3109,6 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
 
     def _list_svn_files(self, directory: str, revision: int) -> List[str]:
         relative = directory.replace("\\", "/").strip("/")
-        if relative and self._is_excluded_tree(relative):
-            return []
         url = self._svn_file_url(str(revision), relative)
         output = self._run_bytes([
             "list", "--xml", "-R", "--non-interactive", "-r", str(revision),
@@ -3075,8 +3143,7 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                             )
                     if name:
                         path = f"{relative}/{name}" if relative else name
-                        if not self._is_excluded(path):
-                            files.append(path)
+                        files.append(path)
                 entry.clear()
         except ElementTree.ParseError as exc:
             raise RuntimeError(f"无法解析 SVN 目录文件列表: {exc}") from exc

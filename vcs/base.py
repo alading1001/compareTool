@@ -34,6 +34,8 @@ class BaseVCS(ABC):
     def __init__(self, project_path: str):
         self.project_path = project_path
         self.exclude_patterns: List[str] = []
+        # 只保留名称：用于防止目录替换间接删除被排除的旧内容。
+        self.excluded_old_paths = set()
 
     def set_exclude_patterns(self, patterns: List[str]):
         """设置排除规则列表，支持 glob 模式：
@@ -41,7 +43,10 @@ class BaseVCS(ABC):
            target/**   - 排除 target 目录下所有内容
            **/test/**  - 排除任意路径下的 test 目录
         """
-        self.exclude_patterns = [p.strip() for p in patterns if p.strip()]
+        normalized = [p.strip() for p in patterns if p.strip()]
+        if normalized != self.exclude_patterns:
+            self.excluded_old_paths = set()
+        self.exclude_patterns = normalized
 
     def _is_excluded(self, file_path: str) -> bool:
         """判断文件路径是否匹配任一排除规则"""

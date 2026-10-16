@@ -174,6 +174,9 @@ class FolderVCS(BaseVCS):
         """遍历目录，返回文件与目录的相对路径集合。"""
         files = set()
         directories = set()
+        old_roots = (getattr(self, 'source_old_dir', None), getattr(self, 'old_dir', None))
+        record_old = any(base is not None and os.path.abspath(root) == os.path.abspath(base)
+                         for base in old_roots)
         try:
             root_metadata = os.lstat(root)
         except OSError as exc:
@@ -193,6 +196,8 @@ class FolderVCS(BaseVCS):
                 full = os.path.join(dirpath, name)
                 rel = prefix + name.replace("\\", "/")
                 if apply_excludes and self._should_prune_directory(rel):
+                    if record_old:
+                        self.excluded_old_paths.add(rel)
                     # 保留目录拓扑以正确识别“目录被文件替换”，但不进入或复制其内容。
                     directories.add(rel)
                     dirnames.remove(name)
@@ -220,6 +225,8 @@ class FolderVCS(BaseVCS):
                 full = os.path.join(dirpath, f)
                 rel = prefix + f.replace("\\", "/")
                 if apply_excludes and self._is_excluded(rel):
+                    if record_old:
+                        self.excluded_old_paths.add(rel)
                     continue
                 if validate_file_links and is_link_or_junction(full):
                     raise RuntimeError(f"比对目录包含符号链接，已拒绝读取: {full}")

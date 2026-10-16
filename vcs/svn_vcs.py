@@ -212,6 +212,7 @@ class SVNVCS(BaseVCS):
 
     def _parse_svn_diff_summarize(self, old_rev: str, new_rev: str) -> List[ChangedFile]:
         """使用 XML 摘要获取变更文件，可靠区分文件、目录和替换节点。"""
+        self.excluded_old_paths = set()
         target = f"{self._pinned_project_url}@{self._pinned_peg_revision}"
         output = self._run([
             "diff", "--summarize", "--xml", "--notice-ancestry",
@@ -231,8 +232,12 @@ class SVNVCS(BaseVCS):
                     node.text or "", old_rev, new_rev
                 )
                 if path.strip() and self._is_excluded_tree(path):
+                    if node.get('item') != 'added':
+                        self.excluded_old_paths.add(path)
                     continue
                 item = node.get("item", "")
+                old_was_file = (item == 'replaced'
+                                and self._get_node_kind(old_rev, path) == 'file')
                 props_modified = node.get("props") == "modified"
                 if props_modified or item in (
                     "added", "deleted", "replaced", "modified"
@@ -240,7 +245,7 @@ class SVNVCS(BaseVCS):
                     rel_dir = path
                     old_props = (
                         self._get_properties(old_rev, rel_dir)
-                        if item != "added" else {}
+                        if item != "added" and not old_was_file else {}
                     )
                     new_props = (
                         self._get_properties(new_rev, rel_dir)
@@ -263,15 +268,18 @@ class SVNVCS(BaseVCS):
                         )
                 if item in ("deleted", "replaced") and path.strip():
                     rel_dir = path
-                    if item == "replaced" and self._get_node_kind(old_rev, rel_dir) == "file":
-                        metadata = self._compare_endpoint_metadata(
-                            old_rev, rel_dir, new_rev, None
-                        )
-                        files.append(ChangedFile(
-                            path=rel_dir,
-                            change_type=ChangeType.DELETED,
-                            **metadata,
-                        ))
+                    if old_was_file:
+                        if self._is_excluded(rel_dir):
+                            self.excluded_old_paths.add(rel_dir)
+                        else:
+                            metadata = self._compare_endpoint_metadata(
+                                old_rev, rel_dir, new_rev, None
+                            )
+                            files.append(ChangedFile(
+                                path=rel_dir,
+                                change_type=ChangeType.DELETED,
+                                **metadata,
+                            ))
                     else:
                         deleted_directories.add(rel_dir)
                 continue
@@ -280,6 +288,8 @@ class SVNVCS(BaseVCS):
                 continue
             rel_path = path
             if self._is_excluded(rel_path):
+                if node.get('item') != 'added':
+                    self.excluded_old_paths.add(rel_path)
                 continue
 
             change_map = {

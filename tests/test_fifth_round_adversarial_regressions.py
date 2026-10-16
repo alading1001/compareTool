@@ -212,7 +212,7 @@ class GitHistoryResourceTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "矩阵过多"):
             vcs._changes_for_commit("b" * 40, "a" * 40)
 
-    def test_git_history_excludes_apply_at_each_rename_boundary(self):
+    def test_git_history_preserves_excluded_identity_until_endpoint_projection(self):
         vcs = self._bare_multi()
         vcs.exclude_patterns = ["secret/**"]
         filtered = vcs._filter_git_history_changes([
@@ -222,8 +222,10 @@ class GitHistoryResourceTests(unittest.TestCase):
             _HistoryChange("M", "secret/noise.txt"),
         ])
         self.assertEqual([
-            _HistoryChange("A", "kept/from_secret.txt"),
-            _HistoryChange("D", "kept/to_secret.txt"),
+            _HistoryChange("R", "kept/from_secret.txt", "secret/a.txt"),
+            _HistoryChange("R", "secret/b.txt", "kept/to_secret.txt"),
+            _HistoryChange("R", "secret/d.txt", "secret/c.txt"),
+            _HistoryChange("M", "secret/noise.txt"),
         ], filtered)
 
     def test_git_rename_scoring_streams_blobs_instead_of_loading_them(self):
