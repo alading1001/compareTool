@@ -610,6 +610,7 @@ class _MultiVersionFolderDelegate(BaseVCS):
 
     def _finish_plan(self, entities: List[_LogicalFile], content_writer, raw_content_writer, *, derive_writer=None):
         self._snapshot_excludes = tuple(self.exclude_patterns)
+        self.delivery_path_changes = []
         os.makedirs(self._old_dir, exist_ok=True)
         os.makedirs(self._new_dir, exist_ok=True)
         os.makedirs(self._old_raw_dir, exist_ok=True)
@@ -640,6 +641,7 @@ class _MultiVersionFolderDelegate(BaseVCS):
             if old_path is None and new_path is None:
                 continue
             effective.append((entity, old_path, new_path))
+            self._record_delivery_paths(old_path, new_path)
 
         if self.best_effort:
             conflicts = windows_path_conflict_indices(
@@ -2224,6 +2226,19 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
             f"{self._project_url}@{self._pinned_peg_revision}",
         ])
         history = self._parse_svn_history_bytes(output)
+        # 目录属性未变化时不会出现在所选 log 中，仍须校验每个选中端点的
+        # 完整项目树。复用固定历史 URL，不重新读取可能已被 switch 的工作副本。
+        external_revisions = selected | {revision - 1 for revision in selected}
+        external_revisions.update(
+            item.copyfrom_rev for revision, items in history.items() if revision in selected
+            for item in items if item.project_root_transition and item.copyfrom_rev)
+        self._content_vcs.set_exclude_patterns(self.exclude_patterns)
+        for revision in sorted(external_revisions):
+            # 首次创建项目之前可能没有旧根；只跳过已确认不存在的旧端点。
+            if revision not in selected and not self._svn_node_exists("", revision):
+                continue
+            project_url = self._svn_file_url(str(revision), "").rsplit("@", 1)[0]
+            self._content_vcs._validate_project_externals(str(revision), project_url)
         planner = _EndpointPlanner()
         fork_events = []
         for revision in sorted(history):

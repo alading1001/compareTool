@@ -27,6 +27,10 @@ from .temp_storage import create_temp_dir, remove_temp_dir
 from logger import warn
 
 
+class _SingleRootStructureError(ValueError):
+    """仅表示比较根结构不适用，不包含路径、类型或正文校验失败。"""
+
+
 class _TarMemberPlan(NamedTuple):
     name: str
     size: int
@@ -104,6 +108,10 @@ class ArchiveVCS(BaseVCS):
                                  if extraction_excludes is not None else None)
         self._sparse_ignore_root = ignore_single_root
         self._sparse_plans = {}
+        # 先收齐两端结构，再同时固定比较根与排除计划；丢弃正文后不能回退。
+        self._defer_sparse_plans = ignore_single_root and self._sparse_patterns is not None
+        self._deferred_storage = {}
+        self._deferred_targets = []
         try:
             with ExitStack() as source_stack:
                 old_source = self._open_archive_source(
@@ -145,6 +153,11 @@ class ArchiveVCS(BaseVCS):
                     )
                 old_required = self._preflight_archive_size(old_source)
                 new_required = self._preflight_archive_size(new_source)
+                if self._defer_sparse_plans:
+                    if self._finalize_sparse_pair(best_effort):
+                        ignore_single_root = False
+                    old_required = self._storage_needed(old_source, old_required)
+                    new_required = self._storage_needed(new_source, new_required)
                 self._preflighted_sources = {
                     os.path.normcase(old_capture["path"]),
                     os.path.normcase(new_capture["path"]),
@@ -167,7 +180,7 @@ class ArchiveVCS(BaseVCS):
                         old_root, self.old_root_prefix = self._single_directory_root(self._tmp_old, "旧")
                         new_root, self.new_root_prefix = self._single_directory_root(self._tmp_new, "新")
                     except (ValueError, RuntimeError) as exc:
-                        if not best_effort:
+                        if not best_effort or self._sparse_plans:
                             raise
                         old_root, new_root = self._tmp_old, self._tmp_new
                         self.old_root_prefix = self.new_root_prefix = ''
@@ -389,6 +402,9 @@ class ArchiveVCS(BaseVCS):
         if getattr(self, "_sparse_patterns", None) is None:
             return total_size
         path = self._archive_source_name(source)
+        if getattr(self, '_defer_sparse_plans', False):
+            self._deferred_storage[path] = (tuple(members), total_size)
+            return total_size
         roots, directories, leaves, names = {}, {}, [], []
         root_file = False
         for m in members:
@@ -409,7 +425,7 @@ class ArchiveVCS(BaseVCS):
         prefix = ""
         if self._sparse_ignore_root:
             if root_file or len(roots) != 1:
-                raise ValueError("压缩包不满足忽略最外层单一文件夹：必须恰有一个真实顶层目录")
+                raise _SingleRootStructureError("压缩包不满足忽略最外层单一文件夹：必须恰有一个真实顶层目录")
             prefix = next(iter(roots.values()))
         decisions = {}
         retained = 0
@@ -443,6 +459,28 @@ class ArchiveVCS(BaseVCS):
             MappingProxyType(decisions), prefix, required, frozenset(virtual_names))
         return required
 
+    def _finalize_sparse_pair(self, best_effort):
+        self._defer_sparse_plans = False
+        fallback = False
+        try:
+            for path, (members, size) in self._deferred_storage.items():
+                self._prepare_sparse_storage(path, members, size)
+        except _SingleRootStructureError as exc:
+            if not best_effort:
+                raise
+            fallback = True
+            self._sparse_ignore_root = False
+            self._sparse_plans.clear()
+            for path, (members, size) in self._deferred_storage.items():
+                self._prepare_sparse_storage(path, members, size)
+            self.comparison_note = '忽略最外层单一文件夹未生效，已按完整包路径比较：' + str(exc)
+        # 原始和 GNU sparse 逻辑名称均按最终计划校验，尚未创建任何解压目录。
+        for path, dest, members in self._deferred_targets:
+            self._validate_extraction_targets(path, dest, members)
+        self._deferred_storage.clear()
+        self._deferred_targets.clear()
+        return fallback
+
     @staticmethod
     def _has_trailing_name(name):
         return any(part not in ("", ".", "..") and part.endswith((" ", "."))
@@ -453,6 +491,9 @@ class ArchiveVCS(BaseVCS):
         return plan[3] if plan is not None else frozenset()
 
     def _validate_extraction_targets(self, source, dest, members):
+        if getattr(self, '_defer_sparse_plans', False):
+            self._deferred_targets.append((self._archive_source_name(source), dest, tuple(members)))
+            return {}
         return self._validate_archive_targets(
             dest, members, virtual_names=self._virtual_names(source))
 

@@ -181,14 +181,15 @@ class CompareToolApp(TaskProgressUI):
                 "并会阻止覆盖原文件。\n\n"
                 f"请先备份或修复：\n{CONFIG_FILE}\n\n{_CONFIG_LOAD_FAILURE[1]}",
             ))
-        if self._config.get("vcs_type", "git") not in SUPPORTED_VCS_TYPES:
+        if (not isinstance(self._config.get("vcs_type", "git"), str)
+                or self._config.get("vcs_type", "git") not in SUPPORTED_VCS_TYPES):
             warn(f"配置中的 VCS 类型无效，已回退到 Git: {self._config.get('vcs_type')}")
             self._config["vcs_type"] = "git"
         self._default_exclude_rules = self._load_default_exclude_rules()
         raw_exclude_rules = self._config.get("project_exclude_rules", {})
         raw_display_options = self._config.get("project_display_options", {})
         self._project_exclude_rules = dict(raw_exclude_rules) if isinstance(raw_exclude_rules, dict) else {}
-        self._project_display_options = dict(raw_display_options) if isinstance(raw_display_options, dict) else {}
+        self._project_display_options = self._normalize_project_display_options(raw_display_options)
         self._recent_projects = self._normalize_recent_projects(self._config.get("recent_projects", []))
         self._recent_project_value_map = {}
         raw_comparison_paths = self._config.get("last_comparison_paths", {})
@@ -547,13 +548,19 @@ class CompareToolApp(TaskProgressUI):
         seen = set()
         if not isinstance(projects, list):
             return normalized
-        for item in projects:
+        for index, item in enumerate(projects, start=1):
             if not isinstance(item, dict):
+                warn(f"忽略损坏的最近项目 #{index}: 不是对象")
                 continue
             family = item.get("vcs_family") or self._vcs_family(item.get("vcs_type", ""))
-            project_path = (item.get("project_path") or "").strip()
-            project_name = self._sanitize_project_name(item.get("project_name") or "")
+            raw_path, raw_name = item.get("project_path"), item.get("project_name")
+            if not isinstance(raw_path, str) or not isinstance(raw_name, str):
+                warn(f"忽略损坏的最近项目 #{index}: 路径或项目名类型无效")
+                continue
+            project_path = raw_path.strip()
+            project_name = self._sanitize_project_name(raw_name)
             if family not in ("git", "svn") or not project_path or not project_name:
+                warn(f"忽略损坏的最近项目 #{index}: 类型、路径或项目名无效")
                 continue
             key = (family, self._normalize_project_path(project_path))
             if key in seen:
@@ -563,7 +570,7 @@ class CompareToolApp(TaskProgressUI):
                 "vcs_family": family,
                 "project_path": project_path,
                 "project_name": project_name,
-                "last_used": item.get("last_used") or "",
+                "last_used": item.get("last_used") if isinstance(item.get("last_used"), str) else "",
             })
         return self._trim_recent_projects(normalized)
 
@@ -578,7 +585,7 @@ class CompareToolApp(TaskProgressUI):
                 warn(f"忽略损坏的多项目任务 #{index}: 不是对象")
                 continue
             vcs_type = item.get("vcs_type")
-            if vcs_type not in SUPPORTED_VCS_TYPES:
+            if not isinstance(vcs_type, str) or vcs_type not in SUPPORTED_VCS_TYPES:
                 warn(f"忽略损坏的多项目任务 #{index}: 未知类型 {vcs_type}")
                 continue
             raw_name = item.get("project_name")
@@ -1140,6 +1147,19 @@ class CompareToolApp(TaskProgressUI):
     @staticmethod
     def _option_value(value, default=True) -> str:
         return "yes" if CompareToolApp._option_bool(value, default=default) else "no"
+
+    @staticmethod
+    def _normalize_project_display_options(raw_options):
+        if not isinstance(raw_options, dict):
+            warn("配置中的项目显示选项不是对象，已忽略并使用默认设置")
+            return {}
+        options = {}
+        for key, value in raw_options.items():
+            if isinstance(value, dict):
+                options[key] = dict(value)
+            else:
+                warn(f"配置中的项目显示选项无效，已忽略并使用默认设置: {key}")
+        return options
 
     def _apply_display_options(self, options: dict):
         options = options or {}

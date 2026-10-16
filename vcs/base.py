@@ -36,6 +36,18 @@ class BaseVCS(ABC):
         self.exclude_patterns: List[str] = []
         # 只保留名称：用于防止目录替换间接删除被排除的旧内容。
         self.excluded_old_paths = set()
+        # 经过范围/排除投影、尚未读取端点的路径拓扑。失败项也必须参与替换依赖。
+        self.delivery_path_changes: List[ChangedFile] = []
+
+    def _record_delivery_paths(self, old_path, new_path):
+        if old_path is None and new_path is None:
+            return
+        change_type = (ChangeType.ADDED if old_path is None else
+                       ChangeType.DELETED if new_path is None else
+                       ChangeType.RENAMED if old_path != new_path else ChangeType.MODIFIED)
+        self.delivery_path_changes.append(ChangedFile(
+            new_path if new_path is not None else old_path, change_type,
+            old_path=old_path if change_type == ChangeType.RENAMED else ""))
 
     def set_exclude_patterns(self, patterns: List[str]):
         """设置排除规则列表，支持 glob 模式：

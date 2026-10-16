@@ -397,6 +397,12 @@ class VCSParsingTests(unittest.TestCase):
                 self._pinned_project_url = "https://example.invalid/repo/project"
                 self._pinned_peg_revision = "2"
 
+            def _project_url_at(self, version):
+                return self._pinned_project_url
+
+            def _validate_project_externals(self, revision, project_url):
+                pass  # This fake supplies an external-free tree to the summary parser.
+
             def _run(self, args):
                 return """<?xml version="1.0"?>
 <diff><paths>

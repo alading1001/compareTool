@@ -647,6 +647,8 @@ class VCSHardeningTests(unittest.TestCase):
         vcs.exclude_patterns = []
         vcs._version_pins = {}
         vcs._pin_source_identity = mock.Mock()
+        vcs._project_url_at = mock.Mock(return_value="https://example.invalid/repo/project")
+        vcs._validate_project_externals = mock.Mock()
         vcs._pinned_project_url = "https://example.invalid/repo/project"
         vcs._pinned_peg_revision = "2"
         vcs._run = mock.Mock(return_value=(
@@ -667,6 +669,8 @@ class VCSHardeningTests(unittest.TestCase):
         vcs.exclude_patterns = []
         vcs._version_pins = {}
         vcs._pin_source_identity = mock.Mock()
+        vcs._project_url_at = mock.Mock(return_value="https://example.invalid/repo/project")
+        vcs._validate_project_externals = mock.Mock()
         vcs._pinned_project_url = "https://example.invalid/repo/project"
         vcs._pinned_peg_revision = "2"
         vcs._run = mock.Mock(return_value=(

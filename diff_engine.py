@@ -76,6 +76,7 @@ class DiffResult:
     comparison_note: str = ""
     archive_details_enabled: bool = False
     issues: List[dict] = field(default_factory=list)
+    replacement_dependency_roots: List[str] = field(default_factory=list)
 
     def add_issue(self, stage, path, message, *, delivery=False):
         self.issues.append(dict(stage=stage, path=path, message=str(message), delivery=delivery))
@@ -286,10 +287,13 @@ class DiffEngine:
                     raise
                 issues.append(dict(stage='重命名检测', path='', message=str(exc), delivery=False))
 
+        dependency_changes = getattr(self.vcs, 'delivery_path_changes', None) or changed_files
         required_directories = self._infer_required_directory_deletions(
-            changed_files,
+            dependency_changes,
             getattr(self.vcs, "required_directory_deletions", []) or [],
         )
+        dependency_roots = set(required_directories) | set(
+            self._infer_required_directory_deletions(dependency_changes, [], reverse=True))
         # 业务排除不允许被整目录替换绕过。这里只使用已捕获的名称，不能
         # 为此读取排除正文；实际依赖组由 exporter 统一退出交付。
         new_paths = {windows_path_key(item.path): item.path for item in changed_files
@@ -312,8 +316,7 @@ class DiffEngine:
         for path in sorted(blocked):
             if not self.best_effort:
                 raise RuntimeError('路径替换会间接删除被排除的旧内容: ' + path)
-            if path not in required_directories:
-                required_directories.append(path)
+            dependency_roots.add(path)
             issues.append(dict(stage='目录替换依赖', path=path, old_path=path,
                                message='路径替换会间接删除被排除的旧内容，相关变化未交付', delivery=True))
 
@@ -324,6 +327,7 @@ class DiffEngine:
             old_version=old_version,
             new_version=new_version,
             required_directory_deletions=sorted(required_directories),
+            replacement_dependency_roots=sorted(dependency_roots),
             comparison_note=getattr(self.vcs, "comparison_note", ""),
             issues=issues,
         )
@@ -678,7 +682,7 @@ class DiffEngine:
 
     @staticmethod
     def _infer_required_directory_deletions(
-        changed_files: List[ChangedFile], declared_directories
+        changed_files: List[ChangedFile], declared_directories, *, reverse=False
     ) -> List[str]:
         old_removed_paths = [
             (item.old_path or item.path).replace("\\", "/")
@@ -690,6 +694,8 @@ class DiffEngine:
             for item in changed_files
             if item.change_type in (ChangeType.ADDED, ChangeType.RENAMED)
         ]
+        if reverse:
+            old_removed_paths, new_file_paths = new_file_paths, old_removed_paths
         required = set(windows_directories_replaced_by_files(
             declared_directories, new_file_paths
         ))

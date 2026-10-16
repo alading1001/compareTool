@@ -203,6 +203,7 @@ class GitVCS(BaseVCS):
     @measured_phase('git.changes', '查询 Git 版本差异')
     def get_changed_files(self, old_version: str, new_version: str) -> List[ChangedFile]:
         self.excluded_old_paths = set()
+        self.delivery_path_changes = []
         pinned = self._pin_versions_stable((old_version, new_version))
         old_endpoint = pinned[str(old_version)]
         new_endpoint = pinned[str(new_version)]
@@ -277,6 +278,9 @@ class GitVCS(BaseVCS):
                 old_excluded = code == "A"
                 new_excluded = code == "D"
 
+            self._record_delivery_paths(
+                None if old_excluded else previous_path,
+                None if new_excluded else path)
             if code == "T":
                 if getattr(self, 'best_effort', False):
                     self.issues.append(dict(stage='文件类型', path=path,

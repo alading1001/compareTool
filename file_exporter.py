@@ -217,8 +217,9 @@ class FileExporter:
             path for path in self.diff_result.required_directory_deletions if windows_path_key(path) in destinations]
 
     def _block_failed_directory_dependencies(self, original_files, failed):
-        """目录替换的旧后代与新文件必须一起交付，避免间接删除未完成项。"""
-        groups = {windows_path_key(path): [] for path in self.diff_result.required_directory_deletions}
+        """文件/目录双向替换必须一起交付，包括端点读取阶段失败的路径。"""
+        groups = {windows_path_key(path): [] for path in (
+            self.diff_result.required_directory_deletions + self.diff_result.replacement_dependency_roots)}
         memberships = {}
         for file in original_files:
             keys = set()

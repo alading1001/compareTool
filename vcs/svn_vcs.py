@@ -213,6 +213,7 @@ class SVNVCS(BaseVCS):
     def _parse_svn_diff_summarize(self, old_rev: str, new_rev: str) -> List[ChangedFile]:
         """使用 XML 摘要获取变更文件，可靠区分文件、目录和替换节点。"""
         self.excluded_old_paths = set()
+        self.delivery_path_changes = []
         target = f"{self._pinned_project_url}@{self._pinned_peg_revision}"
         output = self._run([
             "diff", "--summarize", "--xml", "--notice-ancestry",
@@ -272,9 +273,17 @@ class SVNVCS(BaseVCS):
                         if self._is_excluded(rel_dir):
                             self.excluded_old_paths.add(rel_dir)
                         else:
-                            metadata = self._compare_endpoint_metadata(
-                                old_rev, rel_dir, new_rev, None
-                            )
+                            self._record_delivery_paths(rel_dir, None)
+                            try:
+                                metadata = self._compare_endpoint_metadata(
+                                    old_rev, rel_dir, new_rev, None
+                                )
+                            except (OSError, ValueError, RuntimeError) as exc:
+                                if not getattr(self, 'best_effort', False):
+                                    raise
+                                self.issues.append(dict(stage='文件属性', path=rel_dir,
+                                    message=str(exc), delivery=True))
+                                continue
                             files.append(ChangedFile(
                                 path=rel_dir,
                                 change_type=ChangeType.DELETED,
@@ -307,6 +316,9 @@ class SVNVCS(BaseVCS):
             if change_type is None and item in ("none", "normal") and node.get("props") == "modified":
                 change_type = ChangeType.MODIFIED
             if change_type is not None:
+                self._record_delivery_paths(
+                    None if change_type == ChangeType.ADDED else rel_path,
+                    None if change_type == ChangeType.DELETED else rel_path)
                 if change_type in (ChangeType.ADDED, ChangeType.RENAMED):
                     new_file_paths.add(rel_path)
                 try:
@@ -414,8 +426,55 @@ class SVNVCS(BaseVCS):
         self._pin_source_identity()
         old_endpoint = self._pin_version(old_version)
         new_endpoint = self._pin_version(new_version)
+        for revision in dict.fromkeys((old_endpoint, new_endpoint)):
+            self._validate_project_externals(revision, self._project_url_at(revision))
         files = self._parse_svn_diff_summarize(old_endpoint, new_endpoint)
         return self._filter_files(files)
+
+    def _validate_project_externals(self, revision: str, project_url: str):
+        """检查固定项目树的定义，包括没有出现在 diff/log 中的目录。"""
+        command = [self._svn, "propget", "svn:externals", "--xml", "--recursive",
+                   "--non-interactive", "-r", str(revision), f"{project_url}@{revision}"]
+        # 只读取属性；XML 流式落盘和解析，不下载 external 或加载整棵 XML 树。
+        with open_temp_file("comparetool_svn_externals_") as output:
+            try:
+                result = subprocess.run(command, cwd=self.project_path, stdout=output,
+                                        stderr=subprocess.PIPE, timeout=self.COMMAND_TIMEOUT)
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                raise RuntimeError(f"无法检查 SVN 项目 externals: {project_url}@{revision}\n{exc}") from exc
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"无法检查 SVN 项目 externals: {project_url}@{revision}\n"
+                    + _decode_bytes(result.stderr or b""))
+            output.seek(0)
+            root_url = unquote(project_url).rstrip("/")
+            try:
+                events = ElementTree.iterparse(output, events=("start", "end"))
+                _, root = next(events)
+                if root.tag != "properties":
+                    raise RuntimeError("SVN externals 属性 XML 缺少 properties 根节点")
+                for event, target in events:
+                    if event != "end" or target.tag != "target":
+                        continue
+                    url = unquote(target.get("path", "")).rstrip("/")
+                    if url == root_url:
+                        path = ""
+                    elif url.startswith(root_url + "/"):
+                        path = url[len(root_url) + 1:]
+                    else:
+                        raise RuntimeError(f"SVN externals 属性路径不属于固定项目: {url}")
+                    if not path or not self._is_excluded_tree(path):
+                        for prop in target.findall("property"):
+                            if prop.get("name") == "svn:externals" and (
+                                    prop.get("encoding") or svn_externals_enabled(
+                                        {"svn:externals": prop.text or ""})):
+                                raise RuntimeError(
+                                    "SVN 目录启用了 svn:externals，文件级交付无法保真，"
+                                    f"已中止生成: {path or '<项目根>'}@{revision}")
+                    root.remove(target)
+                    target.clear()
+            except (ElementTree.ParseError, StopIteration) as exc:
+                raise RuntimeError(f"无法解析 SVN 项目 externals: {project_url}@{revision}") from exc
 
     def _pin_version(self, version: str) -> str:
         """把 HEAD 等可变标识固定为本次任务开始时的数字 revision。"""
