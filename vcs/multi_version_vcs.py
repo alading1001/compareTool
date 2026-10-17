@@ -359,22 +359,35 @@ class _EndpointPlanner:
             if after_paths is not None:
                 after_paths[entity] = path
 
+        rename_sources = None
         for change in changes:
             action = change.action
             path = self._normalize_path(change.path)
             old_path = self._normalize_path(change.old_path) if change.old_path else ""
 
             if action == "R":
-                entity = self._active.pop(old_path, None)
-                if entity is not None:
-                    remember_before(entity, old_path)
-                if entity is None:
-                    entity = self._deleted.pop(old_path, None)
-                    if entity is not None:
-                        remember_before(entity, None)
-                if entity is None:
-                    entity = self._new_entity()
-                    remember_before(entity, old_path)
+                if rename_sources is None:
+                    # 第一次 rename 前一次性取走所有源，不能让 a->b 的结果
+                    # 成为 b->c 的源。此前 A/D/M 的顺序及步骤起点仍须保留。
+                    rename_sources = {}
+                    for move in changes:
+                        if move.action != "R":
+                            continue
+                        source = self._normalize_path(move.old_path)
+                        if source in rename_sources:
+                            continue
+                        source_entity = self._active.pop(source, None)
+                        if source_entity is not None:
+                            remember_before(source_entity, source)
+                        if source_entity is None:
+                            source_entity = self._deleted.pop(source, None)
+                            if source_entity is not None:
+                                remember_before(source_entity, None)
+                        if source_entity is None:
+                            source_entity = self._new_entity()
+                            remember_before(source_entity, source)
+                        rename_sources[source] = source_entity
+                entity = rename_sources[old_path]
                 existing = self._active.get(path)
                 if existing is not None and existing is not entity:
                     existing.paths.add(path)

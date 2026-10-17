@@ -78,8 +78,11 @@ class DiffResult:
     issues: List[dict] = field(default_factory=list)
     replacement_dependency_roots: List[str] = field(default_factory=list)
 
-    def add_issue(self, stage, path, message, *, delivery=False):
-        self.issues.append(dict(stage=stage, path=path, message=str(message), delivery=delivery))
+    def add_issue(self, stage, path, message, *, delivery=False, old_path=""):
+        issue = dict(stage=stage, path=path, message=str(message), delivery=delivery)
+        if old_path:
+            issue['old_path'] = old_path
+        self.issues.append(issue)
 
     @property
     def delivery_incomplete(self):

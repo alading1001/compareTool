@@ -802,8 +802,12 @@ class GitVCS(BaseVCS):
                     seen.add(t)
 
         # 2. 本地分支
-        branches = self._run(["branch", "--sort=-committerdate"]).strip().split("\n")
-        branches = [b.strip().lstrip("* ") for b in branches if b.strip()]
+        # 只读取真实分支 ref；worktree 的 +、当前分支的 * 和 detached HEAD
+        # 是人类显示标记，不能进入界面的版本输入。
+        branches = self._run([
+            "for-each-ref", "--sort=-committerdate", "--format=%(refname:short)",
+            "refs/heads/",
+        ]).strip().split("\n")
         if branches:
             result.append("── 分支 ──")
             for b in branches:

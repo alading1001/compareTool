@@ -150,6 +150,10 @@ def _save_config(data):
                 pass
 
 
+class _RepositoryUnavailableError(ValueError):
+    """无法读取项目仓库身份；区别于已经确认的输出边界冲突。"""
+
+
 class CompareToolApp(TaskProgressUI):
     def __init__(self):
         self.root = tk.Tk()
@@ -831,13 +835,13 @@ class CompareToolApp(TaskProgressUI):
                     timeout=None,
                 )
             except (FileNotFoundError, OSError) as exc:
-                raise ValueError(f"无法确认 Git 工作树根目录：{exc}") from exc
+                raise _RepositoryUnavailableError(f"无法确认 Git 工作树根目录：{project_root}\n{exc}") from exc
             if top_result.returncode == 0:
                 git_root_text = top_result.stdout.decode(
                     "utf-8", errors="surrogateescape"
                 ).strip()
                 if not git_root_text:
-                    raise ValueError("无法确认 Git 工作树根目录")
+                    raise _RepositoryUnavailableError(f"无法确认 Git 工作树根目录：{project_root}")
                 repository_root = os.path.realpath(
                     os.path.abspath(git_root_text)
                 )
@@ -859,7 +863,7 @@ class CompareToolApp(TaskProgressUI):
                         timeout=None,
                     )
                 except (FileNotFoundError, OSError) as exc:
-                    raise ValueError(f"无法确认 Git 仓库根目录：{exc}") from exc
+                    raise _RepositoryUnavailableError(f"无法确认 Git 仓库根目录：{project_root}\n{exc}") from exc
                 git_bare = (
                     bare_result.returncode == 0
                     and bare_result.stdout.strip().lower() == b"true"
@@ -872,8 +876,8 @@ class CompareToolApp(TaskProgressUI):
                     detail = (top_result.stderr or top_result.stdout).decode(
                         "utf-8", errors="replace"
                     ).strip()
-                    raise ValueError(
-                        "无法确认 Git 工作树根目录"
+                    raise _RepositoryUnavailableError(
+                        f"无法确认 Git 工作树根目录：{project_root}"
                         + (f"：{detail}" if detail else "")
                     )
                 repository_root = os.path.realpath(
@@ -1070,6 +1074,40 @@ class CompareToolApp(TaskProgressUI):
                 "为避免覆盖源码已拒绝生成：\n"
                 + "\n".join(svn_targets)
             )
+
+    def _validate_multi_task_output_targets(self, task, directory_targets, file_targets):
+        """项目读取失败可隔离；输入覆盖及仓库内输出校验失败仍阻断整批。"""
+        targets = [*directory_targets, *file_targets]
+        sources = self._task_source_directories(task)
+        try:
+            self._validate_repository_output_targets(
+                task.get('project_path', ''), task.get('vcs_type', ''), targets)
+        except _RepositoryUnavailableError as exc:
+            # 不能因项目缺失而在原输入位置创建输出；本次保留读取失败，不能
+            # 在目录恢复后绕过仓库校验重新读取，须留到下一次生成再验证。
+            self._validate_source_output_separation(sources, directory_targets, file_targets)
+            # 缺失的可能只是仓库子项目；继续保护仍存在的祖先仓库及其元数据。
+            ancestor = os.path.realpath(os.path.abspath(task['project_path']))
+            while True:
+                if os.path.lexists(os.path.join(ancestor, '.git')) or (
+                    os.path.isfile(os.path.join(ancestor, 'HEAD'))
+                    and os.path.isfile(os.path.join(ancestor, 'config'))
+                    and os.path.isdir(os.path.join(ancestor, 'objects'))
+                ):
+                    self._validate_repository_output_targets(ancestor, 'git', targets)
+                    break
+                if os.path.lexists(os.path.join(ancestor, '.svn')):
+                    self._validate_repository_output_targets(ancestor, 'svn', targets)
+                    break
+                parent = os.path.dirname(ancestor)
+                if parent == ancestor:
+                    break
+                ancestor = parent
+            return exc
+        self._validate_source_output_separation(
+            sources, directory_targets, file_targets,
+            allow_descendant_outputs=task.get('vcs_type') not in ('folder', 'archive'))
+        return None
 
     @staticmethod
     def _task_source_directories(task: dict) -> list:
@@ -2085,11 +2123,13 @@ class CompareToolApp(TaskProgressUI):
     @measured_phase("project.prepare", "读取当前项目并生成明细")
     def _prepare_task_result(
         self, task: dict, show_full: bool = None, report_budget: dict = None,
-        archive_budget=None, *, detail_store=None,
+        archive_budget=None, *, detail_store=None, preflight_error=None,
     ):
         vcs = None
         cleanup_needed = False
         try:
+            if preflight_error is not None:
+                raise preflight_error
             vcs, cleanup_needed = self._create_vcs_for_task(task)
             vcs.best_effort = True
             if not hasattr(vcs, 'issues'):
@@ -2331,19 +2371,8 @@ class CompareToolApp(TaskProgressUI):
         )
         try:
             for task in self._multi_tasks:
-                self._validate_repository_output_targets(
-                    task.get("project_path", ""),
-                    task.get("vcs_type", ""),
-                    [old_export, new_export, report_path, instruction_path],
-                )
-                self._validate_source_output_separation(
-                    self._task_source_directories(task),
-                    [old_export, new_export],
-                    [report_path, instruction_path],
-                    allow_descendant_outputs=task.get("vcs_type") not in (
-                        "folder", "archive"
-                    ),
-                )
+                self._validate_multi_task_output_targets(
+                    task, [old_export, new_export], [report_path, instruction_path])
         except ValueError as exc:
             messagebox.showwarning("提示", str(exc))
             return
@@ -2543,20 +2572,9 @@ class CompareToolApp(TaskProgressUI):
                 os.path.dirname(os.path.abspath(report_path)),
                 DELIVERY_INSTRUCTIONS_FILENAME,
             )
-            for task in tasks:
-                self._validate_repository_output_targets(
-                    task.get("project_path", ""),
-                    task.get("vcs_type", ""),
-                    [old_export, new_export, report_path, instruction_target],
-                )
-                self._validate_source_output_separation(
-                    self._task_source_directories(task),
-                    [old_export, new_export],
-                    [report_path, instruction_target],
-                    allow_descendant_outputs=task.get("vcs_type") not in (
-                        "folder", "archive"
-                    ),
-                )
+            preflight_errors = [self._validate_multi_task_output_targets(
+                task, [old_export, new_export], [report_path, instruction_target])
+                for task in tasks]
             overwrite_count = output_stack.enter_context(FileExporter.output_session(
                 [old_export, new_export, report_path, instruction_target],
                 trusted_root=trusted_output_root,
@@ -2574,7 +2592,7 @@ class CompareToolApp(TaskProgressUI):
                 project_progress(idx, len(tasks))
                 project_results.append(self._prepare_task_result(
                     task, report_budget=report_budget, archive_budget=archive_budget,
-                    detail_store=detail_store,
+                    detail_store=detail_store, preflight_error=preflight_errors[idx - 1],
                 ))
 
             self._check_multi_display_path_conflicts(project_results)

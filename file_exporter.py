@@ -153,9 +153,11 @@ class FileExporter:
                                    for target, _identity in verified[id(previous)]):
                                 failed.add(id(previous))
                                 self.diff_result.add_issue('导出路径', previous.file_path,
-                                    '实际 Windows 名称碰撞，冲突各方均未导出', delivery=True)
-                    self.diff_result.add_issue('文件导出', file_diff.file_path, exc, delivery=True)
-            self._block_failed_directory_dependencies(original_files, failed)
+                                    '实际 Windows 名称碰撞，冲突各方均未导出',
+                                    delivery=True, old_path=previous.old_path)
+                    self.diff_result.add_issue('文件导出', file_diff.file_path, exc,
+                                               delivery=True, old_path=file_diff.old_path)
+            self._block_failed_delivery_dependencies(original_files, failed)
             had_export_failure = had_export_failure or bool(failed)
             for file in delivered:
                 if id(file) in failed:
@@ -216,40 +218,38 @@ class FileExporter:
         self.diff_result.required_directory_deletions = [
             path for path in self.diff_result.required_directory_deletions if windows_path_key(path) in destinations]
 
-    def _block_failed_directory_dependencies(self, original_files, failed):
-        """文件/目录双向替换必须一起交付，包括端点读取阶段失败的路径。"""
-        groups = {windows_path_key(path): [] for path in (
+    def _block_failed_delivery_dependencies(self, original_files, failed):
+        """同路径复用及文件/目录替换按连通组交付，前阶段失败也参与传播。"""
+        directory_keys = {windows_path_key(path) for path in (
             self.diff_result.required_directory_deletions + self.diff_result.replacement_dependency_roots)}
+        groups = {}
+
+        def path_groups(path):
+            key = windows_path_key(path)
+            if key:
+                yield ('path', key)
+            while key:
+                if key in directory_keys:
+                    yield ('directory', key)
+                key = key.rpartition('\\')[0]
+
         memberships = {}
         for file in original_files:
             keys = set()
             if file.change_type != ChangeType.DELETED:
-                key = windows_path_key(file.file_path)
-                while key:
-                    if key in groups:
-                        keys.add(key)
-                    key = key.rpartition('\\')[0]
+                keys.update(path_groups(file.file_path))
             if file.change_type != ChangeType.ADDED:
-                key = windows_path_key(file.old_path or file.file_path)
-                while key:
-                    if key in groups:
-                        keys.add(key)
-                    # Windows 键在非 Windows 主机上也按相同层级解析。
-                    key = key.rpartition('\\')[0]
+                keys.update(path_groups(file.old_path or file.file_path))
             for key in keys:
-                groups[key].append(file)
+                groups.setdefault(key, []).append(file)
                 memberships.setdefault(id(file), set()).add(key)
-        # 身份规划或 diff 阶段已失败的旧后代也不能由目录指令间接删除。
+        # 失败 rename 的两端都不可由其它写入/删除覆盖；不仅是目录后代。
         blocked = set()
         for issue in self.diff_result.issues:
             if not issue.get('delivery'):
                 continue
             for path in (issue.get('path', ''), issue.get('old_path', '')):
-                key = windows_path_key(path)
-                while key:
-                    if key in groups:
-                        blocked.add(key)
-                    key = key.rpartition('\\')[0]
+                blocked.update(key for key in path_groups(path) if key in groups)
         pending = list(blocked | {key for file_id in failed for key in memberships.get(file_id, ())})
         visited = set()
         while pending:
@@ -261,8 +261,11 @@ class FileExporter:
                 if id(file) not in failed:
                     failed.add(id(file))
                     pending.extend(memberships.get(id(file), ()))
-                    self.diff_result.add_issue('目录替换依赖', file.file_path,
-                        '同一目录替换中有未完成文件，相关变化均未导出或生成上线操作', delivery=True)
+                    stage = ('目录替换依赖' if any(k[0] == 'directory' for k in memberships[id(file)])
+                             else '路径交付依赖')
+                    self.diff_result.add_issue(stage, file.file_path,
+                        '同一路径复用或目录替换中有未完成文件，相关变化均未导出或生成上线操作',
+                        delivery=True, old_path=file.old_path)
 
     def _filter_unexportable_paths(self, old_dir, new_dir):
         """碰撞双方都不写，保留其他可验证的独立文件。"""
@@ -281,7 +284,8 @@ class FileExporter:
         kept = []
         for index, file in enumerate(self.diff_result.files):
             if index in blocked:
-                self.diff_result.add_issue('导出路径', file.file_path, blocked[index], delivery=True)
+                self.diff_result.add_issue('导出路径', file.file_path, blocked[index],
+                                           delivery=True, old_path=file.old_path)
             else:
                 kept.append(file)
         self.diff_result.files = kept
