@@ -1,3 +1,4 @@
+{% set is_multi_version = vcs_type in ('GitMultiVersionVCS', 'SVNMultiVersionVCS', 'Git多版本', 'SVN多版本') -%}
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -116,7 +117,7 @@ table.diff span { white-space: pre; }
     <h2>项目: {{ project_name }}</h2>
     <div class="meta" style="display:flex;align-items:center;gap:16px;">
         <span>{{ project_path }} &nbsp;|&nbsp; {{ vcs_type }} &nbsp;|&nbsp;
-{% if vcs_type in ('GitMultiVersionVCS', 'SVNMultiVersionVCS') %}
+{% if is_multi_version %}
         选中版本: {{ old_version }} &nbsp;|&nbsp; 生成结果: {{ new_version }} &nbsp;|&nbsp;
 {% else %}
         旧版本: {{ old_version }} → 新版本: {{ new_version }} &nbsp;|&nbsp;
@@ -558,7 +559,7 @@ function openSummary() {
     var newVersion = {{ new_version | tojson }};
     var title = {% if show_project_root %}'变更清单 - ' + projectName{% else %}'变更清单'{% endif %};
     var lines = ['变更清单', ''];
-{% if vcs_type in ('GitMultiVersionVCS', 'SVNMultiVersionVCS') %}
+{% if is_multi_version %}
     var versionSummary = '选中版本: ' + oldVersion + ' | 生成结果: ' + newVersion;
 {% else %}
     var versionSummary = oldVersion + ' -> ' + newVersion;

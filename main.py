@@ -192,7 +192,7 @@ class CompareToolApp(TaskProgressUI):
         self._default_exclude_rules = self._load_default_exclude_rules()
         raw_exclude_rules = self._config.get("project_exclude_rules", {})
         raw_display_options = self._config.get("project_display_options", {})
-        self._project_exclude_rules = dict(raw_exclude_rules) if isinstance(raw_exclude_rules, dict) else {}
+        self._project_exclude_rules = self._normalize_project_exclude_rules(raw_exclude_rules)
         self._project_display_options = self._normalize_project_display_options(raw_display_options)
         self._recent_projects = self._normalize_recent_projects(self._config.get("recent_projects", []))
         self._recent_project_value_map = {}
@@ -1185,6 +1185,19 @@ class CompareToolApp(TaskProgressUI):
     @staticmethod
     def _option_value(value, default=True) -> str:
         return "yes" if CompareToolApp._option_bool(value, default=default) else "no"
+
+    @staticmethod
+    def _normalize_project_exclude_rules(raw_rules):
+        if not isinstance(raw_rules, dict):
+            warn("配置中的项目排除规则不是对象，已忽略并使用默认模板")
+            return {}
+        rules = {}
+        for key, value in raw_rules.items():
+            if isinstance(value, str):
+                rules[key] = value
+            else:
+                warn(f"配置中的项目排除规则无效，已忽略并使用默认模板: {key}")
+        return rules
 
     @staticmethod
     def _normalize_project_display_options(raw_options):
@@ -2196,8 +2209,10 @@ class CompareToolApp(TaskProgressUI):
         for item in project_results:
             project_name = item.get("project_name", "")
             for file in item["diff_result"].files:
-                display_path = self._multi_display_path(item, file.file_path)
-                display_sources.setdefault(display_path, set()).add(project_name)
+                paths = (file.file_path, file.old_path) if file.old_path else (file.file_path,)
+                for path in paths:
+                    display_path = self._multi_display_path(item, path)
+                    display_sources.setdefault(display_path, set()).add(project_name)
 
         conflicts = {
             path: sorted(projects)
