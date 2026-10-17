@@ -93,7 +93,36 @@ class GitVCS(BaseVCS):
 
     def _repo_path(self, project_path):
         self._git_cwd()
-        return self._project_prefix + project_path.replace("\\", "/")
+        # Git 树路径已经使用 / 分隔；字面反斜杠是文件名的一部分。
+        return self._project_prefix + project_path
+
+    def _is_excluded(self, file_path):
+        # 不把仓库中的字面反斜杠当成目录层级去匹配另一条路径的规则。
+        return any(self._compile_glob(pattern, True).match(file_path) is not None
+                   for pattern in self.exclude_patterns)
+
+    def _record_excluded_old_path(self, path):
+        if "\\" not in path:
+            self.excluded_old_paths.add(path)
+
+    def _accept_delivery_paths(self, old_path, new_path):
+        paths = [path for path in (old_path, new_path) if path is not None]
+        unsupported = [path for path in paths if "\\" in path]
+        if not unsupported:
+            self._record_delivery_paths(old_path, new_path)
+            return True
+        message = "Git 路径包含字面反斜杠，无法在 Windows 保真导出: " + ", ".join(unsupported)
+        if not getattr(self, 'best_effort', False):
+            raise RuntimeError(message)
+        supported_old = old_path if old_path is not None and "\\" not in old_path else None
+        supported_new = new_path if new_path is not None and "\\" not in new_path else None
+        self._record_delivery_paths(supported_old, supported_new)
+        # 诊断保留原名，但不能把非法名称归一化后误阻断另一个合法文件。
+        # rename 的可交付一侧仍必须参与同路径/目录替换依赖。
+        self.issues.append(dict(stage='端点路径', path=new_path or old_path,
+            old_path=old_path or '', message=message, delivery=True,
+            dependency_paths=[path for path in (supported_old, supported_new) if path is not None]))
+        return False
 
     def _relative_project_path(self, repository_path):
         self._git_cwd()
@@ -259,7 +288,7 @@ class GitVCS(BaseVCS):
 
             previous_path = old_path if code in ('R', 'C') else path
             if old_mode != '000000' and self._is_excluded(previous_path):
-                self.excluded_old_paths.add(previous_path)
+                self._record_excluded_old_path(previous_path)
 
             old_excluded = False
             new_excluded = False
@@ -278,9 +307,10 @@ class GitVCS(BaseVCS):
                 old_excluded = code == "A"
                 new_excluded = code == "D"
 
-            self._record_delivery_paths(
+            if not self._accept_delivery_paths(
                 None if old_excluded else previous_path,
-                None if new_excluded else path)
+                None if new_excluded else path):
+                continue
             if code == "T":
                 if getattr(self, 'best_effort', False):
                     self.issues.append(dict(stage='文件类型', path=path,

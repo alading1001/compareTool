@@ -16,6 +16,18 @@ class ChangeType(Enum):
     RENAMED = "R"
 
 
+class EndpointSide(Enum):
+    """快照侧别；不与用户输入的标签、路径字符串比较相等。"""
+    OLD = "old"
+    NEW = "new"
+
+
+def comparison_versions(vcs, old_version, new_version):
+    """兼容旧适配器，同时让快照来源显式绑定读取和导出的侧别。"""
+    resolver = getattr(vcs, "comparison_versions", None)
+    return resolver(old_version, new_version) if resolver is not None else (old_version, new_version)
+
+
 @dataclass
 class ChangedFile:
     path: str
@@ -48,6 +60,13 @@ class BaseVCS(ABC):
         self.delivery_path_changes.append(ChangedFile(
             new_path if new_path is not None else old_path, change_type,
             old_path=old_path if change_type == ChangeType.RENAMED else ""))
+
+    def _accept_delivery_paths(self, old_path, new_path):
+        self._record_delivery_paths(old_path, new_path)
+        return True
+
+    def _record_excluded_old_path(self, path):
+        self.excluded_old_paths.add(path)
 
     def set_exclude_patterns(self, patterns: List[str]):
         """设置排除规则列表，支持 glob 模式：

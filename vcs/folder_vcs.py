@@ -16,7 +16,7 @@ from path_safety import (
     safe_join,
     windows_directories_replaced_by_files,
 )
-from .base import BaseVCS, ChangedFile, ChangeType
+from .base import BaseVCS, ChangedFile, ChangeType, EndpointSide
 from .temp_storage import create_temp_dir, remove_temp_dir
 from logger import warn
 
@@ -510,9 +510,14 @@ class FolderVCS(BaseVCS):
                 if not old_chunk:
                     return True
 
+    def comparison_versions(self, old_version, new_version):
+        return EndpointSide.OLD, EndpointSide.NEW
+
     def _resolve_version_dir(self, version: str) -> str:
         """根据版本标识解析实际目录路径"""
         self._ensure_snapshot()
+        if isinstance(version, EndpointSide):
+            return self.old_dir if version is EndpointSide.OLD else self.new_dir
         if version in ("old", self.old_dir, self.source_old_dir):
             return self.old_dir
         return self.new_dir
@@ -604,7 +609,7 @@ class FolderVCS(BaseVCS):
         return full_path
 
     def get_file_content_working(self, file_path: str) -> str:
-        return self.get_file_content("new", file_path)
+        return self.get_file_content(EndpointSide.NEW, file_path)
 
     def get_versions(self) -> List[str]:
         return []

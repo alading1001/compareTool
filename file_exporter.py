@@ -23,7 +23,7 @@ from path_safety import (
     safe_join,
 )
 from stage_ownership import mark_owned, remove_ownership_marker
-from vcs.base import ChangeType
+from vcs.base import ChangeType, comparison_versions
 
 
 class FileExporter:
@@ -101,8 +101,8 @@ class FileExporter:
             self._filter_unexportable_paths(old_dir, new_dir)
         else:
             self._validate_export_paths(old_dir, new_dir)
-        old_ver = self.diff_result.old_version
-        new_ver = self.diff_result.new_version
+        old_ver, new_ver = comparison_versions(
+            self.vcs, self.diff_result.old_version, self.diff_result.new_version)
         stage_old = ""
         stage_new = ""
 
@@ -248,7 +248,7 @@ class FileExporter:
         for issue in self.diff_result.issues:
             if not issue.get('delivery'):
                 continue
-            for path in (issue.get('path', ''), issue.get('old_path', '')):
+            for path in issue.get('dependency_paths', (issue.get('path', ''), issue.get('old_path', ''))):
                 blocked.update(key for key in path_groups(path) if key in groups)
         pending = list(blocked | {key for file_id in failed for key in memberships.get(file_id, ())})
         visited = set()

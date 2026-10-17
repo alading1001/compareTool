@@ -9,7 +9,7 @@ from test_archive_report import zip_bytes
 from report_generator import ReportGenerator
 from file_exporter import FileExporter
 from vcs.multi_version_vcs import GitMultiVersionVCS
-from vcs.base import ChangeType
+from vcs.base import ChangeType, EndpointSide
 from diff_engine import DiffResult, FileDiff
 
 
@@ -317,14 +317,15 @@ class BestEffortWorkflowTests(WorkflowCase):
     def test_failed_file_has_no_half_export_or_delete_instruction(self):
         task = self.folder_task()
         original = FileExporter._write_file
-        # Match by version, independently of private stage directory names.
+        # Match the explicit snapshot side, independently of display labels and stage names.
         def fail_new(exporter, base, path, version, content):
-            if path == 'bad.jar' and version == task['new_version']:
+            if path == 'bad.jar' and version is EndpointSide.NEW:
                 raise OSError('injected new endpoint failure')
             return original(exporter, base, path, version, content)
         with mock.patch.object(FileExporter, '_write_file', fail_new):
             app, result, out = self.generate(task, False)
         self.assert_report(app, result, out, partial=True)
+        self.assertTrue(any('injected new endpoint failure' in issue['message'] for issue in result.issues))
         self.assertEqual(['good.txt'], [file.file_path for file in result.files])
         for side in ('oldVersion', 'newVersion'):
             self.assertFalse((out/side/'Folder'/'bad.jar').exists())

@@ -21,7 +21,7 @@ from path_safety import (
     windows_path_key,
     windows_path_conflict_indices,
 )
-from .base import BaseVCS, ChangedFile, ChangeType
+from .base import BaseVCS, ChangedFile, ChangeType, EndpointSide
 from .folder_vcs import FolderVCS
 from .git_vcs import GitVCS, GIT_NOT_FOUND_MESSAGE
 from .svn_vcs import SVNVCS, SVN_NOT_FOUND_MESSAGE, svn_keywords_enabled, svn_externals_enabled
@@ -121,7 +121,7 @@ def parse_multi_versions(raw: str) -> List[str]:
 def _path_is_covered_by_prefix(path: str, prefixes) -> bool:
     """判断路径是否等于某前缀或位于其下；复杂度只与路径深度有关。"""
     prefix_set = prefixes if isinstance(prefixes, set) else set(prefixes)
-    current = (path or "").replace("\\", "/").strip("/")
+    current = (path or "").strip("/")
     while current:
         if current in prefix_set:
             return True
@@ -134,7 +134,7 @@ def _path_is_covered_by_prefix(path: str, prefixes) -> bool:
 
 def _strict_descendant_paths(sorted_paths, prefix: str) -> List[str]:
     """从已排序路径中近线性取得某目录下的严格后代。"""
-    marker = (prefix or "").replace("\\", "/").strip("/") + "/"
+    marker = (prefix or "").strip("/") + "/"
     index = bisect_left(sorted_paths, marker)
     result = []
     while index < len(sorted_paths) and sorted_paths[index].startswith(marker):
@@ -145,7 +145,7 @@ def _strict_descendant_paths(sorted_paths, prefix: str) -> List[str]:
 
 def _minimal_strict_descendant_paths(sorted_paths, prefix: str) -> List[str]:
     """只保留最上层严格后代；一个目录前缀即可覆盖它的整棵子树。"""
-    marker = (prefix or "").replace("\\", "/").strip("/") + "/"
+    marker = (prefix or "").strip("/") + "/"
     index = bisect_left(sorted_paths, marker)
     result = []
     selected = set()
@@ -169,7 +169,7 @@ def _minimal_strict_descendant_paths(sorted_paths, prefix: str) -> List[str]:
 
 def _covering_path_prefix(path: str, prefixes):
     prefix_set = prefixes if isinstance(prefixes, set) else set(prefixes)
-    current = (path or "").replace("\\", "/").strip("/")
+    current = (path or "").strip("/")
     while current:
         if current in prefix_set:
             return current
@@ -184,7 +184,7 @@ def _strict_descendant_paths_excluding(
     sorted_paths, prefix: str, excluded_prefixes
 ) -> List[str]:
     """取得严格后代，并用前缀跳跃避开已由嵌套移动消费的整棵子树。"""
-    marker = (prefix or "").replace("\\", "/").strip("/") + "/"
+    marker = (prefix or "").strip("/") + "/"
     excluded = (
         excluded_prefixes
         if isinstance(excluded_prefixes, set)
@@ -207,7 +207,7 @@ def _strict_descendant_paths_excluding(
 
 
 def _has_strict_descendant_path(sorted_paths, prefix: str) -> bool:
-    marker = (prefix or "").replace("\\", "/").strip("/") + "/"
+    marker = (prefix or "").strip("/") + "/"
     index = bisect_left(sorted_paths, marker)
     return (
         index < len(sorted_paths)
@@ -217,7 +217,7 @@ def _has_strict_descendant_path(sorted_paths, prefix: str) -> bool:
 
 def _longest_ancestor_candidate(path: str, candidates_by_prefix):
     """取得最具体的严格祖先候选组，避免逐项扫描所有目录移动。"""
-    current = (path or "").replace("\\", "/").strip("/")
+    current = (path or "").strip("/")
     while "/" in current:
         current = current.rsplit("/", 1)[0]
         candidates = candidates_by_prefix.get(current)
@@ -576,7 +576,8 @@ class _EndpointPlanner:
 
     @staticmethod
     def _normalize_path(path: str) -> str:
-        value = (path or "").replace("\\", "/").strip("/")
+        # 历史路径使用仓库的 / 层级；不能合并 Git 中不同的文件身份。
+        value = (path or "").strip("/")
         if not value or value in (".", "..") or value.startswith("../"):
             raise RuntimeError(f"版本历史包含无效文件路径: {path}")
         return value
@@ -640,7 +641,7 @@ class _MultiVersionFolderDelegate(BaseVCS):
         effective = []
         for entity in ordered:
             if entity.old_path is not None and self._is_excluded(entity.old_path):
-                self.excluded_old_paths.add(entity.old_path)
+                self._record_excluded_old_path(entity.old_path)
             old_path = (
                 entity.old_path
                 if entity.old_path is not None and not self._is_excluded(entity.old_path)
@@ -653,8 +654,8 @@ class _MultiVersionFolderDelegate(BaseVCS):
             )
             if old_path is None and new_path is None:
                 continue
-            effective.append((entity, old_path, new_path))
-            self._record_delivery_paths(old_path, new_path)
+            if self._accept_delivery_paths(old_path, new_path):
+                effective.append((entity, old_path, new_path))
 
         if self.best_effort:
             conflicts = windows_path_conflict_indices(
@@ -979,12 +980,16 @@ class _MultiVersionFolderDelegate(BaseVCS):
         if self._raw_folder:
             self._raw_folder.set_exclude_patterns(patterns)
 
+    def comparison_versions(self, old_version, new_version):
+        return EndpointSide.OLD, EndpointSide.NEW
+
     def _to_folder_ver(self, version: str) -> str:
         if tuple(self.exclude_patterns) != self._snapshot_excludes:
             raise ValueError('多版本端点已固定，更改排除规则请重新创建比对任务')
-        # GUI/旧配置中的多选版本可能用换行、逗号或分号保存，不能依赖
-        # selected_versions_label 的格式来识别 old。多版本模式的新端点标签是固定的，
-        # 因此只显式识别 new，其余调用方传入的选中版本表达式都应读取 old。
+        if isinstance(version, EndpointSide):
+            return version.value
+        # 保留旧 API 的字符串别名；比较、导出使用上面的显式侧别，避免
+        # 合法标签 new 或“文件级首尾端点”与这些兼容别名相撞。
         if version in ("new", self.new_version_label):
             return "new"
         return "old"
@@ -1063,6 +1068,10 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
     MAX_GIT_PENDING_DELETES = None
     MAX_GIT_COMMAND_OUTPUT_BYTES = None
     COMMAND_TIMEOUT = None
+
+    _is_excluded = GitVCS._is_excluded
+    _accept_delivery_paths = GitVCS._accept_delivery_paths
+    _record_excluded_old_path = GitVCS._record_excluded_old_path
 
     def __init__(
         self,

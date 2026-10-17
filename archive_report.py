@@ -10,6 +10,7 @@ from path_safety import open_regular_file_no_links
 from task_progress import measured_phase, progress
 from vcs.archive_vcs import ArchiveVCS
 from vcs.folder_vcs import FolderVCS
+from vcs.base import comparison_versions
 from vcs.temp_storage import create_temp_dir, remove_temp_dir
 
 ARCHIVE_SUFFIXES = ('.zip', '.jar', '.war', '.ear', '.aar', '.tar',
@@ -150,6 +151,8 @@ class _Inspector:
 
     def attach(self, result, vcs=None, depth=1, chain=(), *, endpoints=None):
         from vcs.base import ChangeType
+        if endpoints is None:
+            old_version, new_version = comparison_versions(vcs, result.old_version, result.new_version)
         for file in result.files:
             old_name = (file.old_path or file.file_path) if file.change_type == ChangeType.RENAMED else file.file_path
             if not (is_report_archive(file.file_path) or is_report_archive(old_name)):
@@ -157,10 +160,10 @@ class _Inspector:
             try:
                 old = None if file.change_type == ChangeType.ADDED else (
                     endpoints.path_for('old', old_name) if endpoints is not None
-                    else _endpoint_path(vcs, result.old_version, old_name))
+                    else _endpoint_path(vcs, old_version, old_name))
                 new = None if file.change_type == ChangeType.DELETED else (
                     endpoints.path_for('new', file.file_path) if endpoints is not None
-                    else _endpoint_path(vcs, result.new_version, file.file_path))
+                    else _endpoint_path(vcs, new_version, file.file_path))
             except (OSError, ValueError, RuntimeError) as exc:
                 raise RuntimeError(f'项目 [{result.project_name}] 包内端点读取失败: {exc}') from exc
             names = chain + (file.file_path,)

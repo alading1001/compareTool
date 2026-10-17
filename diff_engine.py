@@ -13,7 +13,7 @@ from path_safety import (
     windows_directories_replaced_by_files,
     windows_path_key,
 )
-from vcs.base import BaseVCS, ChangedFile, ChangeType
+from vcs.base import BaseVCS, ChangedFile, ChangeType, comparison_versions
 from html_details import HtmlFragment
 from stable_diff import (make_table as make_stable_diff_table,
                          iter_table as iter_stable_diff_table, prefer_stable_diff)
@@ -281,10 +281,11 @@ class DiffEngine:
         if self._owns_report_budget:
             self._initialize_report_budget(reset=True)
         changed_files = self.vcs.get_changed_files(old_version, new_version)
+        read_old, read_new = comparison_versions(self.vcs, old_version, new_version)
         issues = list(getattr(self.vcs, 'issues', []))
         if getattr(self.vcs, "merge_exact_renames", True):
             try:
-                changed_files = self._merge_exact_renames(changed_files, old_version, new_version)
+                changed_files = self._merge_exact_renames(changed_files, read_old, read_new)
             except (OSError, ValueError, RuntimeError) as exc:
                 if not self.best_effort:
                     raise
@@ -357,7 +358,7 @@ class DiffEngine:
                     )
                 else:
                     try:
-                        file_diff = self._diff_file(old_version, new_version, cf)
+                        file_diff = self._diff_file(read_old, read_new, cf)
                     except Exception as exc:
                         if not self.best_effort:
                             raise
@@ -1338,7 +1339,6 @@ class DiffEngine:
 
     def _side_by_side_html(self, old_lines, new_lines, path, old_path=None):
         """生成左右对比的HTML表格"""
-        hd = difflib.HtmlDiff(tabsize=4)
         old_desc = old_path or path
         escaped_old_desc = html.escape(old_desc)
         escaped_path = html.escape(path)
@@ -1348,10 +1348,16 @@ class DiffEngine:
             context=not self.show_full_context,
             numlines=3,
         )
-        if prefer_stable_diff(old_lines, new_lines):
+        return self._render_comparison_table(old_lines, new_lines, options)
+
+    def _render_comparison_table(self, old_lines, new_lines, options):
+        # HtmlDiff 用 SOH 作为内部结束标记；原文必须先匹配再显示，不能
+        # 提前替换成可能与字面文本相同的可见标记。
+        if (any("\x01" in line for line in chain(old_lines, new_lines))
+                or prefer_stable_diff(old_lines, new_lines)):
             return self._render_stable_table(old_lines, new_lines, options)
         try:
-            table = hd.make_table(old_lines, new_lines, **options)
+            table = difflib.HtmlDiff(tabsize=4).make_table(old_lines, new_lines, **options)
         except RecursionError:
             # HtmlDiff 的相似行配对递归会在正常的批量替换上耗尽调用栈。
             # 仅切换对齐方式；全部输入行和行内差异仍保留，不增加规模上限。
@@ -1381,9 +1387,9 @@ class DiffEngine:
             table,
         )
         return re.sub(
-            r"[\v\f\x1c-\x1e\x85\u2028\u2029]",
+            r"[\x01\v\f\x1c-\x1e\x85\u2028\u2029]",
             lambda match: (
-                '<span class="special-separator" title="原文中的特殊分隔符">'
+                '<span class="special-separator" title="原文中的控制字符或特殊分隔符">'
                 f'⟦U+{ord(match.group()):04X}⟧</span>'
             ),
             table,
@@ -1393,9 +1399,7 @@ class DiffEngine:
         """新增文件：左侧空，右侧新内容"""
         old_lines = []
         new_lines = self._split_diff_lines(new_content)
-        hd = difflib.HtmlDiff(tabsize=4)
-        return self._show_special_separators(hd.make_table(
-            old_lines, new_lines,
+        return self._render_comparison_table(old_lines, new_lines, dict(
             fromdesc='(新文件)',
             todesc=f'新版本: {html.escape(path)}',
             context=False
@@ -1405,9 +1409,7 @@ class DiffEngine:
         """删除文件：左侧旧内容，右侧空"""
         old_lines = self._split_diff_lines(old_content)
         new_lines = []
-        hd = difflib.HtmlDiff(tabsize=4)
-        return self._show_special_separators(hd.make_table(
-            old_lines, new_lines,
+        return self._render_comparison_table(old_lines, new_lines, dict(
             fromdesc=f'旧版本: {html.escape(path)}',
             todesc='(已删除)',
             context=False

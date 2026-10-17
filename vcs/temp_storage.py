@@ -1,5 +1,6 @@
 import os
 import json
+import math
 import shutil
 import sys
 import tempfile
@@ -246,13 +247,17 @@ def _cleanup_stale_temp_dirs(root: str):
         try:
             with open(marker, encoding="utf-8") as stream:
                 payload = json.load(stream)
-            created = float(payload.get("created", 0))
-            pid = int(payload.get("pid", 0))
-            if payload.get("magic") != _TEMP_MAGIC or now - created < _STALE_AFTER_SECONDS:
+            if not isinstance(payload, dict) or payload.get("magic") != _TEMP_MAGIC:
+                continue
+            created, pid = payload.get("created"), payload.get("pid")
+            if (type(created) not in (int, float) or not math.isfinite(created) or created <= 0
+                    or type(pid) is not int or pid <= 0):
+                continue
+            if now - created < _STALE_AFTER_SECONDS:
                 continue
             if pid_is_alive(pid):
                 continue
             remove_temp_dir(entry.path)
             warn(f"已清理 CompareTool 遗留临时目录: {entry.path}")
-        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        except (OSError, ValueError, TypeError, OverflowError):
             continue

@@ -52,6 +52,8 @@ Windows 发布 `rename` 遇到 WinError 5/32/33 时，允许对同一暂存项�
 
 报告补充合同：manifest 必须完整列出变更，不因预计体积截断；最终报告必须边渲染边流式写入同目录临时文件，成功后再原子替换，默认不设 HTML 体积上限。默认详情完整时 manifest 直接复用 `fileData`，不得把同一完整路径清单再次序列化；只有显式受限策略让二者不同时才生成独立清单。多项目展示路径在浏览器端拼接，不重复保存 `displayPath`。末尾换行格式净差异只允许在 CR/LF 规范化后两端恰好相差一个末尾 `\n` 时成立。差异拆行与统计也只识别 CR/LF，不能用 `splitlines()` 把 FF、VT、NEL、U+2028/U+2029 等分隔符吞掉；特殊分隔符参与真实字符匹配后才在 HTML 中显示为 `⟦U+XXXX⟧`，不改变导出字节，也不能与原文中的字面标记混淆。
 
+文本含 SOH（`0x01`）时，新增、删除、修改和重命名均使用保留原字符的逐行渲染，避免与 `HtmlDiff` 的内部标记冲突。匹配完成后显示 `⟦U+0001⟧`，与字面标记通过专用 span 区分；全文、上下文及片段存储遵循同一规则，导出字节不变。
+
 ## 二进制文件处理
 
 - `DiffEngine.BINARY_EXTS` 定义二进制扩展名集合（`.jar`, `.war`, `.class`, `.dll` 等）
@@ -61,6 +63,8 @@ Windows 发布 `rename` 遇到 WinError 5/32/33 时，允许对同一暂存项�
 - Git 和 SVN 导出时按固定端点的换行符策略转换，使导出文件符合所选版本应有的检出字节；并非所有文本都转换为 CRLF（见换行符处理章节）。
 
 ## 文件与目录名称
+
+Git 树路径中的字面反斜杠属于文件名，不能替换成 `/` 后读取另一对象或参与历史身份规划。排除规则按原始仓库层级匹配；最终未排除端点含反斜杠时，严格 API 拒绝，桌面入口记录未完成并保留其他独立文件。诊断保留原名，交付依赖仅使用可表示的路径侧，不能误关联合法的斜杠同名文件；失败 rename 的合法一侧仍阻断路径复用。中间历史经过该名称、最终端点均合法时可正常交付。
 
 ### 排除规则贯穿流程
 
@@ -88,6 +92,22 @@ ZIP 目录成员必须为空，非空目录拒绝；普通、兼容属性及已�
 
 普通压缩包比较与报告递归共用上述规则。排除不免除重名一致性检查；所有副本继续计入成员数、声明展开量和实际消费量，内容只消费计数一次。普通报告比较说明和递归明细注明合并重复项；递归明细保留旧/新侧原始名称和份数。递归原始交付包保持逐字节不变，普通压缩包模式仍导出唯一文件路径。回归见 `tests/test_archive_duplicate_members.py`，实际 Git 样本及验证记录见 [重复归档成员兼容](archive-duplicate-members.md)。
 
+## 归档输入与临时目录
+
+`ArchiveVCS` 通过 `vcs.temp_storage.create_temp_dir()` 解压两端，委托 `FolderVCS` 遍历和比较。ZIP 家族为 `.zip/.jar/.war/.ear/.aar`，使用 `zipfile`；TAR 家族为 `.tar/.tar.gz/.tgz/.tar.bz2/.tbz2`，使用 `tarfile`。ZIP 名称未设置 UTF-8 标志时，`_fix_zip_filename()` 将 CP437 解码后的名称还原为原字节，再按 GBK 解码。特殊空目录属性的精确允许条件见 [ZIP 目录属性兼容](zip-directory-compatibility.md)。
+
+构造时先同时捕获并持续持有两个源归档的稳定普通文件句柄，预检和解压只读取这些句柄，不复制整份源包。Windows `deny_writes` 阻止写入和删除，结束前复核路径与句柄身份，不再前后整包哈希；POSIX advisory lock 不能约束不配合的写入者，仍以流式 SHA-256 复核内容。文件夹和归档预捕获路径与实际打开句柄必须比较稳定文件 ID（Windows 卷序列号/FileId，其它平台设备号/inode），不能仅比较大小和 mtime。
+
+源归档和文件夹快照默认不限大小、文件数；同一文件夹两端只稳定捕获一次，父子目录分别快照。文件夹仅复制实际变更端点，仍复核整个源树。归档按实际展开字节及保留正文/目录占位开销选择临时根。每个成员先验证临时根边界和 Windows 名称，拒绝穿越、绝对/盘符路径、ADS、符号链接、硬链接和设备等特殊成员；禁止无过滤 `extractall()`。合法字面 `ABC~1.TXT` 不因外形被拒绝，逐级核对真实目录项并排他创建，拒绝真实名称或短别名碰撞。文件夹与多版本快照同样拒绝 symlink/junction。
+
+成员数、单成员大小、累计展开量、压缩比、TAR PAX/GNU 元数据记录/字段/字节及 ZIP 中央目录字节默认无性能型上限；显式策略仍生效，路径、类型、长度、CRC 和 I/O 失败仍严格检查。构造 `ZipFile` 前解析 EOCD/ZIP64 和中央目录，核对边界、计数并提前应用显式成员数策略。排除成员、重复副本及 sparse 映射的完整读取和计数规则见 [排除规则贯穿流程](#排除规则贯穿流程)，不得因减少落盘而跳过结构或正文校验。
+
+`ArchiveVCS.set_exclude_patterns()` 必须同步内部 `FolderVCS`。`ignore_single_root=True` 时，两端各自必须恰有一个真实顶层目录且无其它项，只剥一层，不按排除结果筛选或猜测对应关系；桌面入口成对回退和严格 API 拒绝边界见 [覆盖与重新生成](#覆盖与重新生成)。内部比较根与权限元数据同时重定位，报告、排除、摘要、读取、导出、重命名和目录删除说明使用同一内层相对路径；所有权临时根不变。`comparison_note` 在单/多报告和上线说明展示两侧根名称，GUI `ignore_archive_root` 按新包路径及任务快照保存，旧配置默认关闭。
+
+外部版本标签经 `_to_folder_ver()` 转为内部 old/new 侧再委托；内容、大小、摘要和流式导出使用同一映射。`main.py` 生成后将压缩包 `project_path` 改为包文件名，不能显示临时解压路径。
+
+临时目录带所有权 sidecar，正常结束清理。创建新目录时仅回收超过七天、原进程已不存在且标记有效的专用遗留目录；Windows PID 探测复用 stage 所有权的保守句柄实现。标记必须为对象，创建时间为有限正数，PID 为正整数，布尔值不算有效数值；无效标记及目录原样保留，不阻断新任务。回归见 `tests/test_review_endpoint_labels_and_text.py`。
+
 ## 换行符处理
 
 Windows 上 `core.autocrlf=true`（Git）或 `svn:eol-style=native`（SVN）会导致仓库存储 LF、工作副本为 CRLF。`git show` / `svn cat` 返回仓库原始字节（LF），若直接导出会与工作副本文件字节级不一致。
@@ -100,7 +120,13 @@ Windows 上 `core.autocrlf=true`（Git）或 `svn:eol-style=native`（SVN）会�
 
 普通 Git/SVN 生成开始时必须把用户填写的可变版本标识固定为完整 commit OID/数字 revision，后续差异、内容、属性和导出均复用同一端点，报告仍显示用户原始输入。Git filter 名保留大小写，按驱动成组固定并复核 `smudge`、`process` 和 `required` 配置；没有检出程序且未要求强制转换的 filter（包括仅配置 clean）允许按普通文件导出。实际启用检出转换或要求强制转换的 filter，以及启用的 `working-tree-encoding`、`ident` 或旧 `crlf` 属性，仍因无法可靠复现 checkout 字节而拒绝该文件；桌面入口将其列为未完成，严格 API 中止。`check-attr` 输出中的 `set`/`unset`/`unspecified` 可能是同名字面 filter 驱动，必须由隔离 Git 区分；只复制“必需但无程序”的拒绝策略，不复制或执行 smudge/process，真正的 `-filter`/`!filter` 等状态仍可正常导出。普通 SVN 和 SVN 多版本均允许空值或仅含 ASCII 空白的 `svn:keywords`；`svn:externals` 的空白和整行注释不视为有效定义，其它定义及非空 keywords 仍须拒绝对应项目或文件；桌面入口记录未完成，严格 API 中止。
 
+## 端点身份与展示标签
+
+文件夹和多版本快照用 `EndpointSide` 明确区分新旧读取端点；报告保留用户输入的版本／目录标签。DiffEngine、FileExporter 和直接借用文件夹快照的包内报告使用相同侧别解析，不能把 Git 标签 `new`、`文件级首尾端点` 或相对目录 `old` 当成另一侧。旧 API 的字符串侧别别名保留兼容。显式借用交付 stage 的递归分析不再查询 VCS，也不重新解析展示标签。
+
 ## 验证入口
+
+上述路径身份、标签冲突、SOH 和缓存标记回归见 `tests/test_review_endpoint_labels_and_text.py`，包含真实 Git 树和工作线程、文件级端点、新旧导出字节、递归明细、文本表格及缓存创建恢复。
 
 未变化的 `svn:externals` 也必须校验：普通 SVN 检查固定新旧项目树，多版本检查各选中 revision 的前后项目树及根复制的历史来源，不只依赖 diff/log 中出现的目录。属性查询使用固定历史 URL 和数字 revision，流式落盘解析；不跟随或下载 external。完整排除的目录树仍可跳过定义，根定义、未排除子目录的有效定义及查询失败必须使该项目标为未完成；空值和整行注释仍允许。
 
@@ -116,7 +142,7 @@ Windows 上 `core.autocrlf=true`（Git）或 `svn:eol-style=native`（SVN）会�
 
 新增完整性回归位于 [test_complete_export_review_fixes.py](../tests/test_complete_export_review_fixes.py)：真实 Git 普通/多版本的 NTFS 别名碰撞及拒绝不完整导出，合法 `~` 名称，520 行相似文本递归复现，随机差异表内容还原、上下文，以及未知编码字节与字面标记不混淆。
 
-在项目根用 `.\.venv\Scripts\python.exe -m unittest discover -s tests -q` 运行完整回归。正式打包后还须启动新 `dist/CompareTool.exe` 做窗口响应和 Python/Tk 启动冒烟；源码测试和打包成功不能代替真实项目验收。
+完整回归须在项目 `.tmp` 下的独立源码副本中运行；先复制已跟踪及本次新增源码、测试、模板和资源，再在副本根用项目 `.venv` 的 Python 执行 `-m unittest discover -s tests -q`。测试 `_tmp_root` 必须是独占目录，不能使用实际工作区根；TEMP/TMP 和 `COMPARETOOL_TEMP_DIR` 也指向本次项目内独占目录。正式打包后还须启动新 `dist/CompareTool.exe` 做窗口响应和 Python/Tk 启动冒烟；源码测试和打包成功不能代替真实项目验收。
 
 ## 批量读取与完整渲染补充（2026-09-24）
 
@@ -160,6 +186,8 @@ A 仅 new、D 仅 old、R 的 old 使用 old_path，其它两侧都必须存在�
 不得删除 exporter 的暂存目录。桌面入口对包内解析失败保留原包，对模板失败生成基础报告；无法安全发布时清理本次暂存，明确报错且不恢复旧结果。完整验收见 [六模式递归验证](recursive-archives-all-vcs-verification.md)。
 
 ## 性能优化中的资源复用
+
+glob 编译使用以规则及 `implicit_any_depth` 为键的有界纯函数缓存，允许规则直接赋值；缓存淘汰不是输入上限。浏览器详情保存模板引用，不预建所有 HTML 字符串；过滤和 manifest 基于完整数据，不能只看已挂载节点。
 
 存在长重复游程时，行匹配按实际行数选择公共连续块，普通单行游程参与同一次
 竞争；不得仅优先重复行或唯一行而打散更长公共正文。全文与上下文、字符串与
