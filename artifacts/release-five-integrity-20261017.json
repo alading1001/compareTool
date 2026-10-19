@@ -1,0 +1,352 @@
+{
+  "schema": "comparetool.release-five-integrity.v1",
+  "completed_at": "2026-10-17T19:48:16.711705+08:00",
+  "build": {
+    "metadata": {
+      "version": "2026.10.17.2",
+      "build_id": "fb4828dbc1",
+      "built_at": "2026-10-17T19:39:29+08:00",
+      "commit": "238534618d2667dec79aea035e2455f09522abaa",
+      "dirty": true,
+      "source_sha256": "fb4828dbc1a5012003c3e44a25e04187e0e3257fe3bf7f545d70aac21fc596ca",
+      "exe_sha256": "7a7c6b93c5396a9f50e1e8fe21fb1a5908f04597da40f0edb0ead639645b83e3"
+    },
+    "embedded_metadata_matches": true,
+    "source_matches_full_regression": true,
+    "verified_runtime_input_files": 116,
+    "modules": {
+      "main": {
+        "compiled_code_matches_source": true,
+        "source_sha256": "296d1e92ecd31f4c106e7c9b700c64d6ded88ff5f2fc048751063d24ea734081"
+      },
+      "vcs.multi_version_vcs": {
+        "compiled_code_matches_source": true,
+        "source_sha256": "2545d15949bd5c615166fc36a038e3a07969fff62f9a7f50d02bba5a55501887"
+      },
+      "vcs.archive_vcs": {
+        "compiled_code_matches_source": true,
+        "source_sha256": "65b7d92b495782197a773241a12718b164c8853a755bcad23b77386b0977330d"
+      }
+    },
+    "templates": {
+      "report.html": "a5231a04fdc31c31a38e38a284fa5efb5f7a4eb63cfb8b6e8d79f27dca7ff40b",
+      "multi_report.html": "a972df50d0d4f33bb189b0123cd2c099c38536662b0f72729cbcd62abf3bbbef",
+      "summary_issues.html": "a52c784c4b4257f09bf93657806000c355dc1b06c93259f8be347f387ea89c0f"
+    },
+    "manual_sha256": "ee58ab468d67631ce2c26bf924b9f58f0cfe983efc4b5db943aabc5d06f86877",
+    "manual_bytes_match": true,
+    "smoke_copy_sha256": "7a7c6b93c5396a9f50e1e8fe21fb1a5908f04597da40f0edb0ead639645b83e3"
+  },
+  "source_regression": {
+    "tests": 705,
+    "failures": [],
+    "errors": [],
+    "skipped": [
+      [
+        "test_folder_file_symlink_cannot_read_outside_root (test_review_regressions.ArchiveAndFolderRegressionTests.test_folder_file_symlink_cannot_read_outside_root)",
+        "当前 Windows 未允许创建测试符号链接: [WinError 1314] 客户端没有所需的特权。: 'D:\\\\AI\\\\project\\\\compareTool_myself\\\\.tmp\\\\five_fixes_20261017_e84d\\\\full_final\\\\.tmp\\\\tmp8i9y9fae\\\\secret.txt' -> 'D:\\\\AI\\\\project\\\\compareTool_myself\\\\.tmp\\\\five_fixes_20261017_e84d\\\\full_final\\\\.tmp\\\\tmp8i9y9fae\\\\new\\\\linked.txt'"
+      ]
+    ],
+    "seconds": 1578.7810000000027,
+    "changed_inputs": [],
+    "changed_snapshot": []
+  },
+  "exe_business_smoke": {
+    "projects": 11,
+    "delivered_files": 10,
+    "exported_files": 20,
+    "malformed_task_records_skipped": 5,
+    "expected_incomplete_projects": [
+      "BadCrc",
+      "BadSize",
+      "BadFooter"
+    ],
+    "original_config_preserved": true,
+    "summary_scripts_executed": true,
+    "findings_verified": [
+      "SVN root/ancestor replacement lineage",
+      "literal Unicode paths",
+      "malformed/missing/empty exclusion rules",
+      "compressed TAR CRC/ISIZE/EOF",
+      "single/multi partial-delivery summaries"
+    ],
+    "reports": {
+      "multi": {
+        "report": "D:\\AI\\project\\compareTool_myself\\.tmp\\release_five_20261017_f2c8\\output\\20261017\\multi_run_20261017_194342_073_f7df900f\\multi_compare_report_20261017_194342_073.html",
+        "report_sha256": "c7bcf1621fcfca6f800282f09f66567f2dfb22567d2ece34dde350fdfa740d68",
+        "instructions_sha256": "302f25d51bb7392481ede6bf31933c18df992205503290a5d86f56da2ab5a190",
+        "summary_sha256": "4ce3e4327e3086eadfc4590714747559ee59cfe8ae8a8f9bae659d56e16fbf87",
+        "expected_incomplete_items": 3
+      },
+      "single": {
+        "report": "D:\\AI\\project\\compareTool_myself\\.tmp\\release_five_20261017_f2c8\\output\\20261017\\BadCrc_diff.html",
+        "report_sha256": "482a8853a6002c773eed1acf956513bafe36c250821060d26931dab5b1cb489b",
+        "instructions_sha256": "3f788ecd360494a2a037db8cefcb45526998bd9b03f6ff7a59994248eb2fc529",
+        "summary_sha256": "f537bd3f1124cc946c451c6a5029b7f216bb3a0cd8d9353f2420ef4cc46d1994",
+        "expected_incomplete_items": 1
+      }
+    },
+    "tasks": {
+      "multi": {
+        "schema": "comparetool.task.v1",
+        "task_id": "20261017_194354_16e4af3c4d95",
+        "mode": "multi",
+        "build": {
+          "version": "2026.10.17.2",
+          "build_id": "fb4828dbc1",
+          "built_at": "2026-10-17T19:39:29+08:00",
+          "commit": "238534618d2667dec79aea035e2455f09522abaa",
+          "dirty": true,
+          "source_sha256": "fb4828dbc1a5012003c3e44a25e04187e0e3257fe3bf7f545d70aac21fc596ca"
+        },
+        "success": true,
+        "seconds": 3.847296,
+        "phases": {
+          "output.clear": {
+            "calls": 1,
+            "seconds": 0.009304100007284433,
+            "exclusive_seconds": 0.009304100007284433
+          },
+          "diff.render": {
+            "calls": 8,
+            "seconds": 0.07155079998483416,
+            "exclusive_seconds": 0.07155079998483416
+          },
+          "diff.total": {
+            "calls": 8,
+            "seconds": 0.28162009999505244,
+            "exclusive_seconds": 0.005653999964124523
+          },
+          "project.prepare": {
+            "calls": 11,
+            "seconds": 2.7104455000080634,
+            "exclusive_seconds": 2.3711108000279637
+          },
+          "folder.capture": {
+            "calls": 8,
+            "seconds": 0.03192950000811834,
+            "exclusive_seconds": 0.03192950000811834
+          },
+          "folder.compare": {
+            "calls": 4,
+            "seconds": 0.0031223000114550814,
+            "exclusive_seconds": 0.0031223000114550814
+          },
+          "folder.snapshot": {
+            "calls": 8,
+            "seconds": 0.14771180003299378,
+            "exclusive_seconds": 0.14771180003299378
+          },
+          "folder.verify": {
+            "calls": 8,
+            "seconds": 0.02147279999917373,
+            "exclusive_seconds": 0.02147279999917373
+          },
+          "diff.renames": {
+            "calls": 5,
+            "seconds": 0.00017889999435283244,
+            "exclusive_seconds": 0.00017889999435283244
+          },
+          "archive.extract": {
+            "calls": 5,
+            "seconds": 0.0599056999781169,
+            "exclusive_seconds": 0.0599056999781169
+          },
+          "output.export": {
+            "calls": 11,
+            "seconds": 0.3834389999974519,
+            "exclusive_seconds": 0.3834389999974519
+          },
+          "output.commit": {
+            "calls": 12,
+            "seconds": 0.31459319998975843,
+            "exclusive_seconds": 0.31459319998975843
+          },
+          "archive.stage_bind": {
+            "calls": 1,
+            "seconds": 0.041185499998391606,
+            "exclusive_seconds": 0.041185499998391606
+          },
+          "archive.report": {
+            "calls": 1,
+            "seconds": 0.015004200002294965,
+            "exclusive_seconds": 0.012813100009225309
+          },
+          "report.write_multi": {
+            "calls": 1,
+            "seconds": 0.04664790000242647,
+            "exclusive_seconds": 0.04664790000242647
+          },
+          "output.instructions": {
+            "calls": 1,
+            "seconds": 0.011072000008425675,
+            "exclusive_seconds": 0.011072000008425675
+          }
+        },
+        "counts": {
+          "overwrite_targets": 0,
+          "project_count": 11,
+          "html_fragment_count": 10,
+          "html_fragment_bytes": 8487,
+          "issue_count": 4,
+          "failed_items": 3,
+          "delivery_incomplete": true,
+          "total_files": 10,
+          "added_files": 0,
+          "modified_files": 7,
+          "format_changed_files": 0,
+          "deleted_files": 0,
+          "renamed_files": 3,
+          "required_directory_deletions": 0,
+          "total_added_lines": 9,
+          "total_deleted_lines": 9,
+          "skipped_line_count_files": 1,
+          "report_omitted_files": 0,
+          "line_counts_complete": false
+        },
+        "error_type": null,
+        "log_error": "",
+        "status": "partial"
+      },
+      "single": {
+        "schema": "comparetool.task.v1",
+        "task_id": "20261017_194440_59257641e93c",
+        "mode": "archive",
+        "build": {
+          "version": "2026.10.17.2",
+          "build_id": "fb4828dbc1",
+          "built_at": "2026-10-17T19:39:29+08:00",
+          "commit": "238534618d2667dec79aea035e2455f09522abaa",
+          "dirty": true,
+          "source_sha256": "fb4828dbc1a5012003c3e44a25e04187e0e3257fe3bf7f545d70aac21fc596ca"
+        },
+        "success": true,
+        "seconds": 0.162481,
+        "phases": {
+          "output.clear": {
+            "calls": 1,
+            "seconds": 0.008534399996278808,
+            "exclusive_seconds": 0.008534399996278808
+          },
+          "archive.extract": {
+            "calls": 1,
+            "seconds": 0.0026963000127580017,
+            "exclusive_seconds": 0.0026963000127580017
+          },
+          "project.prepare": {
+            "calls": 1,
+            "seconds": 0.002819899993482977,
+            "exclusive_seconds": 0.00012359998072497547
+          },
+          "output.export": {
+            "calls": 1,
+            "seconds": 0.0260547000070801,
+            "exclusive_seconds": 0.0260547000070801
+          },
+          "report.write": {
+            "calls": 1,
+            "seconds": 0.03230980000807904,
+            "exclusive_seconds": 0.03230980000807904
+          },
+          "output.instructions": {
+            "calls": 1,
+            "seconds": 0.010521300006075762,
+            "exclusive_seconds": 0.010521300006075762
+          },
+          "output.commit": {
+            "calls": 1,
+            "seconds": 0.0381096999917645,
+            "exclusive_seconds": 0.0381096999917645
+          }
+        },
+        "counts": {
+          "overwrite_targets": 0,
+          "html_fragment_count": 0,
+          "html_fragment_bytes": 0,
+          "issue_count": 1,
+          "delivery_incomplete": true,
+          "failed_items": 1,
+          "total_files": 0,
+          "added_files": 0,
+          "modified_files": 0,
+          "format_changed_files": 0,
+          "deleted_files": 0,
+          "renamed_files": 0,
+          "required_directory_deletions": 0,
+          "total_added_lines": 0,
+          "total_deleted_lines": 0,
+          "line_counts_complete": true,
+          "skipped_line_count_files": 0,
+          "report_omitted_files": 0,
+          "manifest_listed_files": 0,
+          "manifest_omitted_files": 0
+        },
+        "error_type": null,
+        "log_error": "",
+        "status": "partial"
+      }
+    },
+    "exports_sha256": {
+      "oldVersion/AncestorReplacement/a.txt": "f34848ca92665c342abd5816c9e3eda0e82180671195362bcd0080544a3bc2ac",
+      "oldVersion/NestedBroken/package.tgz": "9a68d294c09cfce4c7c983d37508642f5a2b1640ada9761578e19522eafb541e",
+      "oldVersion/RootReplacement/a.txt": "f34848ca92665c342abd5816c9e3eda0e82180671195362bcd0080544a3bc2ac",
+      "oldVersion/UnicodeName/a.txt ": "6db7d803e74f1ffa7d8f5adc0bf95b3e15bf4c8373fffadf546227cc6c6742cb",
+      "oldVersion/ValidCompressedTar/a.txt": "cba06b5736faf67e54b07b561eae94395e774c517a7d910a54369e1263ccfbd4",
+      "oldVersion/ExplicitEmpty/.git/config": "6db7d803e74f1ffa7d8f5adc0bf95b3e15bf4c8373fffadf546227cc6c6742cb",
+      "oldVersion/ExplicitEmpty/logs/trace.txt": "6db7d803e74f1ffa7d8f5adc0bf95b3e15bf4c8373fffadf546227cc6c6742cb",
+      "oldVersion/ExplicitEmpty/src/a.txt": "6db7d803e74f1ffa7d8f5adc0bf95b3e15bf4c8373fffadf546227cc6c6742cb",
+      "oldVersion/LegacyDefaults/src/a.txt": "6db7d803e74f1ffa7d8f5adc0bf95b3e15bf4c8373fffadf546227cc6c6742cb",
+      "oldVersion/Rules/src/a.txt": "6db7d803e74f1ffa7d8f5adc0bf95b3e15bf4c8373fffadf546227cc6c6742cb",
+      "newVersion/AncestorReplacement/renamed.txt": "761d1fb145ca8c7130231412276df60f34dd34554c4d174b973a45e3222475a9",
+      "newVersion/NestedBroken/package.tgz": "441bf2aa0b8d6d633cf0bf8d941a513e56ef104d0873d85ae6584484e49dae3c",
+      "newVersion/RootReplacement/renamed.txt": "761d1fb145ca8c7130231412276df60f34dd34554c4d174b973a45e3222475a9",
+      "newVersion/UnicodeName/renamed.txt　": "3547cb112ac4489af2310c0626cdba6f3097a2ad5a3b42ddd3b59c76c7a079a3",
+      "newVersion/ValidCompressedTar/a.txt": "11507a0e2f5e69d5dfa40a62a1bd7b6ee57e6bcd85c67c9b8431b36fff21c437",
+      "newVersion/ExplicitEmpty/.git/config": "f39592393ef0859cb196a52693d2cea00fb2df784b3c04ae54aa7cadb8e562f8",
+      "newVersion/ExplicitEmpty/logs/trace.txt": "f39592393ef0859cb196a52693d2cea00fb2df784b3c04ae54aa7cadb8e562f8",
+      "newVersion/ExplicitEmpty/src/a.txt": "f39592393ef0859cb196a52693d2cea00fb2df784b3c04ae54aa7cadb8e562f8",
+      "newVersion/LegacyDefaults/src/a.txt": "f39592393ef0859cb196a52693d2cea00fb2df784b3c04ae54aa7cadb8e562f8",
+      "newVersion/Rules/src/a.txt": "f39592393ef0859cb196a52693d2cea00fb2df784b3c04ae54aa7cadb8e562f8"
+    }
+  },
+  "formal_window_verified": true,
+  "windows_closed": true,
+  "prior_release_archive": "dist/archive/20261017_193929_release_build_e3v3usol",
+  "archived_files_match_prebuild": true,
+  "original_config_sha256": "95fd3423682d58a74c0ffb049fa6e08d7f1e87b23004015060e24bc5022f620f",
+  "install_scope": "dist only; other installation directories unchanged by this task",
+  "evidence_root": ".tmp/release_five_20261017_f2c8",
+  "evidence_sha256": {
+    "before-CompareTool_build.json": "dbdd7b96a45833cddeb6ff66326a6afcecc470814d2ff8fe3f5da1767013a45d",
+    "before-compareTool_config.json": "95fd3423682d58a74c0ffb049fa6e08d7f1e87b23004015060e24bc5022f620f",
+    "build-verification.json": "aca02c4ad35a1262d47125b3c983fed945a901aafb13c21794c299ce0cf2a100",
+    "build.log": "31ee5392ff000616484599661431e39ddafa7f92b8bbdc8e53b018cd9174d415",
+    "expected_exports.json": "3a0eca0e011a166e1eecbbfa2925ff8b946698dbc4d631f545242f044fb0405e",
+    "formal-parent-pid.txt": "e9d3160353c3c518753769f4ee885ca583fce9e172928fde3314f580f1401e41",
+    "formal-version-ui.txt": "fe5f4c96be8b5ac4c105c4c1bee7abf3addda17d3d2d86cf62fb7a8853f8ede1",
+    "multi-completion-ui.txt": "55bb33c2064a5544be0d7df942a2d87025f212d1b2e265351a371767156b0910",
+    "multi-confirmation-ui.txt": "60fcd20a2e723d7bdb821c38e06725d4e60b6804aa104cf174b1ed6efb284389",
+    "multi-summary.txt": "4ce3e4327e3086eadfc4590714747559ee59cfe8ae8a8f9bae659d56e16fbf87",
+    "preflight.json": "addbe68a39797a98a9730120edec1eba7ebe952375497b8b5e855adcd94e2ce3",
+    "preflight.py": "7bb3b46fd1318305b99f9d6b3e767bc4edd596ad7111fb87a5973a90787a1fb6",
+    "prepare_smoke.log": "c7c655b26644e195043e01b6ff5837bbc3972a82e08745a5da135f5ab6dbcf87",
+    "prepare_smoke.py": "cef18c2d8ca2f9457723ed8c9f2f4fdd2552f4c6552f5575efde808e78d295e8",
+    "publish_evidence.py": "2b30b909c282744c975031e9ef0948e16066e507e5d51a24a34eb373e0c3ac36",
+    "single-completion-ui.txt": "bb74b88d5af5dbc707db2261024d6cd93d3c1f50cc3e3a19f7880407769d7b6f",
+    "single-summary.txt": "f537bd3f1124cc946c451c6a5029b7f216bb3a0cd8d9353f2420ef4cc46d1994",
+    "smoke-parent-pid.txt": "f7e92693db972f0d163519190083131e07833aee9b63c79c69698bbac215fb83",
+    "smoke-verification.json": "976bcb06620a1a8a237c1d1b56e0eb0ef26023630290bbbc74a07e17d98915d7",
+    "smoke_tasks.json": "8e80c134cc676cf8baafe5c64408f5377bc494d3215334555c3f20ea7a187f70",
+    "verify_build.py": "849532efca1719f5e9f29ad03023afa6046864df226b0f2cb12c8549b18664ba",
+    "verify_smoke.py": "4568a035569e8eb6de682f2fe9f56595a29f07ec7265a3663e17f10b4b1612a5",
+    "window-close-verification.json": "8f63e8e6fb4d098517ef1a39f3f22cf468cf299a87af9758997c41ede0da2c2d"
+  },
+  "documentation_sha256": {
+    "README.md": "538aeae9b2cee5c04906b921553512d8ea280666073c7825ead0e41f5f0b0359",
+    "docs/release-20261017-five-integrity.md": "cf7dd02aaf489727b8f2fabe53ebf1fb3596784062ab4eb4297f8f2c1e99ad29",
+    "docs/review-five-integrity-fixes-20261017.md": "b4589d15da9761a159358e7312c5755c1d6ccde827c8f7734586fe625cdf0370"
+  },
+  "limits": [
+    "Local Windows fixture validation; remote SVN and site acceptance not performed"
+  ]
+}

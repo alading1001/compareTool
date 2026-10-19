@@ -611,6 +611,12 @@ class CompareToolApp(TaskProgressUI):
             ):
                 warn(f"忽略损坏的多项目任务 #{index}: 缺少必填字段")
                 continue
+            exclude_rules = item.get("exclude_rules", DEFAULT_EXCLUDE_RULES)
+            if not isinstance(exclude_rules, str):
+                warn(f"忽略损坏的多项目任务 #{index}: 排除规则不是字符串")
+                continue
+            if "exclude_rules" not in item:
+                warn(f"旧多项目任务 #{index} 未保存排除规则，已使用默认模板")
             name_key = self._project_name_key(project_name)
             if name_key in seen_names:
                 warn(f"忽略重复项目名的多项目任务 #{index}: {project_name}")
@@ -623,7 +629,7 @@ class CompareToolApp(TaskProgressUI):
                 "old_version": old_version.strip(),
                 "new_version": new_version.strip(),
                 "exclude_key": item.get("exclude_key", "") if isinstance(item.get("exclude_key", ""), str) else "",
-                "exclude_rules": item.get("exclude_rules", "") if isinstance(item.get("exclude_rules", ""), str) else "",
+                "exclude_rules": exclude_rules,
                 "show_project_root": self._option_bool(item.get("show_project_root"), default=True),
                 "show_full_context": self._option_bool(item.get("show_full_context"), default=True),
                 "recursive_archives": vcs_type in SUPPORTED_VCS_TYPES and self._option_bool(
@@ -1999,7 +2005,9 @@ class CompareToolApp(TaskProgressUI):
             self.recursive_archives_var.set(self._option_bool(task.get("recursive_archives"), default=False))
         self._project_name_manual = True
         self._replace_exclude_text(task.get("exclude_rules", self._default_exclude_rules))
-        self._last_exclude_key = task.get("exclude_key", "")
+        # exclude_key 是可重建的定位信息；旧任务可能缺失或保留旧路径。
+        # 按已经回填的来源绑定任务快照，避免下一次刷新把它当成项目切换。
+        self._last_exclude_key = self._current_project_key()
         self._last_project_path = self._normalize_project_path(self.dir_entry.get().strip())
         self._update_output_paths()
         self._sync_multi_task_buttons()

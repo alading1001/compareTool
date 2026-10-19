@@ -1069,6 +1069,12 @@ class ArchiveVCS(BaseVCS):
                     raise ValueError("压缩包成员过多，已拒绝解压")
                 cls._discard_exact(stream, stored_size)
                 cls._skip_tar_padding(stream, stored_size)
+            # TAR 的零块只终止成员列表，不代表 gzip/bzip2 流已结束。
+            # 完整消费剩余压缩流，触发尾部 CRC/长度及截断检查；关闭 reader
+            # 不会完成这些校验。按块丢弃，不把填充字节重复计入成员正文预算。
+            if stream is not borrowed:
+                while stream.read(1024 * 1024):
+                    pass
         source.seek(0)
         (target_validator or cls._validate_archive_targets)(dest, targets)
         return total_size

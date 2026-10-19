@@ -239,7 +239,8 @@ class MalformedConfigurationTests(WorkflowCase):
     def test_task_type_validation_accepts_all_supported_modes_around_bad_values(self):
         app = self.app()
         tasks = [dict(vcs_type=kind, project_name=kind, project_path=str(self.root),
-                      old_version='1', new_version='2') for kind in sorted(main.SUPPORTED_VCS_TYPES)]
+                      old_version='1', new_version='2', exclude_rules='')
+                 for kind in sorted(main.SUPPORTED_VCS_TYPES)]
         invalid = [dict(tasks[0], vcs_type=value) for value in ([], {}, None, 42, True, 'unknown')]
         with mock.patch('main.warn') as warning:
             normalized = app._normalize_loaded_multi_tasks(invalid[:3] + tasks + invalid[3:])

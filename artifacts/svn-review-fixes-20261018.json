@@ -1,0 +1,77 @@
+{
+  "scope": "Current source including pre-existing uncommitted work; no release EXE build",
+  "head": "238534618d2667dec79aea035e2455f09522abaa",
+  "validation_directory": "D:\\AI\\project\\compareTool_myself\\.tmp\\svn_review_fixes_20261018_7ff87c94",
+  "input_manifest": "D:\\AI\\project\\compareTool_myself\\.tmp\\svn_review_fixes_20261018_7ff87c94\\final_input_manifest.json",
+  "input_files": 169,
+  "all_five_source_manifests_match": true,
+  "changed_files_in_task": [
+    "tests/test_svn_review_omissions.py",
+    "docs/multi-version-file-endpoints.md",
+    "docs/report-and-export-contract.md",
+    "vcs/multi_version_vcs.py",
+    "vcs/svn_vcs.py"
+  ],
+  "unrelated_input_changes": [],
+  "targeted": {
+    "tests": 4,
+    "passed": 4,
+    "log": "D:\\AI\\project\\compareTool_myself\\.tmp\\svn_review_fixes_20261018_7ff87c94\\targeted.log",
+    "before_fix_log": "D:\\AI\\project\\compareTool_myself\\.tmp\\svn_review_fixes_20261018_7ff87c94\\before_fix_expected_failures.log",
+    "before_fix_tests": 2,
+    "before_fix_failing_subtests": 10
+  },
+  "full_regression": {
+    "discovered": 709,
+    "executed": 709,
+    "passed": 708,
+    "skipped": [
+      {
+        "id": "test_review_regressions.ArchiveAndFolderRegressionTests.test_folder_file_symlink_cannot_read_outside_root",
+        "reason": "当前 Windows 未允许创建测试符号链接: [WinError 1314] 客户端没有所需的特权。: 'D:\\\\AI\\\\project\\\\compareTool_myself\\\\.tmp\\\\svn_review_fixes_20261018_7ff87c94\\\\source_1\\\\.tmp\\\\tmpmxh4kjsm\\\\secret.txt' -> 'D:\\\\AI\\\\project\\\\compareTool_myself\\\\.tmp\\\\svn_review_fixes_20261018_7ff87c94\\\\source_1\\\\.tmp\\\\tmpmxh4kjsm\\\\new\\\\linked.txt'"
+      }
+    ],
+    "failures": [],
+    "errors": [],
+    "unique_test_ids": 709,
+    "every_test_executed_once": true,
+    "shards": [
+      {
+        "shard": 0,
+        "tests_run": 178,
+        "seconds": 376.34400000000005,
+        "successful": true
+      },
+      {
+        "shard": 1,
+        "tests_run": 177,
+        "seconds": 374.3120000000001,
+        "successful": true
+      },
+      {
+        "shard": 2,
+        "tests_run": 177,
+        "seconds": 476.2660000000001,
+        "successful": true
+      },
+      {
+        "shard": 3,
+        "tests_run": 177,
+        "seconds": 423.34400000000005,
+        "successful": true
+      }
+    ],
+    "new_test_ids": [
+      "test_svn_review_omissions.SVNDeliveryOmissionTests.test_stale_directory_copy_keeps_real_source_deletions_and_net_zero",
+      "test_svn_review_omissions.SVNDeliveryOmissionTests.test_whitespace_only_file_replaced_by_directory_keeps_old_file",
+      "test_svn_review_omissions.SVNDeliveryOmissionTests.test_whitespace_only_names_are_added_modified_and_deleted",
+      "test_svn_review_omissions.SVNSummaryLiteralPathTests.test_url_relative_and_absolute_summary_paths_preserve_whitespace"
+    ]
+  },
+  "diff_check_passed": true,
+  "environment": {
+    "python": "Python 3.12.10",
+    "svn": "1.14.2",
+    "git": "git version 2.53.0.windows.2"
+  }
+}

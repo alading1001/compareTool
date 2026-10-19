@@ -1,0 +1,84 @@
+{
+  "scope": "修复 Git 子模块静默漏报与 SVN 历史目录恢复遗漏；包含原有未提交内容的源码验证，未打包、未提交",
+  "head": "238534618d2667dec79aea035e2455f09522abaa",
+  "changed_files_in_task": [
+    "docs/multi-version-file-endpoints.md",
+    "docs/report-and-export-contract.md",
+    "tests/test_review_submodules_and_svn_restore.py",
+    "tests/test_second_round_adversarial_regressions.py",
+    "vcs/git_vcs.py",
+    "vcs/multi_version_vcs.py"
+  ],
+  "unrelated_input_changes": [],
+  "validation_directory": "D:\\AI\\project\\compareTool_myself\\.tmp\\review_two_fixes_20261019_57582fd3",
+  "input_manifest": "D:\\AI\\project\\compareTool_myself\\.tmp\\review_two_fixes_20261019_57582fd3\\full_final_manifest.json",
+  "input_files": 171,
+  "all_five_source_manifests_match": true,
+  "targeted": {
+    "tests": 7,
+    "successful": true,
+    "log": "D:\\AI\\project\\compareTool_myself\\.tmp\\review_two_fixes_20261019_57582fd3\\targeted_0.log"
+  },
+  "before_fix": {
+    "tests": 7,
+    "failing_subtests": 12,
+    "strict_svn_nonexistent_endpoint_errors": 1,
+    "log": "D:\\AI\\project\\compareTool_myself\\.tmp\\review_two_fixes_20261019_57582fd3\\baseline_0.log"
+  },
+  "first_full_validation": {
+    "summary": "D:\\AI\\project\\compareTool_myself\\.tmp\\review_two_fixes_20261019_57582fd3\\full_summary.json",
+    "note": "首轮全量仅旧测试固定下标断言失败；保留端点固定断言并调整取参后，从最终源码重新全量验证。"
+  },
+  "full_regression": {
+    "discovered": 716,
+    "executed": 716,
+    "passed": 715,
+    "skipped": [
+      [
+        "test_review_regressions.ArchiveAndFolderRegressionTests.test_folder_file_symlink_cannot_read_outside_root",
+        "当前 Windows 未允许创建测试符号链接: [WinError 1314] 客户端没有所需的特权。: 'D:\\\\AI\\\\project\\\\compareTool_myself\\\\.tmp\\\\review_two_fixes_20261019_57582fd3\\\\full_final_source_1\\\\.tmp\\\\tmprwqqa6mw\\\\secret.txt' -> 'D:\\\\AI\\\\project\\\\compareTool_myself\\\\.tmp\\\\review_two_fixes_20261019_57582fd3\\\\full_final_source_1\\\\.tmp\\\\tmprwqqa6mw\\\\new\\\\linked.txt'"
+      ]
+    ],
+    "failures": [],
+    "errors": [],
+    "unique_test_ids": 716,
+    "every_test_executed_once": true,
+    "shards": [
+      {
+        "shard": 0,
+        "tests": 179,
+        "seconds": 376.937,
+        "successful": true
+      },
+      {
+        "shard": 1,
+        "tests": 179,
+        "seconds": 353.828,
+        "successful": true
+      },
+      {
+        "shard": 2,
+        "tests": 179,
+        "seconds": 524.422,
+        "successful": true
+      },
+      {
+        "shard": 3,
+        "tests": 179,
+        "seconds": 419.437,
+        "successful": true
+      }
+    ]
+  },
+  "diff_check_passed": true,
+  "head_unchanged": true,
+  "index_unchanged": true,
+  "no_staged_changes": true,
+  "release_exe_unchanged": true,
+  "exe_sha256": "7a7c6b93c5396a9f50e1e8fe21fb1a5908f04597da40f0edb0ead639645b83e3",
+  "environment": {
+    "python": "Python 3.12.10",
+    "git": "git version 2.53.0.windows.2",
+    "svn": "1.14.2"
+  }
+}

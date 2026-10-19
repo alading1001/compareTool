@@ -1,0 +1,3 @@
+{% for issue in result.issues if issue.delivery %}
+    lines.push({{ ('[未完成 / ' ~ issue.stage ~ '] ' ~ result.project_name ~ '/' ~ (issue.path or '<项目>') ~ ('（旧路径：' ~ issue.old_path ~ '）' if issue.old_path else '') ~ '：' ~ issue.message) | tojson }});
+{% endfor %}

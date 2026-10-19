@@ -11,7 +11,7 @@ from unittest import mock
 from delivery_instructions import write_delivery_instructions
 from diff_engine import DiffEngine
 from file_exporter import FileExporter
-from main import CompareToolApp
+from main import CompareToolApp, DEFAULT_EXCLUDE_RULES
 from report_generator import ReportGenerator
 from vcs.archive_vcs import ArchiveVCS
 
@@ -171,7 +171,8 @@ class ArchiveComparisonRootTests(unittest.TestCase):
         self.assertTrue(selected["ignore_archive_root"])
         with mock.patch("main.ArchiveVCS") as archive:
             app._create_vcs_for_task(selected)
-            archive.assert_called_once_with("old.zip", "new.zip", ignore_single_root=True, best_effort=True)
+            archive.assert_called_once_with("old.zip", "new.zip", ignore_single_root=True, best_effort=True,
+                                           extraction_excludes=DEFAULT_EXCLUDE_RULES.splitlines())
 
     def test_gui_option_visibility_task_roundtrip_and_single_generation_snapshot(self):
         old, new = self.root / "old.zip", self.root / "new.zip"

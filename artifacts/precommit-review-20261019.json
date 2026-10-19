@@ -1,0 +1,85 @@
+{
+  "reviewed_at": "2026-10-19T10:27:59.047264+08:00",
+  "baseline_commit": "238534618d2667dec79aea035e2455f09522abaa",
+  "conclusion": "未发现需阻止提交的新问题；待提交内容包含前期已验证的源码、模板、回归和历史发布证据。",
+  "validation": {
+    "mode": "复用同一源码的完整验证，并重新核对当前输入和四份实际测试副本的 SHA-256。",
+    "tests": 725,
+    "passed": 724,
+    "skipped": [
+      [
+        "test_review_regressions.ArchiveAndFolderRegressionTests.test_folder_file_symlink_cannot_read_outside_root",
+        "当前 Windows 未允许创建测试符号链接: [WinError 1314] 客户端没有所需的特权。: 'D:\\\\AI\\\\project\\\\compareTool_myself\\\\.tmp\\\\fix_root_restore_20261019_1c887d87\\\\source_1\\\\.tmp\\\\tmp5lzj273b\\\\secret.txt' -> 'D:\\\\AI\\\\project\\\\compareTool_myself\\\\.tmp\\\\fix_root_restore_20261019_1c887d87\\\\source_1\\\\.tmp\\\\tmp5lzj273b\\\\new\\\\linked.txt'"
+      ]
+    ],
+    "failures": 0,
+    "errors": 0,
+    "verified_input_files": 173,
+    "verified_copies": 4,
+    "changes_since_validation": [
+      "README.md"
+    ],
+    "readme_change": "补充 2026-10-18/19 后续源码修复尚未打包的说明及最新回归记录链接。",
+    "evidence_root": ".tmp/fix_root_restore_20261019_1c887d87"
+  },
+  "reviewed_paths": [
+    "README.md",
+    "artifacts/release-five-integrity-20261017.json",
+    "artifacts/review-five-integrity-fixes-20261017.json",
+    "artifacts/review-root-restore-task-edit-20261019.json",
+    "artifacts/review-two-fixes-20261019.json",
+    "artifacts/svn-review-fixes-20261018.json",
+    "docs/multi-version-file-endpoints.md",
+    "docs/release-20261017-five-integrity.md",
+    "docs/report-and-export-contract.md",
+    "docs/review-five-integrity-fixes-20261017.md",
+    "main.py",
+    "templates/multi_report.html",
+    "templates/report.html",
+    "templates/summary_issues.html",
+    "tests/test_archive_comparison_root.py",
+    "tests/test_review_delivery_regressions.py",
+    "tests/test_review_five_integrity_fixes.py",
+    "tests/test_review_root_restore_and_task_edit.py",
+    "tests/test_review_submodules_and_svn_restore.py",
+    "tests/test_second_round_adversarial_regressions.py",
+    "tests/test_svn_review_omissions.py",
+    "vcs/archive_vcs.py",
+    "vcs/git_vcs.py",
+    "vcs/multi_version_vcs.py",
+    "vcs/svn_vcs.py"
+  ],
+  "reviewed_sha256": {
+    "README.md": "8a47cd5a338d2e93eec02c1f17b810b26e2f39a95d35f0e147467c5ec83b7d57",
+    "artifacts/release-five-integrity-20261017.json": "d267d1dbf086c88072beac8cf3d4b07ba22d8afd01f325b6829287391b61e3bd",
+    "artifacts/review-five-integrity-fixes-20261017.json": "cca8cd4569f774343fd23aff570dc39df16c5b1983a3a924ad375e6e78eb950a",
+    "artifacts/review-root-restore-task-edit-20261019.json": "c2177fa4d79c1ab89471518d150b3fa7217f9dfae64b9844db6a1f8613489309",
+    "artifacts/review-two-fixes-20261019.json": "ea21639985cacca8bb9435f4782a14b0568219f5fb6a5161a934448d0ae9cfdc",
+    "artifacts/svn-review-fixes-20261018.json": "41e5e631bc4341381e8af3f769d9d5572f324928158819f60935bd3d697620f1",
+    "docs/multi-version-file-endpoints.md": "cc550c16566205de63569d282c8445c0cf12f14679b4a66bad937edae1148c70",
+    "docs/release-20261017-five-integrity.md": "cf7dd02aaf489727b8f2fabe53ebf1fb3596784062ab4eb4297f8f2c1e99ad29",
+    "docs/report-and-export-contract.md": "a02dd49c7fe0c5c620263f80f787a8a23af799048acd43c92d964d480f5ada02",
+    "docs/review-five-integrity-fixes-20261017.md": "b4589d15da9761a159358e7312c5755c1d6ccde827c8f7734586fe625cdf0370",
+    "main.py": "ecada7534c36afc8ad50e5803ff16080a39813986464c59033aaf6ef2b8631de",
+    "templates/multi_report.html": "a972df50d0d4f33bb189b0123cd2c099c38536662b0f72729cbcd62abf3bbbef",
+    "templates/report.html": "a5231a04fdc31c31a38e38a284fa5efb5f7a4eb63cfb8b6e8d79f27dca7ff40b",
+    "templates/summary_issues.html": "a52c784c4b4257f09bf93657806000c355dc1b06c93259f8be347f387ea89c0f",
+    "tests/test_archive_comparison_root.py": "00ac517e63647cfc2393ee15c6b1a9ff0d4d530b2e7626c5065d1a0594e5fb83",
+    "tests/test_review_delivery_regressions.py": "668383c12588ff5e31f4d30337112250c30a5815d3924133b7e3299b6533d5ad",
+    "tests/test_review_five_integrity_fixes.py": "cce7638eb4475059532f208934153218198c132e3db7e4a7210c3bcc5445b4c0",
+    "tests/test_review_root_restore_and_task_edit.py": "04ca9b2faba6bedc0e0f2db7ee3ffdb4eb758edb008ac5e0e427ffe78d833f52",
+    "tests/test_review_submodules_and_svn_restore.py": "af4869f9340515585913a55fee9c843a74bef92edff75da157c99a9a06be71e7",
+    "tests/test_second_round_adversarial_regressions.py": "1dad2194ae7c0d4adbea95b2ab77fbd04b6bef16b31358edfe6be7f26ad09157",
+    "tests/test_svn_review_omissions.py": "b5f12ee9df71a04d06e882c4667cb41e8c639918e5bd8a0dca29f4710b3f2b7a",
+    "vcs/archive_vcs.py": "65b7d92b495782197a773241a12718b164c8853a755bcad23b77386b0977330d",
+    "vcs/git_vcs.py": "fbfb5ce89227564f5ed05e3c1c97cc769469b4dd7f8aa2fbfbb0df2aa4f96721",
+    "vcs/multi_version_vcs.py": "e3a77cc1f0c33e5616912991625493f1ba0710c867ff70046498c04e449a650c",
+    "vcs/svn_vcs.py": "ac43ed1623ed365553d695c56882f1ca2ad7227f36c72daf421a8341118e1357"
+  },
+  "diff_check": "passed",
+  "release_boundary": {
+    "exe_built": false,
+    "exe_sha256_unchanged": "7a7c6b93c5396a9f50e1e8fe21fb1a5908f04597da40f0edb0ead639645b83e3",
+    "push_authorized": false
+  }
+}

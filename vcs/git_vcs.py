@@ -237,8 +237,10 @@ class GitVCS(BaseVCS):
         old_endpoint = pinned[str(old_version)]
         new_endpoint = pinned[str(new_version)]
         self._snapshot_git_config()
+        # Git 的展示配置不能隐藏交付候选；子模块仍须进入后续 mode 校验。
         output = self._run_bytes([
-            "diff", "--raw", "-z", "--find-renames", old_endpoint, new_endpoint, "--"
+            "diff", "--raw", "-z", "--find-renames", "--ignore-submodules=none",
+            old_endpoint, new_endpoint, "--"
         ])
         fields = output.split(b"\x00")
         if fields and fields[-1] == b"":

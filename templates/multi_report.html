@@ -530,6 +530,12 @@ function openSummary() {
         '',
         '共 {{ summary.project_count }} 个项目，{{ summary.total_files }} 个变更文件'
     ];
+{% if summary.delivery_incomplete %}
+    lines.push('', '交付未完成：共 {{ summary.failed_items }} 项未完成。以下变更仅包含成功交付文件，不能作为完整版本上线。');
+{% for project in projects %}
+{% with result=project.diff_result %}{% include 'summary_issues.html' %}{% endwith %}
+{% endfor %}
+{% endif %}
 {% if summary.manifest_omitted_files %}
     lines.push('清单容量上限：仅列出 {{ summary.manifest_listed_files }} / {{ summary.total_files }} 个变更文件；完整删除和重命名操作以上线说明为准。');
 {% endif %}

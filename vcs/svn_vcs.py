@@ -232,7 +232,7 @@ class SVNVCS(BaseVCS):
                 path = self._summary_relative_path(
                     node.text or "", old_rev, new_rev
                 )
-                if path.strip() and self._is_excluded_tree(path):
+                if path and self._is_excluded_tree(path):
                     if node.get('item') != 'added':
                         self.excluded_old_paths.add(path)
                     continue
@@ -267,7 +267,7 @@ class SVNVCS(BaseVCS):
                             f"继续生成: {rel_dir or '<项目根>'} | "
                             f"属性: {', '.join(changed_props)}"
                         )
-                if item in ("deleted", "replaced") and path.strip():
+                if item in ("deleted", "replaced") and path:
                     rel_dir = path
                     if old_was_file:
                         if self._is_excluded(rel_dir):
@@ -293,7 +293,7 @@ class SVNVCS(BaseVCS):
                         deleted_directories.add(rel_dir)
                 continue
             path = self._summary_relative_path(node.text or "", old_rev, new_rev)
-            if not path.strip():
+            if not path:
                 continue
             rel_path = path
             if self._is_excluded(rel_path):
@@ -347,10 +347,10 @@ class SVNVCS(BaseVCS):
 
     def _summary_relative_path(self, raw_path: str, old_rev: str, new_rev: str) -> str:
         """把 svn diff XML 的 URL/绝对路径/相对路径统一为正斜杠相对路径。"""
-        value = (raw_path or "").strip()
+        value = raw_path or ""
         if not value:
             return ""
-        if urlsplit(value).scheme:
+        if not os.path.isabs(value) and urlsplit(value).scheme:
             value_url = urlsplit(value)
             value_path = unquote(value_url.path)
             candidates = []

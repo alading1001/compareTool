@@ -570,6 +570,10 @@ function openSummary() {
     lines.push(versionSummary);
 {% endif %}
 
+{% if summary.delivery_incomplete %}
+    lines.push('', '交付未完成：共 {{ summary.failed_items }} 项未完成。以下变更仅包含成功交付文件，不能作为完整版本上线。');
+{% with result=diff_result %}{% include 'summary_issues.html' %}{% endwith %}
+{% endif %}
     function summaryPath(f) {
 {% if show_project_root %}
         if (f.type === 'R' && f.oldPath) return projectName + '/' + f.oldPath + ' -> ' + projectName + '/' + f.path;

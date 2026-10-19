@@ -1831,15 +1831,16 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
         return matched
 
     def _diff_changes(self, commit: str, parent: str, threshold: str) -> List[_HistoryChange]:
+        # 忽略子模块的 Git 配置不能让非普通端点绕过最终校验。
         if parent:
             args = (
                 "diff", "--name-status", "-z", f"--find-renames={threshold}",
-                parent, commit, "--",
+                "--ignore-submodules=none", parent, commit, "--",
             )
         else:
             args = (
                 "diff-tree", "--root", "--no-commit-id", "--name-status", "-z",
-                "-r", f"--find-renames={threshold}", commit, "--",
+                "-r", f"--find-renames={threshold}", "--ignore-submodules=none", commit, "--",
             )
         changes = self._parse_git_changes(self._git_bytes(*args))
         scoped = []
@@ -2247,7 +2248,7 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
             "-r", f"{self._pinned_peg_revision}:{first_revision}",
             f"{self._project_url}@{self._pinned_peg_revision}",
         ])
-        history = self._parse_svn_history_bytes(output)
+        history = self._parse_svn_history_bytes(output, first_revision=first_revision)
         # 目录属性未变化时不会出现在所选 log 中，仍须校验每个选中端点的
         # 完整项目树。复用固定历史 URL，不重新读取可能已被 switch 的工作副本。
         external_revisions = selected | {revision - 1 for revision in selected}
@@ -2318,6 +2319,17 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         return (self._svn_node_exists(path, revision)
                 and self._svn_node_kind(path, revision) == 'file')
 
+    def _prepare_endpoint_reads(self, effective_entities):
+        # 根恢复可能切断 HEAD peg 的节点 ancestry；正文与属性都必须使用
+        # 历史规划器确认的真实 revision/path，而不是重新沿 HEAD copyfrom 查找。
+        revisions = {str(version) for entity, old_path, new_path in effective_entities
+                     for version, path in ((entity.old_version, old_path),
+                                           (entity.new_version, new_path)) if path is not None}
+        for version in revisions:
+            self._content_vcs._project_url_cache[version] = (
+                self._svn_file_url(version, "").rsplit("@", 1)[0]
+            )
+
     def _parse_revisions(self) -> List[int]:
         revisions = []
         seen = set()
@@ -2353,42 +2365,37 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         )
 
     def _parse_svn_history_bytes(
-        self, payload: bytes
+        self, payload: bytes, *, first_revision=None
     ) -> Dict[int, List[_SVNPathChange]]:
+        return self._build_svn_history(
+            self._iter_svn_history_entries(payload), first_revision=first_revision
+        )
+
+    def _iter_svn_history_entries(self, payload: bytes):
         if (
             self.MAX_SVN_COMMAND_OUTPUT_BYTES is not None
             and len(payload) > self.MAX_SVN_COMMAND_OUTPUT_BYTES
         ):
             raise RuntimeError("SVN 多版本历史 XML 超过安全上限")
 
-        def entries():
-            previous_revision = None
-            try:
-                iterator = ElementTree.iterparse(
-                    io.BytesIO(payload), events=("end",)
-                )
-                for _event, element in iterator:
-                    if element.tag != "logentry":
-                        continue
-                    revision_text = element.get("revision", "")
-                    if revision_text.isdigit():
-                        revision = int(revision_text)
-                        if (
-                            previous_revision is not None
-                            and revision > previous_revision
-                        ):
-                            raise RuntimeError(
-                                "SVN 历史 XML 未按倒序返回，已中止流式解析"
-                            )
-                        previous_revision = revision
-                        yield revision, element
-                    element.clear()
-            except ElementTree.ParseError as exc:
-                raise RuntimeError(f"无法解析 SVN 多版本历史: {exc}") from exc
+        previous_revision = None
+        try:
+            iterator = ElementTree.iterparse(io.BytesIO(payload), events=("end",))
+            for _event, element in iterator:
+                if element.tag != "logentry":
+                    continue
+                revision_text = element.get("revision", "")
+                if revision_text.isdigit():
+                    revision = int(revision_text)
+                    if previous_revision is not None and revision > previous_revision:
+                        raise RuntimeError("SVN 历史 XML 未按倒序返回，已中止流式解析")
+                    previous_revision = revision
+                    yield revision, element
+                element.clear()
+        except ElementTree.ParseError as exc:
+            raise RuntimeError(f"无法解析 SVN 多版本历史: {exc}") from exc
 
-        return self._build_svn_history(entries())
-
-    def _build_svn_history(self, entries) -> Dict[int, List[_SVNPathChange]]:
+    def _build_svn_history(self, entries, *, first_revision=None) -> Dict[int, List[_SVNPathChange]]:
         history: Dict[int, List[_SVNPathChange]] = {}
         entry_count = 0
         path_record_count = 0
@@ -2396,7 +2403,12 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
 
         current_prefix = self._project_repo_path.rstrip("/")
         transitions = []
-        for revision, entry in entries:
+        entries = iter(entries)
+        while True:
+            try:
+                revision, entry = next(entries)
+            except StopIteration:
+                break
             if self.MAX_SVN_LOG_ENTRIES is not None:
                 entry_count += 1
                 if entry_count > self.MAX_SVN_LOG_ENTRIES:
@@ -2420,12 +2432,12 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                 if path_bytes > self.MAX_SVN_PATH_BYTES:
                     raise RuntimeError("SVN 历史路径文本超过安全上限")
             for node in entry_nodes:
-                absolute_path = self._normalize_repo_path((node.text or "").strip())
+                absolute_path = self._normalize_repo_path(node.text or "")
                 copyfrom_absolute = self._normalize_repo_path(
                     node.get("copyfrom-path", "")
                 )
                 if (
-                    (node.get("action") or "").upper() == "A"
+                    (node.get("action") or "").upper() in ("A", "R")
                     and (node.get("kind") or "").lower() == "dir"
                     and copyfrom_absolute
                     and (
@@ -2452,20 +2464,25 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
             )
             root_copyfrom = root_candidate[1]
             root_source = root_candidate[2]
-            root_transition_is_move = bool(root_source) and any(
-                (node.get("action") or "").upper() == "D"
+            deleted_roots = {
+                self._normalize_repo_path(node.text or "").strip("/")
+                for node in entry_nodes if (node.get("action") or "").upper() == "D"
                 and (node.get("kind") or "").lower() == "dir"
-                and self._normalize_repo_path((node.text or "").strip()).rstrip("/")
-                == root_source
-                for node in entry_nodes
+            }
+            root_transition_is_move = bool(root_source) and _path_is_covered_by_prefix(
+                root_source, deleted_roots
+            )
+            root_snapshot_changed = bool(root_copyfrom) and (
+                root_copyfrom == current_prefix
+                or (root_transition_is_move and root_candidate[3] < revision - 1)
             )
             items = []
             if root_copyfrom:
                 # 即使移动的是项目祖先，当前项目根也发生了有效的历史前缀
-                # 切换。保留一个不参与文件展开的根标记，供选中 revision
-                # 检查根 svn:externals 和同 revision 的根属性变化。
+                # 切换。根标记供选中 revision 检查属性；R 还会在显式子变更
+                # 处理完后补齐真实 r-1/r 的成员变化，不能直接作为普通目录展开。
                 items.append(_SVNPathChange(
-                    action="A",
+                    action="R" if root_snapshot_changed else "A",
                     kind="dir",
                     path="",
                     copyfrom_rev=root_candidate[3] or revision - 1,
@@ -2473,15 +2490,16 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                     project_root_transition=True,
                 ))
             for node in entry_nodes:
-                absolute_path = self._normalize_repo_path((node.text or "").strip())
+                # XML text 是仓库中的字面路径；Unicode 空白也可能属于文件名。
+                absolute_path = self._normalize_repo_path(node.text or "")
                 rel_path = self._repo_to_project_path(absolute_path, current_prefix)
                 if rel_path is None:
                     continue
                 action = (node.get("action") or "").upper()
                 kind = (node.get("kind") or "").lower()
-                if rel_path == "" and root_copyfrom and action == "A" and kind == "dir":
-                    # 项目根自身移动不应把所有内部文件误报为新增；它只改变
-                    # 更早 revision 的项目仓库前缀。
+                if rel_path == "" and root_copyfrom and action in ("A", "R") and kind == "dir":
+                    # 根事件统一由上面的标记处理，避免重复展开成员。
+                    # 覆盖移动仍沿源项目追溯，不混入被覆盖的旧目标身份。
                     continue
                 copyfrom_absolute = self._normalize_repo_path(
                     node.get("copyfrom-path", "")
@@ -2515,6 +2533,17 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
             if root_copyfrom:
                 transitions.append((revision, current_prefix, root_copyfrom))
                 current_prefix = root_copyfrom
+            if (root_snapshot_changed and first_revision is not None
+                    and revision - 1 >= first_revision):
+                # log 默认跳到 copyfrom-rev，会漏掉恢复前的真实提交。
+                # 从旧项目在 r-1 的固定 URL 继续读取，替换被跳跃的 ancestry；
+                # 每次上界严格下降，不查询兄弟项目或重复拼接历史。
+                url = self._repo_root_url.rstrip('/') + quote(current_prefix, safe='/')
+                payload = self._run_bytes([
+                    "log", "--xml", "-v", "--non-interactive",
+                    "-r", f"{revision - 1}:{first_revision}", f"{url}@{revision - 1}",
+                ])
+                entries = iter(self._iter_svn_history_entries(payload))
         self._project_root_transitions = transitions
         return history
 
@@ -2787,6 +2816,7 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
             return _path_is_covered_by_prefix(path, deleted_dir_prefixes)
 
         directory_moves = []
+        missing_move_source_prefixes = set()
         for item in directories:
             if item.action != "A" or not item.copyfrom_path:
                 continue
@@ -2794,6 +2824,8 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                 planner.has_deleted_under(item.copyfrom_path)
                 and not node_exists(item.copyfrom_path, revision - 1)
             )
+            if source_missing_before_copy:
+                missing_move_source_prefixes.add(item.copyfrom_path)
             if covered_by_deleted_dir(item.copyfrom_path) or source_missing_before_copy:
                 directory_moves.append(item)
 
@@ -3077,9 +3109,10 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                     for path in self._list_svn_files(item.path, revision)
                 )
 
-        moved_source_prefixes = {
-            item.copyfrom_path.rstrip("/") for item in directory_moves
-        } | moved_file_sources
+        moved_source_paths = {
+            item.old_path for item in changes if item.action == "R"
+        }
+        previous_directory_files = set()
         for item in directories:
             if item.action == "D":
                 if not node_exists(item.path, revision - 1):
@@ -3087,14 +3120,14 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                     # 再按 revision-1 的真实仓库路径展开。
                     continue
                 # 删除祖先目录可能只是一次或多次 copy+delete move 的外壳；
-                # 已移动的源文件/子树不能再次展开为独立删除，但祖先下其它
-                # 实际被删文件仍必须保留。
+                # 只跳过已消费的重命名源文件。copyfrom 可能早于 r-1，
+                # 其目录快照没有后来新增的文件，不能跳过整个源子树。
+                previous_files = self._list_svn_files(item.path, revision - 1)
+                previous_directory_files.update(previous_files)
                 changes.extend(
                     _HistoryChange("D", path)
-                    for path in self._list_svn_files(item.path, revision - 1)
-                    if not _path_is_covered_by_prefix(
-                        path, moved_source_prefixes
-                    )
+                    for path in previous_files
+                    if path not in moved_source_paths
                 )
             elif item.action == "R":
                 changes.extend(self._expand_directory_replacement(item.path, revision))
@@ -3103,12 +3136,58 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                     f"暂不支持的 SVN 目录变更类型 {item.action}: {item.path}"
                 )
 
+        # copyfrom 的成员表只证明历史来源，不能证明文件在 r-1 仍存在。
+        # 复用删除目录已读取的真实旧树；整棵来源早已删除时也没有旧文件。
+        # 已追踪的删除仍可由 R 恢复同一身份，未知来源则只能是新文件。
+        source_boundaries = deleted_dir_prefixes | missing_move_source_prefixes
+        normalized_changes = []
+        for item in changes:
+            if item.action == "R" and (
+                _path_is_covered_by_prefix(item.old_path, source_boundaries)
+                and item.old_path not in previous_directory_files
+                and not planner.is_deleted(item.old_path)
+            ):
+                item = _HistoryChange("A", item.path)
+            elif item.action == "D" and (
+                _path_is_covered_by_prefix(item.path, source_boundaries)
+                and item.path not in previous_directory_files
+            ):
+                continue
+            normalized_changes.append(item)
+
+        if any(item.project_root_transition and item.action == "R" for item in raw_changes):
+            # 根原地恢复或从旧快照移动会隐式改变成员，log 不逐文件列出。
+            # 只补显式变更尚未消费的两侧，避免拆散同 revision 的子文件 rename。
+            old_files = set(self._list_svn_files("", revision - 1))
+            new_files = set(self._list_svn_files("", revision))
+            actual_changes = []
+            for item in normalized_changes:
+                # 根 copy 继承后又改名/删除的文件可能早已从 r-1 消失。
+                # 仅已追踪的删除可以续接身份，不能为未追踪来源虚构旧端点。
+                if (item.action == "R" and item.old_path not in old_files
+                        and not planner.is_deleted(item.old_path)):
+                    item = _HistoryChange("A", item.path)
+                elif item.action == "D" and item.path not in old_files:
+                    continue
+                elif item.action == "M" and item.path not in old_files:
+                    item = _HistoryChange("A", item.path)
+                actual_changes.append(item)
+            normalized_changes = actual_changes
+            for item in normalized_changes:
+                if item.action in ("D", "M", "R"):
+                    old_files.discard(item.old_path if item.action == "R" else item.path)
+                if item.action in ("A", "M", "R"):
+                    new_files.discard(item.path)
+            normalized_changes.extend(_HistoryChange("M", path) for path in sorted(old_files & new_files))
+            normalized_changes.extend(_HistoryChange("D", path) for path in sorted(old_files - new_files))
+            normalized_changes.extend(_HistoryChange("A", path) for path in sorted(new_files - old_files))
+
         unique = []
         seen = set()
         # 替换目标必须先移除旧身份，再把 copyfrom 源连接到该路径；普通
         # source D 先发生也没关系，R 会从 planner._deleted 中恢复同一实体。
         priority = {"D": 0, "R": 1, "A": 2, "M": 3}
-        for item in sorted(changes,
+        for item in sorted(normalized_changes,
                            key=lambda value: (priority[value.action], value.path, value.old_path)):
             key = (item.action, item.path, item.old_path)
             if key not in seen:

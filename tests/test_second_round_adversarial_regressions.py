@@ -533,8 +533,8 @@ class VCSHardeningTests(unittest.TestCase):
         vcs._run_bytes = run_bytes
         vcs.get_changed_files("old", "new")
         diff_call = next(args for args in calls if args[0] == "diff")
-        self.assertEqual("a" * 40, diff_call[4])
-        self.assertEqual("b" * 40, diff_call[5])
+        version_end = diff_call.index("--")
+        self.assertEqual(["a" * 40, "b" * 40], diff_call[version_end - 2:version_end])
         self.assertEqual("a" * 40, vcs._resolve_version("old"))
 
     def test_git_export_rejects_active_smudge_or_encoding_attributes(self):

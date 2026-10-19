@@ -1,0 +1,71 @@
+{
+  "generated_at": "2026-10-19T09:56:05.844292+08:00",
+  "status": "SOURCE_VERIFIED_EXE_NOT_BUILT",
+  "head": "238534618d2667dec79aea035e2455f09522abaa",
+  "environment": {
+    "platform": "Windows-11-10.0.22621-SP0",
+    "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+    "git": "git version 2.53.0.windows.2",
+    "svn": "1.14.2"
+  },
+  "changed_existing_files": [
+    "README.md",
+    "docs/multi-version-file-endpoints.md",
+    "main.py",
+    "vcs/multi_version_vcs.py"
+  ],
+  "added_test": "tests/test_review_root_restore_and_task_edit.py",
+  "fixes": [
+    {
+      "issue": "SVN 根恢复和旧快照移动漏报",
+      "behavior": "保留真实 r-1/r 成员变化；补齐 copyfrom 跳过的历史；正文和属性复用同一固定历史 URL。",
+      "coverage": [
+        "根与祖先恢复",
+        "恢复前选版与净零",
+        "旧快照移动",
+        "源祖先删除与覆盖旧目标",
+        "同 revision 子文件改名与旧侧缺失",
+        "多次恢复与非连续选版",
+        "换行属性与排除规则"
+      ]
+    },
+    {
+      "issue": "编辑旧任务覆盖配置快照",
+      "behavior": "按已回填的实际来源重建项目键，保留排除规则和显示/递归选项。",
+      "coverage": [
+        "六模式下缺失、空值和过期键",
+        "保存后的实际报告及新旧导出仍排除日志文件"
+      ]
+    }
+  ],
+  "regression": {
+    "tests": 725,
+    "passed": 724,
+    "failures": 0,
+    "errors": 0,
+    "skipped": [
+      [
+        "test_review_regressions.ArchiveAndFolderRegressionTests.test_folder_file_symlink_cannot_read_outside_root",
+        "当前 Windows 未允许创建测试符号链接: [WinError 1314] 客户端没有所需的特权。: 'D:\\\\AI\\\\project\\\\compareTool_myself\\\\.tmp\\\\fix_root_restore_20261019_1c887d87\\\\source_1\\\\.tmp\\\\tmp5lzj273b\\\\secret.txt' -> 'D:\\\\AI\\\\project\\\\compareTool_myself\\\\.tmp\\\\fix_root_restore_20261019_1c887d87\\\\source_1\\\\.tmp\\\\tmp5lzj273b\\\\new\\\\linked.txt'"
+      ]
+    ],
+    "new_tests": 9,
+    "execution": "四份独立源码副本，测试 ID 不重叠且完整覆盖；包含原有未提交与未跟踪输入。",
+    "shard_seconds": [
+      343.82800000000043,
+      350.84299999999985,
+      460.125,
+      423.46900000000005
+    ],
+    "input_files_checked": 173,
+    "source_changes_during_validation": [],
+    "evidence": ".tmp/fix_root_restore_20261019_1c887d87"
+  },
+  "diff_check": "passed",
+  "release": {
+    "exe_built": false,
+    "exe_sha256_unchanged": "7a7c6b93c5396a9f50e1e8fe21fb1a5908f04597da40f0edb0ead639645b83e3",
+    "committed": false,
+    "pushed": false
+  }
+}

@@ -91,6 +91,10 @@ Git 选中提交覆盖从最早到最晚的完整第一父历史时，每一步�
 
 Git 路径查询中的 tree 目录只作为文件容器，不作为该路径的文件端点；目录与文件互相替换时，保留子文件的 D/A、对应文件的 A/D 及必要目录删除依赖，不能把目录与子文件误判为同侧端点碰撞。符号链接、子模块等非普通文件仍保留端点并由既有 mode 校验拒绝。
 
+Git 普通和多版本变更查询均显式使用 `--ignore-submodules=none`，不能让 `diff.ignoreSubmodules`、`submodule.<name>.ignore` 或 `.gitmodules` 的忽略设置隐藏真实子模块变更。用户在工具中设置的业务排除规则仍生效；未排除的子模块变化在严格 API 拒绝，桌面入口标为未完成并继续独立普通文件，不能报告为零变化成功。
+
+SVN 从较早的目录 `copyfrom` 恢复文件时，历史成员表只用于追踪来源，不能证明该文件在当前 revision 的前一版仍存在。删除目录的真实旧成员用于核对旧端点；来源目录早已删除时，同样不虚构旧文件。已经追踪的删除可以恢复同一身份，未追踪且真实旧侧不存在的恢复文件按新增处理；历史成员在两侧均不存在时不生成虚构删除。该规则同样适用于复制后的子文件改名、移出、删除、延迟复制及逐侧排除。回归见 `tests/test_review_submodules_and_svn_restore.py`。
+
 辅助低阈值 diff/评分失败也只降低该候选组的身份判断；真实路径存在性、普通文件模式、属性及流式端点字节必须另行验证。桌面应用对不能验证的独立端点记录未完成，并继续其他文件；严格 API 仍可拒绝这些端点。报告的比较说明和上线说明记录降级。
 
 ## 报告与导出合同
@@ -156,6 +160,14 @@ newVersion/<new_path> = new_f 的完整文件内容
 18. SVN 同 revision 的多个目录 copy 必须按每个文件实际存活的目标确认身份：其它副本已删除时连接唯一目标，不得重新导出消失的源路径；显式子文件改名和另一个继承副本同时存在时保留全部分叉目标，排除规则不能改变判断。最近的显式重建或嵌套 copy 截断父目录来源继承；新复制目录内的临时删除、替换节点在真实 r-1 不存在时，不得虚构旧端点或阻断独立文件。回归见 `tests/test_svn_copy_lineage_review.py`，同时核对报告、manifest、导出字节及上线删除/重命名说明。
 
 主要回归用例位于 `tests/test_multi_version_file_endpoints.py`、`tests/test_review_regressions.py`、`tests/test_adversarial_regressions.py`、`tests/test_terminal_round_adversarial_regressions.py`、`tests/test_complete_export_review_fixes.py`，以及五个 `tests/test_*_compatibility_after_aug27.py` 兼容性套件。
+
+## SVN 根目录覆盖移动
+
+项目内目录从较早 revision 复制后删除源目录时，`copyfrom` 快照仅用于身份关联，实际删除集合仍来自提交前的 `revision - 1`。删除展开只能跳过已消费的文件级重命名源，不能跳过整个移动源前缀；快照之后新增的源文件必须保留删除事件，跨选版新增后删除的文件仍按净零过滤。祖先目录删除和最终端点单侧排除沿用相同规则，回归见 `tests/test_svn_review_omissions.py`。
+
+SVN 当前项目根或其祖先覆盖已有目标目录时，日志动作可能是带 `copyfrom-path` 的 `R`；它与 `A` 一样参与当前项目的历史前缀映射。选中移动前版本、跨移动选版及同 revision 子文件改名仍使用各文件真实端点，不引入被覆盖的旧目标项目内容。根标记和属性检查保持原有语义，不能再把这条根事件作为普通目录替换展开。回归见 `tests/test_review_five_integrity_fixes.py`。
+
+项目根或祖先原地恢复旧快照，以及从较早快照复制后删除源根（含删除源祖先），会隐式改变内部文件，不能仅当作根路径变化跳过。处理显式子文件变更后，应按源项目真实的 `revision - 1` 与新项目 `revision` 补齐其余成员变化；`copyfrom-rev` 不能替代真实旧端点。SVN log 沿 copyfrom 跳过的恢复前历史须从固定的旧项目 URL 和 `revision - 1` 继续读取，保持每个文件的选版首尾语义；正文与属性复用同一历史 URL，不再沿 HEAD peg 重新追溯。回归见 `tests/test_review_root_restore_and_task_edit.py`，覆盖根/祖先恢复、旧快照移动、跨选版净零、多次恢复、子文件改名、旧侧缺失及属性和排除规则。
 
 ## Git 子项目范围
 
