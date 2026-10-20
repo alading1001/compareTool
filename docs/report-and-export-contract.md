@@ -20,6 +20,8 @@
 
 单项目和多项目独立打开的纯文本“变更清单”同样保留部分交付警告、未完成项数量、项目/路径（含重命名旧路径）、阶段及原因；这些问题项不加入成功文件的分类清单和统计。清单中的问题文本按 JSON 转义后用 `textContent` 输出，不执行文件名或错误信息中的 HTML/脚本。说明性问题不冒充交付失败。
 
+失败重命名的旧路径还须展示在单/多项目的可见问题区、模板失败后的基础报告及上线说明中；诊断名称不生成成功的删除或重命名操作。HTML 展示继续转义名称和错误信息。
+
 <a id="导出事务"></a>
 
 ## 覆盖与重新生成
@@ -39,6 +41,8 @@ Windows 发布 `rename` 遇到 WinError 5/32/33 时，允许对同一暂存项�
 多项目仍在独立 multi_run_时间戳_随机标识 目录内生成，处理完全部项目后发布带准确状态的本次结果，保留其他历史运行目录。失败项目保留问题记录，其他项目继续；存在未完成项时必须明确标记部分交付。重命名 oldVersion 使用 old_path，newVersion 使用 file_path。
 
 多项目预检遇到已保存的 Git 项目目录失效时，将仓库身份读取失败保留为该项目的未完成记录，继续其他独立项目。输出仍须与失效输入路径严格分离；若仍存在祖先 Git/SVN 仓库，继续检查其已跟踪路径、元数据和嵌套仓库边界。真实输出冲突或无法完成这些输出检查仍中止整批；本次已判定不可读的项目不能因稍后目录恢复而绕过预检重新读取。界面与工作线程复用同一规则。
+
+Git 输出预检在工作树范围筛选之前取得实际 git-dir 与 common-dir，保护外置元数据和 linked worktree 的共享/私有元数据。输出目标位于任一元数据根内，或目标目录会包含该元数据根时，必须在删除旧结果之前拒绝；身份查询失败同样拒绝。正常的外部输出、工作树内专用未跟踪输出和名称相似但独立的目录仍允许。
 
 上述同路径依赖、同 revision 重命名及失效项目隔离回归见 `tests/test_review_path_dependencies.py`，包含实际工作线程的文件字节、报告、上线说明与危险输出拦截检查。
 
@@ -69,6 +73,8 @@ Windows 发布 `rename` 遇到 WinError 5/32/33 时，允许对同一暂存项�
 SVN log 和 diff summarize XML 的路径文本必须保留字面名称，不得用 `strip()` 修剪 Unicode 空白或把仅含 Unicode 空白的合法名称视为空路径；合法的尾随 U+00A0/U+3000 与不带该字符的名称是不同文件。项目根历史识别、删除来源判断、文件与目录替换及文件事件使用同一字面路径。摘要的 URL 解码、相对路径和 Windows 绝对路径映射也不得修剪名称；只有真正的空路径表示项目根。回归见 `tests/test_svn_review_omissions.py`。
 
 Git 树路径中的字面反斜杠属于文件名，不能替换成 `/` 后读取另一对象或参与历史身份规划。排除规则按原始仓库层级匹配；最终未排除端点含反斜杠时，严格 API 拒绝，桌面入口记录未完成并保留其他独立文件。诊断保留原名，交付依赖仅使用可表示的路径侧，不能误关联合法的斜杠同名文件；失败 rename 的合法一侧仍阻断路径复用。中间历史经过该名称、最终端点均合法时可正常交付。
+
+SVN 使用同样的字面路径和最终端点检查：diff URL 只进行 URL 解码，log/list 文本及 copyfrom 路径保留原名，只有本地绝对路径映射才转换 Windows 分隔符。字面反斜杠不参与合法斜杠路径的排除、交付依赖或目录删除指令。普通 SVN 的同路径文件 D/A 替换在读取元数据前合并为修改，保留真实双侧字节和属性；精确重命名匹配不能生成新旧路径相同的重命名。回归见 `tests/test_review_svn_paths_and_report_opening.py`。
 
 ### 排除规则贯穿流程
 
@@ -120,12 +126,19 @@ ZIP 目录成员必须为空，非空目录拒绝；普通、兼容属性及已�
 Windows 上 `core.autocrlf=true`（Git）或 `svn:eol-style=native`（SVN）会导致仓库存储 LF、工作副本为 CRLF。`git show` / `svn cat` 返回仓库原始字节（LF），若直接导出会与工作副本文件字节级不一致。
 
 - **Git**：对固定 commit 批量查询属性，并复核 `core.autocrlf/core.eol`、filter 配置及系统/全局/info 属性文件摘要。`GitCheckoutSnapshot` 创建同对象格式的专用临时裸仓库，只读共享源对象，固定外部属性副本并隔离 Git 配置；使用 `GIT_ATTR_SOURCE` 与两个微小 blob 探针由原生 Git 判定属性的真实状态和换行模式。不能把 `cat-file --filters` 直接用于真实大文件；内容仍由 `git show` 流式落盘并分块转换，避免 Git 子进程为大文件创建完整转换副本。结束时清理普通/多版本的检出快照。
+- Git 替换引用与禁用策略也固定于本次快照，包括提交、树和 blob 替换、`GIT_REPLACE_REF_BASE`、`GIT_NO_REPLACE_OBJECTS` 及 `core.useReplaceRefs`。隔离仓库复制同一引用映射，正文、大小、签名、属性探针和多版本端点 mode 共用该快照；批量 raw 通道和单次流式读取均不能重新借用源仓库的可变替换引用。快照建立期间引用发生变化时拒绝该不稳定项目，固定后源引用变化不改变本次交付。仍不执行外部检出程序。
 - 原生策略判定为自动 CRLF 时，按 Git `convert.c` 的完整字节统计处理：已有 CR/CRLF、NUL 或非文本控制字节密度过高时保留原文，不能只按“无 NUL”转换；显式强制文本则按原生结果处理含 NUL 文件。默认 EOL 仍是平台 native，`core.autocrlf` 优先级由原生 Git 决定。
 - **SVN**：`SVNVCS._get_eol_style()` 对每个文件按所选 revision 执行 `svn propget svn:eol-style`，完整支持 `native` / `LF` / `CR` / `CRLF`。
 - **文件夹**：直接从磁盘读取，不存在换行符差异
 - **公共逻辑**：`BaseVCS._is_text_bytes()` 判断文本文件（不含 `\x00`），`BaseVCS._apply_crlf()` 用正则 `(?<!\r)\n` → `\r\n` 转换，避免重复转换已有的 CRLF
 
 普通 Git/SVN 生成开始时必须把用户填写的可变版本标识固定为完整 commit OID/数字 revision，后续差异、内容、属性和导出均复用同一端点，报告仍显示用户原始输入。Git filter 名保留大小写，按驱动成组固定并复核 `smudge`、`process` 和 `required` 配置；没有检出程序且未要求强制转换的 filter（包括仅配置 clean）允许按普通文件导出。实际启用检出转换或要求强制转换的 filter，以及启用的 `working-tree-encoding`、`ident` 或旧 `crlf` 属性，仍因无法可靠复现 checkout 字节而拒绝该文件；桌面入口将其列为未完成，严格 API 中止。`check-attr` 输出中的 `set`/`unset`/`unspecified` 可能是同名字面 filter 驱动，必须由隔离 Git 区分；只复制“必需但无程序”的拒绝策略，不复制或执行 smudge/process，真正的 `-filter`/`!filter` 等状态仍可正常导出。普通 SVN 和 SVN 多版本均允许空值或仅含 ASCII 空白的 `svn:keywords`；`svn:externals` 的空白和整行注释不视为有效定义，其它定义及非空 keywords 仍须拒绝对应项目或文件；桌面入口记录未完成，严格 API 中止。
+
+普通 SVN 的项目根或祖先从旧快照恢复时，若 HEAD peg 的 copyfrom 历史跳过真实旧 revision，沿固定根历史逐次定位恢复/移动前的根；普通复制仍沿 copyfrom revision，不能借用无关的同名旧目标。差异摘要使用分别固定的旧、新 URL@revision，内容、属性和导出复用相同端点，不重新读取已 switch 的工作副本。Git 普通/多版本及辅助 rename 查询显式使用 `-l0`，不让仓库或全局 `diff.renameLimit` 静默省略重命名检测。真实仓库回归见 `tests/test_review_svn_restore_and_git_rename_limits.py`。
+
+普通 SVN 的 URL 摘要固定相对于 `svn diff` 的第一个目标（旧根）解析，新旧根互相嵌套时不能用最长根前缀重新猜测路径。SVN 多版本历史中的空项目根前缀表示有效的仓库根，须与没有 copy 来源区分，并贯穿历史记录、后续根移动、属性和文件端点映射。真实回归及混合项目交付见 `tests/test_review_svn_root_prefix_mapping.py`。
+
+ZIP/TAR 成员内容一致而发生改名时，合并后的权限说明须比较真实旧成员和新成员，保留同时发生的 mode 变化；纯改名不能制造权限变化。剥离单层比较根、逐侧排除与报告递归共用该规则，原包及实际导出字节不变。上述替换引用和归档权限回归见 `tests/test_review_replace_refs_and_archive_modes.py`。
 
 ## 端点身份与展示标签
 
@@ -176,6 +189,8 @@ Windows 文件夹比较允许合并同一时点的重复元数据查询，但不
 开启 `recursive_archives` 仅增加 `FileDiff.archive_details`。主 `files`、summary、manifest、old/new 导出和上线说明不得包含这些内部成员，不重新打包或修改交付字节。包内删除仅供审查，不能生成服务器删除命令。文件夹模式交付原包；压缩包模式仍按现有外层比较根交付变更成员，不继续拆开内层包。
 
 递归支持 Git、SVN、folder、archive、Git多版本、SVN多版本及六模式混合多项目，默认关闭。安全解压、每报告共享计数、显式资源策略、过滤范围及错误行为见 [包内报告合同](nested-archive-report.md)。桌面入口逐包记录解析失败并保留原包，未知/未支持格式只标记未展开，不冒充已完成内部核验。
+
+默认不限层数同时约束分析和 HTML 输出：两者使用显式遍历栈，不能靠提高解释器递归上限或静默截断应付深层有效包。父层临时端点在子层读取结束后释放，严格失败和中断时逐层清理所有本次资源；显式深度/成员/字节策略仍生效。回归见 `tests/test_review_metadata_depth_and_diagnostics.py`。
 
 ## 全模式包内报告的交付字节绑定（2026-09-26）
 

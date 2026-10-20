@@ -1,9 +1,11 @@
 from task_progress import measured_phase
 import hashlib
+import io
 import re
 import shutil
 import subprocess
 import os
+import posixpath
 from typing import List
 from urllib.parse import quote, unquote, urlsplit
 from xml.etree import ElementTree
@@ -53,6 +55,48 @@ class SVNVCS(BaseVCS):
         self._svn = svn_path or self._find_svn()
         self._version_pins = {}
         self._project_url_cache = {}
+
+    def _is_excluded(self, file_path):
+        # SVN 的仓库路径使用 / 分隔，字面反斜杠不能借用另一条路径的规则。
+        return any(self._compile_glob(pattern, True).match(file_path) is not None
+                   for pattern in self.exclude_patterns)
+
+    def _is_excluded_tree(self, directory):
+        directory = directory.rstrip('/')
+        for raw_pattern in self.exclude_patterns:
+            pattern = raw_pattern.replace('\\', '/').rstrip('/')
+            if pattern == '**':
+                return True
+            if not pattern.endswith('/**'):
+                continue
+            directory_pattern = pattern[:-3].rstrip('/')
+            ancestor = directory
+            while directory_pattern and ancestor:
+                if self._compile_glob(directory_pattern, False).match(ancestor) is not None:
+                    return True
+                ancestor = ancestor.rpartition('/')[0]
+        return False
+
+    def _record_excluded_old_path(self, path):
+        if '\\' not in path:
+            self.excluded_old_paths.add(path)
+
+    def _accept_delivery_paths(self, old_path, new_path):
+        unsupported = [path for path in (old_path, new_path)
+                       if path is not None and '\\' in path]
+        if not unsupported:
+            self._record_delivery_paths(old_path, new_path)
+            return True
+        message = 'SVN 路径包含字面反斜杠，无法在 Windows 保真导出: ' + ', '.join(unsupported)
+        if not getattr(self, 'best_effort', False):
+            raise RuntimeError(message)
+        supported_old = old_path if old_path is not None and '\\' not in old_path else None
+        supported_new = new_path if new_path is not None and '\\' not in new_path else None
+        self._record_delivery_paths(supported_old, supported_new)
+        self.issues.append(dict(stage='端点路径', path=new_path or old_path,
+            old_path=old_path or '', message=message, delivery=True,
+            dependency_paths=[path for path in (supported_old, supported_new) if path is not None]))
+        return False
 
     @staticmethod
     def _find_svn() -> str:
@@ -158,9 +202,14 @@ class SVNVCS(BaseVCS):
         if rev in cache:
             return cache[rev]
         target = f"{self._pinned_project_url}@{self._pinned_peg_revision}"
-        output = self._run([
-            "info", "--xml", "--non-interactive", "-r", rev, target,
-        ])
+        try:
+            output = self._run([
+                "info", "--xml", "--non-interactive", "-r", rev, target,
+            ])
+        except RuntimeError as exc:
+            if not self._is_missing_history_location(exc):
+                raise
+            output, target = self._project_info_through_restores(rev, exc)
         url, repo_root, uuid, _ = self._parse_info_identity(
             output, f"{target} -r {rev}"
         )
@@ -171,6 +220,84 @@ class SVNVCS(BaseVCS):
             )
         cache[rev] = url
         return url
+
+    @staticmethod
+    def _is_missing_history_location(error):
+        return re.search(r"\b(?:E195012|E160013|W160013|E200009|W200017|E155010)\b",
+                         str(error)) is not None
+
+    def _project_info_through_restores(self, revision, original_error):
+        """根恢复跳过 copyfrom 与 r-1 之间的历史时，沿真实旧根继续寻址。"""
+        url = self._pinned_project_url
+        peg = int(self._pinned_peg_revision)
+        while peg > int(revision):
+            previous = self._previous_project_location(url, peg, int(revision))
+            if previous is None:
+                break
+            url, previous_peg = previous
+            if not int(revision) <= previous_peg < peg:
+                break
+            peg = previous_peg
+            target = f"{url}@{peg}"
+            try:
+                output = self._run([
+                    "info", "--xml", "--non-interactive", "-r", revision, target,
+                ])
+                return output, target
+            except RuntimeError as exc:
+                if not self._is_missing_history_location(exc):
+                    raise
+        raise original_error
+
+    def _previous_project_location(self, url, peg, revision):
+        # 每轮只跨一个根/祖先 copy，查询上界严格下降；不重新读取工作副本。
+        # 普通 copy 仍沿 copyfrom-rev，不能借用同名但无关的旧目标。
+        repo_root = self._pinned_repo_root_url
+        prefix = unquote(url[len(repo_root):]).rstrip('/')
+        payload = self._run_bytes([
+            'log', '--xml', '-v', '--stop-on-copy', '--non-interactive',
+            '-r', f'{peg}:{revision + 1}', f'{url}@{peg}',
+        ])
+        try:
+            events = ElementTree.iterparse(io.BytesIO(payload), events=('start', 'end'))
+            _, root = next(events)
+            if root.tag != 'log':
+                raise RuntimeError('SVN 项目根历史 XML 缺少 log 根节点')
+            for event, entry in events:
+                if event != 'end' or entry.tag != 'logentry':
+                    continue
+                number = int(entry.get('revision', ''))
+                if not revision < number <= peg:
+                    raise RuntimeError('SVN 项目根历史超出固定 revision 范围')
+                nodes = entry.findall('./paths/path')
+                copies = []
+                # R 同样删除旧节点；新节点可以是文件，不能只看新侧 kind。
+                deleted = {node.text or '' for node in nodes
+                           if node.get('action') == 'R' or (
+                               node.get('action') == 'D' and node.get('kind') == 'dir')}
+                for node in nodes:
+                    path = (node.text or '').rstrip('/')
+                    source = node.get('copyfrom-path', '').rstrip('/')
+                    if (node.get('kind') == 'dir' and node.get('action') in ('A', 'R')
+                            and source and (prefix == path or prefix.startswith(path + '/'))):
+                        copies.append((path, source, int(node.get('copyfrom-rev', ''))))
+                if copies:
+                    path, source, copy_revision = max(copies, key=lambda item: len(item[0]))
+                    previous_prefix = source + prefix[len(path):]
+                    ancestor = source
+                    moved = False
+                    while ancestor:
+                        if ancestor in deleted:
+                            moved = True
+                            break
+                        ancestor = ancestor.rpartition('/')[0]
+                    previous_peg = number - 1 if previous_prefix == prefix or moved else copy_revision
+                    return repo_root + quote(previous_prefix, safe='/'), previous_peg
+                root.remove(entry)
+                entry.clear()
+        except (ElementTree.ParseError, StopIteration, ValueError) as exc:
+            raise RuntimeError(f'无法解析 SVN 项目根恢复历史: {exc}') from exc
+        return None
 
     def _run(self, args: list) -> str:
         full_cmd = [self._svn] + args
@@ -214,10 +341,11 @@ class SVNVCS(BaseVCS):
         """使用 XML 摘要获取变更文件，可靠区分文件、目录和替换节点。"""
         self.excluded_old_paths = set()
         self.delivery_path_changes = []
-        target = f"{self._pinned_project_url}@{self._pinned_peg_revision}"
+        old_url = self._project_url_at(old_rev)
+        new_url = self._project_url_at(new_rev)
         output = self._run([
             "diff", "--summarize", "--xml", "--notice-ancestry",
-            f"-r{old_rev}:{new_rev}", target,
+            f"{old_url}@{old_rev}", f"{new_url}@{new_rev}",
         ])
         try:
             root = ElementTree.fromstring(output)
@@ -227,16 +355,26 @@ class SVNVCS(BaseVCS):
         files = []
         deleted_directories = set()
         new_file_paths = set()
-        for node in root.findall(".//path"):
-            if node.get("kind") == "dir":
-                path = self._summary_relative_path(
-                    node.text or "", old_rev, new_rev
-                )
-                if path and self._is_excluded_tree(path):
-                    if node.get('item') != 'added':
-                        self.excluded_old_paths.add(path)
+        nodes = [(node, self._summary_relative_path(node.text or '', old_rev, new_rev))
+                 for node in root.findall('.//path')]
+        # --notice-ancestry 也会把同路径普通文件替换表示成两条 D/A。
+        # 在读取元数据及精确 rename 配对之前还原同路径的真实双侧端点。
+        replacement_files = ({path for node, path in nodes
+                              if node.get('kind') == 'file' and node.get('item') == 'deleted'}
+                             & {path for node, path in nodes
+                                if node.get('kind') == 'file' and node.get('item') == 'added'})
+        for node, path in nodes:
+            item = node.get('item', '')
+            if node.get('kind') == 'file' and path in replacement_files:
+                if item == 'deleted':
                     continue
-                item = node.get("item", "")
+                if item == 'added':
+                    item = 'replaced'
+            if node.get("kind") == "dir":
+                if path and self._is_excluded_tree(path):
+                    if item != 'added':
+                        self._record_excluded_old_path(path)
+                    continue
                 old_was_file = (item == 'replaced'
                                 and self._get_node_kind(old_rev, path) == 'file')
                 props_modified = node.get("props") == "modified"
@@ -271,9 +409,10 @@ class SVNVCS(BaseVCS):
                     rel_dir = path
                     if old_was_file:
                         if self._is_excluded(rel_dir):
-                            self.excluded_old_paths.add(rel_dir)
+                            self._record_excluded_old_path(rel_dir)
                         else:
-                            self._record_delivery_paths(rel_dir, None)
+                            if not self._accept_delivery_paths(rel_dir, None):
+                                continue
                             try:
                                 metadata = self._compare_endpoint_metadata(
                                     old_rev, rel_dir, new_rev, None
@@ -289,16 +428,15 @@ class SVNVCS(BaseVCS):
                                 change_type=ChangeType.DELETED,
                                 **metadata,
                             ))
-                    else:
+                    elif '\\' not in rel_dir:
                         deleted_directories.add(rel_dir)
                 continue
-            path = self._summary_relative_path(node.text or "", old_rev, new_rev)
             if not path:
                 continue
             rel_path = path
             if self._is_excluded(rel_path):
-                if node.get('item') != 'added':
-                    self.excluded_old_paths.add(rel_path)
+                if item != 'added':
+                    self._record_excluded_old_path(rel_path)
                 continue
 
             change_map = {
@@ -308,17 +446,18 @@ class SVNVCS(BaseVCS):
                 # SVN 的 replaced 是同一路径节点替换，不是重命名。
                 "replaced": ChangeType.MODIFIED,
             }
-            item = node.get("item", "")
             change_type = change_map.get(item)
             if item == "replaced" and self._get_node_kind(old_rev, rel_path) == "dir":
-                deleted_directories.add(rel_path)
+                if '\\' not in rel_path:
+                    deleted_directories.add(rel_path)
                 change_type = ChangeType.ADDED
             if change_type is None and item in ("none", "normal") and node.get("props") == "modified":
                 change_type = ChangeType.MODIFIED
             if change_type is not None:
-                self._record_delivery_paths(
-                    None if change_type == ChangeType.ADDED else rel_path,
-                    None if change_type == ChangeType.DELETED else rel_path)
+                if not self._accept_delivery_paths(
+                        None if change_type == ChangeType.ADDED else rel_path,
+                        None if change_type == ChangeType.DELETED else rel_path):
+                    continue
                 if change_type in (ChangeType.ADDED, ChangeType.RENAMED):
                     new_file_paths.add(rel_path)
                 try:
@@ -346,34 +485,28 @@ class SVNVCS(BaseVCS):
         return files
 
     def _summary_relative_path(self, raw_path: str, old_rev: str, new_rev: str) -> str:
-        """把 svn diff XML 的 URL/绝对路径/相对路径统一为正斜杠相对路径。"""
+        """URL 摘要固定以 diff 第一个目标为基准，其它形式保留原有映射。"""
         value = raw_path or ""
         if not value:
             return ""
         if not os.path.isabs(value) and urlsplit(value).scheme:
             value_url = urlsplit(value)
             value_path = unquote(value_url.path)
-            candidates = []
-            for base in (self._project_url_at(old_rev), self._project_url_at(new_rev)):
-                base_url = urlsplit(base)
-                if (
-                    value_url.scheme.casefold() != base_url.scheme.casefold()
-                    or value_url.netloc.casefold() != base_url.netloc.casefold()
-                ):
-                    continue
+            base_url = urlsplit(self._project_url_at(old_rev))
+            if (
+                value_url.scheme.casefold() == base_url.scheme.casefold()
+                and value_url.netloc.casefold() == base_url.netloc.casefold()
+            ):
                 base_path = unquote(base_url.path).rstrip("/")
                 if value_path == base_path:
-                    candidates.append((len(base_path), ""))
-                    continue
+                    return ""
                 marker = base_path + "/"
                 if value_path.startswith(marker):
-                    candidates.append((len(base_path), value_path[len(marker):]))
-            if candidates:
-                _length, relative = max(candidates, key=lambda item: item[0])
-                return relative.replace("\\", "/").strip("/")
+                    # 新旧历史根可能互相嵌套；不能用新根再次截去真实的文件目录。
+                    return value_path[len(marker):].strip("/")
             raise RuntimeError(f"SVN 变更摘要包含项目根之外的 URL，已中止生成: {value}")
 
-        normalized = value.replace("\\", "/")
+        normalized = value
         if os.path.isabs(value):
             try:
                 normalized = os.path.relpath(
@@ -383,7 +516,7 @@ class SVNVCS(BaseVCS):
                 raise RuntimeError(
                     f"SVN 变更摘要路径无法映射到项目目录: {value}"
                 ) from exc
-        normalized = os.path.normpath(normalized).replace("\\", "/")
+        normalized = posixpath.normpath(normalized)
         if normalized == ".":
             return ""
         if normalized == ".." or normalized.startswith("../") or os.path.isabs(normalized):
@@ -738,7 +871,7 @@ class SVNVCS(BaseVCS):
 
     def _file_url(self, version: str, file_path: str) -> str:
         rev = self._resolve_version(version)
-        relative = quote(file_path.replace("\\", "/").strip("/"), safe="/")
+        relative = quote(file_path.strip("/"), safe="/")
         root_url = self._project_url_at(rev)
         suffix = f"/{relative}" if relative else ""
         return f"{root_url.rstrip('/')}{suffix}@{rev}"
@@ -863,6 +996,11 @@ class SVNVCS(BaseVCS):
                 "svn:executable" in new_props if new_path else None
             ),
         }
+
+    def get_rename_metadata_changes(self, old_version, old_path, new_version, new_path):
+        """精确重命名按真实双侧比较，复用已固定的属性缓存。"""
+        return self._compare_endpoint_metadata(
+            old_version, old_path, new_version, new_path)['metadata_changes']
 
     def get_file_content_working(self, file_path: str) -> str:
         full_path = os.path.join(self.project_path, file_path)

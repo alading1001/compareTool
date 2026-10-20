@@ -16,6 +16,11 @@ def project_temp_dir():
     return tempfile.TemporaryDirectory(dir=".tmp")
 
 
+def git_metadata_result(source):
+    path = os.path.abspath(os.path.join(source, '.git'))
+    return subprocess.CompletedProcess([], 0, (path + '\n' + path + '\n').encode('utf-8'), b'')
+
+
 class OutputCompatibilityAfterAug27Tests(unittest.TestCase):
     def test_git_descendant_output_rejects_tracked_source_target(self):
         with project_temp_dir() as root:
@@ -37,7 +42,7 @@ class OutputCompatibilityAfterAug27Tests(unittest.TestCase):
             with mock.patch(
                 "main.GitVCS._find_git", return_value="git"
             ), mock.patch(
-                "main.subprocess.run", side_effect=[top, occupied]
+                "main.subprocess.run", side_effect=[top, git_metadata_result(source), occupied]
             ):
                 with self.assertRaisesRegex(ValueError, "Git 已跟踪"):
                     CompareToolApp._validate_repository_output_targets(
@@ -61,7 +66,7 @@ class OutputCompatibilityAfterAug27Tests(unittest.TestCase):
             with mock.patch(
                 "main.GitVCS._find_git", return_value="git"
             ), mock.patch(
-                "main.subprocess.run", side_effect=[top, untracked]
+                "main.subprocess.run", side_effect=[top, git_metadata_result(source), untracked]
             ):
                 CompareToolApp._validate_repository_output_targets(
                     source, "git_multi", [target]
@@ -243,7 +248,7 @@ class OutputCompatibilityAfterAug27Tests(unittest.TestCase):
             )
             with mock.patch(
                 "main.GitVCS._find_git", return_value="git"
-            ), mock.patch("main.subprocess.run", return_value=top):
+            ), mock.patch("main.subprocess.run", side_effect=[top, git_metadata_result(source)]):
                 with self.assertRaisesRegex(ValueError, "元数据目录"):
                     CompareToolApp._validate_repository_output_targets(
                         source, "git", [target]
@@ -266,7 +271,7 @@ class OutputCompatibilityAfterAug27Tests(unittest.TestCase):
             with mock.patch(
                 "main.GitVCS._find_git", return_value="git"
             ), mock.patch(
-                "main.subprocess.run", side_effect=[top, untracked]
+                "main.subprocess.run", side_effect=[top, git_metadata_result(source), untracked]
             ):
                 CompareToolApp._validate_repository_output_targets(
                     source, "git", [target]
@@ -291,7 +296,7 @@ class OutputCompatibilityAfterAug27Tests(unittest.TestCase):
             with mock.patch(
                 "main.GitVCS._find_git", return_value="git"
             ), mock.patch(
-                "main.subprocess.run", side_effect=[top, untracked]
+                "main.subprocess.run", side_effect=[top, git_metadata_result(source), untracked]
             ):
                 CompareToolApp._validate_repository_output_targets(
                     source, "git", [target]

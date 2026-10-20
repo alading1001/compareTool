@@ -407,19 +407,22 @@ class GitRenameCompatibilityTests(unittest.TestCase):
 
 
 class SVNCompatibilityTests(unittest.TestCase):
-    def test_svn_summary_url_uses_case_sensitive_longest_project_root(self):
+    def test_svn_summary_url_uses_case_sensitive_diff_source_root(self):
         vcs = SVNVCS.__new__(SVNVCS)
         vcs._project_url_at = mock.Mock(side_effect=lambda revision: {
             "1": "https://example.invalid/repo/A",
-            "2": "https://example.invalid/repo/a/sub",
+            "2": "https://example.invalid/repo/A/sub",
         }[revision])
 
         self.assertEqual(
-            "file.txt",
+            "sub/file.txt",
             vcs._summary_relative_path(
-                "https://example.invalid/repo/a/sub/file.txt", "1", "2"
+                "https://example.invalid/repo/A/sub/file.txt", "1", "2"
             ),
         )
+        with self.assertRaisesRegex(RuntimeError, '项目根之外'):
+            vcs._summary_relative_path(
+                "https://example.invalid/repo/a/sub/file.txt", "1", "2")
 
     def test_repos_size_failure_is_unknown_not_generation_failure(self):
         vcs = SVNVCS.__new__(SVNVCS)

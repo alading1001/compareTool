@@ -11,6 +11,7 @@ import threading
 import webbrowser
 import tkinter as tk
 from datetime import datetime
+from pathlib import Path
 from tkinter import ttk, filedialog, messagebox
 from xml.etree import ElementTree
 
@@ -830,6 +831,7 @@ class CompareToolApp(TaskProgressUI):
 
         git_executable = None
         git_bare = False
+        git_metadata_roots = []
         svn_executable = None
         if vcs_type in ("git", "git_multi"):
             git_executable = GitVCS._find_git()
@@ -889,6 +891,28 @@ class CompareToolApp(TaskProgressUI):
                 repository_root = os.path.realpath(
                     os.path.abspath(git_dir_text)
                 )
+            # 工作树之外仍可能有 separate-git-dir 或 linked worktree 共用的
+            # 元数据。必须在按工作树范围筛选输出之前保护真实的两个根。
+            try:
+                metadata_result = subprocess.run(
+                    [git_executable, "rev-parse", "--path-format=absolute",
+                     "--absolute-git-dir", "--git-common-dir"],
+                    cwd=project_root, capture_output=True, timeout=None,
+                )
+            except OSError as exc:
+                raise ValueError(f"无法确认 Git 元数据目录，已拒绝生成：{exc}") from exc
+            metadata_paths = [
+                line.removesuffix("\r")
+                for line in metadata_result.stdout.decode("utf-8", "surrogateescape").split("\n")
+                if line
+            ]
+            if (metadata_result.returncode != 0 or len(metadata_paths) != 2
+                    or not all(os.path.isabs(path) for path in metadata_paths)):
+                raise ValueError("无法确认 Git 元数据目录，已拒绝生成：\n"
+                                 + (metadata_result.stderr or metadata_result.stdout).decode(
+                                     "utf-8", "replace"))
+            git_metadata_roots = list(dict.fromkeys(
+                os.path.realpath(path) for path in metadata_paths))
         else:
             svn_executable = SVNVCS._find_svn()
             # SVN 1.7+ 只在工作副本根保留 .svn；旧式工作副本会在多层
@@ -952,6 +976,14 @@ class CompareToolApp(TaskProgressUI):
             if not target:
                 continue
             resolved = os.path.realpath(os.path.abspath(target))
+            for metadata_root in git_metadata_roots:
+                try:
+                    overlap = os.path.normcase(os.path.commonpath([metadata_root, resolved]))
+                except ValueError:
+                    continue
+                if overlap in (os.path.normcase(metadata_root), os.path.normcase(resolved)):
+                    label = "Git 裸仓库元数据目录" if git_bare else "Git 元数据目录"
+                    raise ValueError(f"输出目标与{label}重叠，已拒绝覆盖：\n{resolved}")
             try:
                 common = os.path.commonpath([repository_root, resolved])
             except ValueError:
@@ -1044,7 +1076,7 @@ class CompareToolApp(TaskProgressUI):
                     "--depth",
                     "infinity",
                     "--",
-                    *svn_targets,
+                    *(target + '@' if '@' in target else target for target in svn_targets),
                 ],
                 cwd=repository_root,
                 capture_output=True,
@@ -2753,7 +2785,7 @@ class CompareToolApp(TaskProgressUI):
                                        f"{line_dialog_note}\n"
                                        f"输出目录:\n{output_dir}\n\n"
                                        f"{self._task_details_note()}\n是否打开报告?"):
-            webbrowser.open(f"file:///{report_path}")
+            webbrowser.open(Path(report_path).resolve().as_uri())
 
     def _on_multi_complete(self, report_path, summary):
         self.progress.stop()
@@ -2782,7 +2814,7 @@ class CompareToolApp(TaskProgressUI):
                                        f"{line_dialog_note}\n"
                                        f"输出目录:\n{output_dir}\n\n"
                                        f"{self._task_details_note()}\n是否打开报告?"):
-            webbrowser.open(f"file:///{report_path}")
+            webbrowser.open(Path(report_path).resolve().as_uri())
 
     def _show_error(self, msg):
         self.progress.stop()

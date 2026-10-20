@@ -1,0 +1,270 @@
+{
+  "date": "2026-10-20",
+  "status": "SOURCE_VERIFIED_EXE_NOT_BUILT",
+  "head": "9d873c0c2bac05f1221e1d59f2f330115e88d01e",
+  "scope": [
+    {
+      "finding": "P1 external Git metadata overlap",
+      "fix": "Resolve private and common Git metadata roots before output deletion; reject overlap and unknown identity.",
+      "proof": "Real separate-git-dir and linked worktrees; branch reference intact; single/multi deletion never entered; ordinary untracked and external outputs succeed."
+    },
+    {
+      "finding": "P2 unlimited nested archive traversal and HTML rendering",
+      "fix": "Use suspended-context traversal and iterative template events; keep ownership cleanup and explicit budgets.",
+      "proof": "400 real ZIP layers via worker, original export hashes match, deepest detail visible; 2000 synthetic HTML layers single/multi; errors, explicit policy, and interruption clean owned directories; recursionlimit unchanged."
+    },
+    {
+      "finding": "P2 failed rename diagnostics omit old path",
+      "fix": "Share escaped issue-path display across single/multi/fallback HTML and delivery instructions.",
+      "proof": "Real required checkout-filter failure retains both path names; failed endpoints absent and no failed rename delete action; independent file delivered."
+    }
+  ],
+  "baseline": "D:\\AI\\project\\compareTool_myself\\.tmp\\fix_review_20261020_b8f87e1e30\\baseline.json",
+  "preservation": {
+    "baseline_files": 181,
+    "changed_since_baseline": [
+      "AGENTS.md",
+      "archive_report.py",
+      "delivery_instructions.py",
+      "docs/nested-archive-report.md",
+      "docs/report-and-export-contract.md",
+      "main.py",
+      "report_generator.py",
+      "templates/archive_details.html",
+      "templates/result_issues.html",
+      "tests/test_archive_duplicate_members.py",
+      "tests/test_output_compatibility_after_aug27.py"
+    ],
+    "unexpected_changes": [],
+    "head_unchanged": true,
+    "index_unchanged": true,
+    "exe_unchanged": true,
+    "isolated_snapshots": {
+      "endpoint_validation_c4db5bc340": {
+        "files": 181,
+        "documentation_only_differences": [
+          "AGENTS.md"
+        ],
+        "test_assertion_only_differences": [
+          "tests/test_review_metadata_depth_and_diagnostics.py"
+        ],
+        "mismatches": []
+      },
+      "endpoint_validation_aac1a409e9": {
+        "files": 181,
+        "documentation_only_differences": [
+          "AGENTS.md"
+        ],
+        "test_assertion_only_differences": [
+          "tests/test_review_metadata_depth_and_diagnostics.py"
+        ],
+        "mismatches": []
+      },
+      "endpoint_validation_d2f0f929b0": {
+        "files": 181,
+        "documentation_only_differences": [
+          "AGENTS.md"
+        ],
+        "test_assertion_only_differences": [
+          "tests/test_review_metadata_depth_and_diagnostics.py"
+        ],
+        "mismatches": []
+      },
+      "endpoint_validation_e2e6308343": {
+        "files": 181,
+        "documentation_only_differences": [
+          "AGENTS.md"
+        ],
+        "test_assertion_only_differences": [
+          "tests/test_review_metadata_depth_and_diagnostics.py"
+        ],
+        "mismatches": []
+      },
+      "endpoint_validation_5df0a2cf97": {
+        "files": 181,
+        "documentation_only_differences": [],
+        "test_assertion_only_differences": [],
+        "mismatches": []
+      }
+    }
+  },
+  "changes": [
+    {
+      "path": "AGENTS.md",
+      "before_sha256": "a03bb94e6a81964f27df4060daf8838d8a31283a17b1e981595ac3872773b704",
+      "after_sha256": "27b893b657e4bf14193a8117cbc1ca3cd57782383b3cf221b66f089883bcc26a"
+    },
+    {
+      "path": "archive_report.py",
+      "before_sha256": "88089c145512262f9c6354a5ca275ad6527a1dcb4fe6610e21d17fa32880d934",
+      "after_sha256": "bc5af40c361ed2197f664d65a156bf64b375973444143a8e52f4566a293f21b2"
+    },
+    {
+      "path": "delivery_instructions.py",
+      "before_sha256": "14a6e45e46e517ea7bb841313e118ee20cd27a1bf3e702a1cc18b36f5bb02803",
+      "after_sha256": "69c6df38eadb9f74d871c81f7b276cabd2fd97f132d27ae83be74b368915ecc2"
+    },
+    {
+      "path": "docs/nested-archive-report.md",
+      "before_sha256": "17195ca760aa7d16af569d4b808d6d5fb7c7c44841e9eef0cac5197b6cde9131",
+      "after_sha256": "2ef1c676c003720e324c2dc3d4a6aaaea3a4b76d5e0931e08c9760c5cf790fc2"
+    },
+    {
+      "path": "docs/report-and-export-contract.md",
+      "before_sha256": "bc26408180a824c95d2d1c1c95fab143c240f01e825d70ad7d70eef197fc6192",
+      "after_sha256": "21bf33dd372203dea698fe5fe9c1dee4ae37c4ee56870df467458bee00624c93"
+    },
+    {
+      "path": "main.py",
+      "before_sha256": "55678f7cae133963b82096d6cbafe717037fab79a70268c92225a659f4a57a71",
+      "after_sha256": "963679141e6362bbeb39c626b23ade9366b0b5e60a338836359dd9a5db06bc87"
+    },
+    {
+      "path": "report_generator.py",
+      "before_sha256": "9ae1fbc7760760f21d073c0b2a1e4ec70c70bf35d1f2126b5ddd2df8c7189fcf",
+      "after_sha256": "bd196728641c3161508772c751cec3e3b32b3b13c13bd499535198ee778ae5b8"
+    },
+    {
+      "path": "templates/archive_details.html",
+      "before_sha256": "d108d33a12e7fa3d4cb16abc135df955472613cb1c4816b23ff07c00d7766d8e",
+      "after_sha256": "956b463c0f200bb9ccbc63db0b1e54e4a0caa4f027dcc33c8c025c6ac50086c0"
+    },
+    {
+      "path": "templates/result_issues.html",
+      "before_sha256": "d1a1f92b6e2bfcd0f761744dbdaff4273740798aded428ef7c8c22f04550683b",
+      "after_sha256": "d4e314652464edcbfcb27ce27e98aa796172fa93fb890ca896dead87195a18ef"
+    },
+    {
+      "path": "tests/test_archive_duplicate_members.py",
+      "before_sha256": "f402cb3628632a39c091dab1b4b0ffbcb889e03445eeb77f846cf1baebede25d",
+      "after_sha256": "e84d9602ee0227ea170286c27546d418e1dd3bcc8a44ec922d3a933ceaf63f87"
+    },
+    {
+      "path": "tests/test_output_compatibility_after_aug27.py",
+      "before_sha256": "02b7a495c3c4819905370291fdb833c274359c76409d52dce20b6038e0a11621",
+      "after_sha256": "f0ce3085e40c10d158a106e031d1acce7b9801aa581f9a5146b7a479907eda22"
+    },
+    {
+      "path": "tests/test_review_metadata_depth_and_diagnostics.py",
+      "before_sha256": null,
+      "after_sha256": "c46f537008cdc6c18258f4c37294cf804f7148f1313ace7ca994ea3de2426cda"
+    }
+  ],
+  "scoped_patch": "D:\\AI\\project\\compareTool_myself\\.tmp\\fix_review_20261020_b8f87e1e30\\authorized-fixes.patch",
+  "regression": {
+    "discovered": 773,
+    "selected_results": 773,
+    "passed": 772,
+    "skipped": 1,
+    "failed": 0,
+    "errors": 0,
+    "selected_results_cover_each_test_once": true,
+    "full_suite_and_rerun_executions": 782,
+    "shards": [
+      {
+        "root": "D:\\AI\\project\\compareTool_myself\\.tmp\\endpoint_validation_c4db5bc340",
+        "tests": 254,
+        "seconds": 971.328,
+        "exit_code": 0,
+        "skipped": [],
+        "log_sha256": "237bad0efa5cf5457c0428d6471061fe57167e64a6552ed3d4d87aa7237aa043"
+      },
+      {
+        "root": "D:\\AI\\project\\compareTool_myself\\.tmp\\endpoint_validation_aac1a409e9",
+        "tests": 227,
+        "seconds": 384.367,
+        "exit_code": 0,
+        "skipped": [
+          "test_folder_file_symlink_cannot_read_outside_root (test_review_regressions.ArchiveAndFolderRegressionTests.test_folder_file_symlink_cannot_read_outside_root) ... skipped \"当前 Windows 未允许创建测试符号链接: [WinError 1314] 客户端没有所需的特权。: 'D:\\\\\\\\AI\\\\\\\\project\\\\\\\\compareTool_myself\\\\\\\\.tmp\\\\\\\\endpoint_validation_aac1a409e9\\\\\\\\source\\\\\\\\.tmp\\\\\\\\tmp382sjcwe\\\\\\\\secret.txt' -> 'D:\\\\\\\\AI\\\\\\\\project\\\\\\\\compareTool_myself\\\\\\\\.tmp\\\\\\\\endpoint_validation_aac1a409e9\\\\\\\\source\\\\\\\\.tmp\\\\\\\\tmp382sjcwe\\\\\\\\new\\\\\\\\linked.txt'\""
+        ],
+        "log_sha256": "46aa51712e78d0d0984409b8c6352d2784d42d6cb398a00533b0cd3260d518b7"
+      },
+      {
+        "root": "D:\\AI\\project\\compareTool_myself\\.tmp\\endpoint_validation_d2f0f929b0",
+        "tests": 135,
+        "seconds": 537.329,
+        "exit_code": 0,
+        "skipped": [],
+        "log_sha256": "52523a5ed597f44886f27bdcfa6819861d0e990c213eac6f96fac58f046e3c97"
+      },
+      {
+        "root": "D:\\AI\\project\\compareTool_myself\\.tmp\\endpoint_validation_e2e6308343",
+        "tests": 157,
+        "seconds": 937.469,
+        "exit_code": 1,
+        "skipped": [],
+        "log_sha256": "defd1149564707e3fdfce04275b367810600b5a10cee524b0c4fc6791f3a4f6c"
+      }
+    ]
+  },
+  "test_assertion_correction": {
+    "reason": "HtmlDiff inserts inline span tags into visible text; test must parse HTML text before checking the deepest marker.",
+    "functional_source_changed": false,
+    "affected_module_tests": 9,
+    "first_render_proof": {
+      "raw_contiguous_marker": false,
+      "visible_marker": true,
+      "member_templates": 400
+    },
+    "rerun": {
+      "root": "D:\\AI\\project\\compareTool_myself\\.tmp\\endpoint_validation_5df0a2cf97",
+      "arguments": [
+        "test_review_metadata_depth_and_diagnostics",
+        "-v"
+      ],
+      "exit_code": 0,
+      "seconds": 618.531,
+      "shard": null
+    },
+    "rerun_log_sha256": "78d71f87828312942219f9e737dd5df36e635cb2ede16d346ac7a03084290cc3",
+    "aggregation": "Keep original full-suite results for all unchanged modules and use the complete passing rerun for the corrected test module."
+  },
+  "targeted": {
+    "tests": 57,
+    "passed": 57,
+    "failed": 0,
+    "errors": 0,
+    "run": {
+      "root": "D:\\AI\\project\\compareTool_myself\\.tmp\\endpoint_validation_febbec867c",
+      "arguments": [
+        "test_review_metadata_depth_and_diagnostics.ExternalGitMetadataTests",
+        "test_review_metadata_depth_and_diagnostics.FailedRenameDiagnosticsTests",
+        "test_review_metadata_depth_and_diagnostics.DeepArchiveTraversalTests.test_2000_layer_single_and_multi_html_preserve_all_members_and_escaping",
+        "test_review_metadata_depth_and_diagnostics.DeepArchiveTraversalTests.test_deep_parse_errors_and_explicit_depth_policy_clean_every_owned_directory",
+        "test_output_compatibility_after_aug27",
+        "test_archive_report",
+        "test_archive_duplicate_members",
+        "test_rendering_performance_regressions",
+        "-v"
+      ],
+      "exit_code": 0,
+      "seconds": 67.891,
+      "shard": null
+    }
+  },
+  "red_before_fix": {
+    "tests": 6,
+    "expected_subtest_failures": 8,
+    "run": {
+      "root": "D:\\AI\\project\\compareTool_myself\\.tmp\\endpoint_validation_04b0cfc3f4",
+      "arguments": [
+        "test_review_metadata_depth_and_diagnostics.ExternalGitMetadataTests",
+        "test_review_metadata_depth_and_diagnostics.FailedRenameDiagnosticsTests",
+        "test_review_metadata_depth_and_diagnostics.DeepArchiveTraversalTests.test_2000_layer_single_and_multi_html_preserve_all_members_and_escaping",
+        "-v"
+      ],
+      "exit_code": 1,
+      "seconds": 29.687,
+      "shard": null
+    }
+  },
+  "new_regression_file": "tests/test_review_metadata_depth_and_diagnostics.py",
+  "boundaries": {
+    "original_unrelated_changes_preserved": true,
+    "original_index_unchanged": true,
+    "exe_unchanged": true,
+    "exe_built": false,
+    "committed": false,
+    "pushed": false
+  }
+}

@@ -133,9 +133,22 @@ class GitVCS(BaseVCS):
     def _get_batch_reader(self):
         reader = getattr(self, "_batch_reader", None)
         if reader is None:
-            reader = GitBatchReader(self._git, self._git_cwd())
+            cwd, env = self._object_read_context()
+            reader = GitBatchReader(self._git, cwd, env=env)
             self._batch_reader = reader
         return reader
+
+    def _object_read_context(self):
+        snapshot = getattr(self, '_checkout_snapshot', None)
+        if snapshot is not None:
+            return snapshot.root, snapshot.env
+        return self._git_cwd(), None
+
+    def _run_object_bytes(self, args):
+        snapshot = getattr(self, '_checkout_snapshot', None)
+        if snapshot is not None:
+            return snapshot._run([*snapshot.args, *args])
+        return self._run_bytes(args)
 
     def cleanup(self):
         reader = getattr(self, "_batch_reader", None)
@@ -237,9 +250,9 @@ class GitVCS(BaseVCS):
         old_endpoint = pinned[str(old_version)]
         new_endpoint = pinned[str(new_version)]
         self._snapshot_git_config()
-        # Git 的展示配置不能隐藏交付候选；子模块仍须进入后续 mode 校验。
+        # Git 配置不能限制原生 rename 检测或隐藏子模块交付候选。
         output = self._run_bytes([
-            "diff", "--raw", "-z", "--find-renames", "--ignore-submodules=none",
+            "diff", "--raw", "-z", "--find-renames", "-l0", "--ignore-submodules=none",
             old_endpoint, new_endpoint, "--"
         ])
         fields = output.split(b"\x00")
@@ -450,9 +463,10 @@ class GitVCS(BaseVCS):
 
     def get_file_content(self, version: str, file_path: str) -> str:
         try:
+            cwd, env = self._object_read_context()
             result = subprocess.run(
                 [self._git, "show", f"{self._resolve_version(version)}:{self._repo_path(file_path)}"],
-                cwd=self._git_cwd(),
+                cwd=cwd, env=env,
                 capture_output=True,
                 timeout=self.COMMAND_TIMEOUT
             )
@@ -489,9 +503,10 @@ class GitVCS(BaseVCS):
             expression = f"{self._resolve_version(version)}:{self._repo_path(file_path)}"
             if self.COMMAND_TIMEOUT is None and GitBatchReader.supports(expression):
                 return self._get_batch_reader().read_bytes(expression)
+            cwd, env = self._object_read_context()
             result = subprocess.run(
                 [self._git, "show", f"{self._resolve_version(version)}:{self._repo_path(file_path)}"],
-                cwd=self._git_cwd(),
+                cwd=cwd, env=env,
                 capture_output=True,
                 timeout=self.COMMAND_TIMEOUT
             )
@@ -504,7 +519,7 @@ class GitVCS(BaseVCS):
     def get_file_size(self, version: str, file_path: str):
         endpoint = self._resolve_version(version)
         try:
-            output = self._run_bytes(["cat-file", "-s", f"{endpoint}:{self._repo_path(file_path)}"])
+            output = self._run_object_bytes(["cat-file", "-s", f"{endpoint}:{self._repo_path(file_path)}"])
             value = output.decode("ascii", errors="strict").strip()
         except (RuntimeError, UnicodeDecodeError):
             return None
@@ -513,7 +528,7 @@ class GitVCS(BaseVCS):
     def get_file_signature(self, version: str, file_path: str):
         endpoint = self._resolve_version(version)
         try:
-            object_id = self._run_bytes([
+            object_id = self._run_object_bytes([
                 "rev-parse", "--verify", f"{endpoint}:{self._repo_path(file_path)}"
             ]).decode("ascii", errors="strict").strip().lower()
         except (RuntimeError, UnicodeDecodeError):
@@ -562,9 +577,10 @@ class GitVCS(BaseVCS):
                 if self.COMMAND_TIMEOUT is None and GitBatchReader.supports(expression):
                     self._get_batch_reader().copy_to(expression, target)
                     return
+                cwd, env = self._object_read_context()
                 result = subprocess.run(
                     [self._git, "show", f"{endpoint}:{self._repo_path(file_path)}"],
-                    cwd=self._git_cwd(),
+                    cwd=cwd, env=env,
                     stdout=target,
                     stderr=subprocess.PIPE,
                     timeout=self.COMMAND_TIMEOUT,
@@ -764,6 +780,10 @@ class GitVCS(BaseVCS):
 
         if getattr(self, "_checkout_snapshot", None) is None:
             self._checkout_snapshot = GitCheckoutSnapshot(self, first_config)
+            reader = getattr(self, '_batch_reader', None)
+            if reader is not None:
+                reader.close()
+                self._batch_reader = None
         self._checkout_snapshot.verify_source(self)
         first_attrs = read_all()
         drivers = sorted({
@@ -805,6 +825,10 @@ class GitVCS(BaseVCS):
         if first != second:
             raise RuntimeError("Git 检出配置在任务快照期间发生变化，已中止生成")
         self._config_cache = first
+        replacements = GitCheckoutSnapshot.replace_ref_state(self)
+        if replacements != getattr(self, '_replacement_state', replacements):
+            raise RuntimeError('Git 替换引用在任务快照期间发生变化，已中止生成')
+        self._replacement_state = replacements
 
     def get_file_content_working(self, file_path: str) -> str:
         full_path = os.path.join(self.project_path, file_path)

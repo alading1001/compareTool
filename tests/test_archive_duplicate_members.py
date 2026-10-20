@@ -227,9 +227,8 @@ class ArchiveDuplicateMembersTests(WorkflowCase):
         self.assert_no_stages(multi)
 
     def test_duplicate_note_names_are_html_escaped(self):
-        from jinja2 import Environment, FileSystemLoader, select_autoescape
-        template = Environment(loader=FileSystemLoader('templates'),
-                               autoescape=select_autoescape(['html'])).get_template('archive_details.html')
+        from report_generator import ReportGenerator
+        template = ReportGenerator().env.get_template('archive_details.html')
         detail = dict(status='compared', members=[], filtered=False,
                       counts=dict(total_files=0, added_files=0, modified_files=0,
                                   format_changed_files=0, deleted_files=0, renamed_files=0),

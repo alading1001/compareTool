@@ -7,6 +7,13 @@ from vcs.base import ChangeType
 DELIVERY_INSTRUCTIONS_FILENAME = "上线操作说明.txt"
 
 
+def issue_path_text(issue) -> str:
+    """诊断保留重命名两端；这些名称不参与成功文件的上线操作。"""
+    path = issue.get('path', '')
+    old_path = issue.get('old_path', '')
+    return f'{path}（旧路径：{old_path}）' if old_path else path
+
+
 def single_delivery_instructions_filename(project_name: str) -> str:
     """单项目说明按项目隔离，避免同批次后生成项目覆盖前一项目。"""
     name = str(project_name or "").strip()
@@ -87,7 +94,7 @@ def write_delivery_instructions(project_results: list, output_path: str):
         if result.comparison_note:
             issue_lines.append(f'[{result.project_name}] {result.comparison_note}')
         for issue in result.issues:
-            issue_lines.append(f"[{result.project_name}] [{'未完成' if issue['delivery'] else '说明'} / {issue['stage']}] {issue['path']} {issue['message']}")
+            issue_lines.append(f"[{result.project_name}] [{'未完成' if issue['delivery'] else '说明'} / {issue['stage']}] {issue_path_text(issue)} {issue['message']}")
     incomplete = any(project['diff_result'].delivery_incomplete for project in project_results)
 
     lines = [

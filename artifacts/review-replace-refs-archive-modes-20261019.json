@@ -1,0 +1,107 @@
+{
+  "generated_at": "2026-10-19T17:00:04+08:00",
+  "status": "SOURCE_VERIFIED_EXE_NOT_BUILT",
+  "baseline": {
+    "head": "9d873c0c2bac05f1221e1d59f2f330115e88d01e",
+    "index": "992465f044b55a471b735ff270998ba2914b707a3018b6c264f1ebc5df0109d3",
+    "exe": "7a7c6b93c5396a9f50e1e8fe21fb1a5908f04597da40f0edb0ead639645b83e3"
+  },
+  "changed_existing_files_this_fix": [
+    "docs/report-and-export-contract.md",
+    "vcs/archive_vcs.py",
+    "vcs/git_batch.py",
+    "vcs/git_checkout.py",
+    "vcs/git_vcs.py",
+    "vcs/multi_version_vcs.py"
+  ],
+  "added_test": "tests/test_review_replace_refs_and_archive_modes.py",
+  "fixes": [
+    {
+      "issue": "Git 替换引用导致正文与检出属性不一致",
+      "behavior": "固定替换引用及启用策略；属性、正文、大小、签名和端点 mode 共用隔离对象快照，保留流式读取并拒绝快照建立期间的引用变化。",
+      "coverage": [
+        "提交、树和 blob 替换",
+        "Git 普通与多版本实际导出对照原生 Git",
+        "自定义引用命名空间和禁用策略",
+        "已打开 raw 通道切换到固定快照",
+        "固定后变更或新增替换引用",
+        "批量与单次读取",
+        "外部 filter 不执行",
+        "固定对象查询保留显式命令超时和输出策略"
+      ]
+    },
+    {
+      "issue": "ZIP/TAR 成员重命名遗漏同时发生的权限变化",
+      "behavior": "精确重命名按真实新旧成员比较 mode，保留权限说明，不为纯改名制造权限变化。",
+      "coverage": [
+        "ZIP/TAR 权限变化和纯改名",
+        "可执行位增加与移除说明",
+        "单层根目录剥离",
+        "单侧排除",
+        "递归报告权限及原包字节不变"
+      ]
+    }
+  ],
+  "regression": {
+    "tests": 764,
+    "passed": 763,
+    "failures": 0,
+    "errors": 0,
+    "skipped": [
+      [
+        "test_review_regressions.ArchiveAndFolderRegressionTests.test_folder_file_symlink_cannot_read_outside_root",
+        "当前 Windows 未允许创建测试符号链接: [WinError 1314] 客户端没有所需的特权。: 'D:\\\\AI\\\\project\\\\compareTool_myself\\\\.tmp\\\\fix_replace_refs_archive_modes_20261019_65373df2\\\\source_1\\\\.tmp\\\\tmpv2xbz7hd\\\\secret.txt' -> 'D:\\\\AI\\\\project\\\\compareTool_myself\\\\.tmp\\\\fix_replace_refs_archive_modes_20261019_65373df2\\\\source_1\\\\.tmp\\\\tmpv2xbz7hd\\\\new\\\\linked.txt'"
+      ]
+    ],
+    "new_tests": [
+      "test_review_replace_refs_and_archive_modes.ArchiveRenameModeTests.test_recursive_member_permission_notes_preserve_original_package_bytes",
+      "test_review_replace_refs_and_archive_modes.GitReplaceRefTests.test_custom_replace_namespace_and_disabled_replacement_policies_match_native",
+      "test_review_replace_refs_and_archive_modes.GitReplaceRefTests.test_replacement_cannot_enable_execution_of_external_filters",
+      "test_review_replace_refs_and_archive_modes.ArchiveRenameModeTests.test_zip_and_tar_rename_report_only_real_permission_changes",
+      "test_review_replace_refs_and_archive_modes.GitReplaceRefTests.test_fixed_snapshot_metadata_keeps_explicit_command_output_policy",
+      "test_review_replace_refs_and_archive_modes.GitReplaceRefTests.test_commit_tree_and_blob_replacements_match_native_exports_in_both_modes",
+      "test_review_replace_refs_and_archive_modes.GitReplaceRefTests.test_new_replacement_after_plain_snapshot_cannot_change_delivered_bytes",
+      "test_review_replace_refs_and_archive_modes.ArchiveRenameModeTests.test_rebased_roots_and_one_sided_exclusions_keep_correct_metadata",
+      "test_review_replace_refs_and_archive_modes.GitReplaceRefTests.test_completed_snapshot_keeps_body_attributes_and_one_shot_exports_fixed",
+      "test_review_replace_refs_and_archive_modes.GitReplaceRefTests.test_replace_change_during_diff_is_rejected_before_snapshot_publication"
+    ],
+    "independent_source_copies": 4,
+    "verified_input_files_per_copy": 180,
+    "shard_seconds": [
+      558.344000000001,
+      487.4679999999971,
+      658.5629999999983,
+      566.9380000000019
+    ],
+    "source_changes_during_validation": [],
+    "execution": "四份项目 .tmp 独立副本，TEMP/TMP/COMPARETOOL_TEMP_DIR 均指向副本内独占目录；测试 ID 不重叠且完整覆盖。",
+    "evidence": ".tmp/fix_replace_refs_archive_modes_20261019_65373df2"
+  },
+  "preservation": {
+    "preexisting_paths_outside_fix_unchanged": 173,
+    "preexisting_untracked_tests_preserved": [
+      "tests/test_review_svn_paths_and_report_opening.py",
+      "tests/test_review_svn_replacement_and_rename_metadata.py",
+      "tests/test_review_svn_restore_and_git_rename_limits.py",
+      "tests/test_review_svn_root_prefix_mapping.py"
+    ],
+    "final_unchanged": {
+      "validated_inputs": true,
+      "head": true,
+      "index": true,
+      "exe": true
+    }
+  },
+  "diff_check": "passed",
+  "environment": {
+    "platform": "Windows-11-10.0.22621-SP0",
+    "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+    "git": "git version 2.53.0.windows.2"
+  },
+  "release": {
+    "exe_built": false,
+    "committed": false,
+    "pushed": false,
+    "exe_sha256_unchanged": "7a7c6b93c5396a9f50e1e8fe21fb1a5908f04597da40f0edb0ead639645b83e3"
+  }
+}

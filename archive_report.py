@@ -140,6 +140,29 @@ def _same_archive_bytes(old, new):
                 return True
 
 
+def iter_archive_events(detail):
+    """按深度优先顺序逐项输出模板事件，不递归或拼接整棵 HTML。"""
+    pending = [('section', detail)]
+    while pending:
+        kind, value = pending.pop()
+        if kind == 'members':
+            member = next(value, None)
+            if member is None:
+                continue
+            pending.append(('members', value))
+            pending.append(('member_end', None))
+            if member.archive_details:
+                pending.append(('section', member.archive_details))
+            yield 'member', None, member
+        elif kind == 'section':
+            pending.append(('section_end', None))
+            if value.get('status') == 'compared':
+                pending.append(('members', iter(value.get('members', ()))))
+            yield kind, value, None
+        else:
+            yield kind, None, None
+
+
 class _Inspector:
     def __init__(self, show_full_context, patterns, budget, detail_store=None, best_effort=False):
         self.show_full_context = show_full_context
@@ -150,6 +173,37 @@ class _Inspector:
         self.issues = []
 
     def attach(self, result, vcs=None, depth=1, chain=(), *, endpoints=None):
+        # 每个生成器保存本层 VCS/空包的上下文，在子层完成后才释放。
+        # 子层异常逐层 throw 回父生成器，沿用严格/尽量输出的既有语义。
+        pending = [self._attach(result, vcs, depth, chain, endpoints=endpoints)]
+        failure = None
+        try:
+            while pending:
+                try:
+                    child = (next(pending[-1]) if failure is None
+                             else pending[-1].throw(failure))
+                except StopIteration:
+                    pending.pop()
+                    failure = None
+                except Exception as exc:
+                    pending.pop()
+                    failure = exc
+                else:
+                    failure = None
+                    pending.append(self._attach(*child))
+            if failure is not None:
+                raise failure
+        finally:
+            cleanup_error = None
+            for iterator in reversed(pending):
+                try:
+                    iterator.close()
+                except BaseException as exc:
+                    cleanup_error = cleanup_error or exc
+            if cleanup_error is not None:
+                raise cleanup_error
+
+    def _attach(self, result, vcs=None, depth=1, chain=(), *, endpoints=None):
         from vcs.base import ChangeType
         if endpoints is None:
             old_version, new_version = comparison_versions(vcs, result.old_version, result.new_version)
@@ -173,7 +227,10 @@ class _Inspector:
                     note='一侧文件格式不支持内部展开，仅保留原始文件差异。')
                 continue
             try:
-                file.archive_details = self.inspect(old, new, depth, names)
+                with self.inspect(old, new, depth, names) as (detail, child):
+                    if child is not None:
+                        yield child
+                    file.archive_details = detail
             except Exception as exc:
                 if self.best_effort:
                     note = '包内分析未完成，原始压缩包已保留：' + str(exc)
@@ -186,10 +243,12 @@ class _Inspector:
                     f'新侧 [{file.file_path if new else "不存在"}]: {exc}'
                 ) from exc
 
+    @contextmanager
     def inspect(self, old, new, depth, names):
         if old and new and _same_archive_bytes(old, new):
-            return dict(status='identical', members=[],
-                        note='压缩包原始字节相同，未继续展开；重命名或属性变化见上方。')
+            yield (dict(status='identical', members=[],
+                        note='压缩包原始字节相同，未继续展开；重命名或属性变化见上方。'), None)
+            return
         if self.budget.max_depth is not None and depth > self.budget.max_depth:
             raise RuntimeError('包内递归深度超过安全限制: ' + ' → '.join(names))
         try:
@@ -198,25 +257,29 @@ class _Inspector:
                     raise ValueError(f'{side}侧待交付文件是 Git LFS 指针，不是实际压缩包；本功能不下载 LFS 对象')
             if old is None or new is None:
                 with _empty_archive() as empty:
-                    return self.compare(old or empty, new or empty, depth, names)
-            return self.compare(old, new, depth, names)
+                    with self.compare(old or empty, new or empty, depth, names) as prepared:
+                        yield prepared
+            else:
+                with self.compare(old, new, depth, names) as prepared:
+                    yield prepared
         except Exception as exc:
             raise RuntimeError('压缩包内部比较失败 [' + ' → '.join(names) +
                                ']: ' + str(exc)) from exc
 
+    @contextmanager
     def compare(self, old, new, depth, names):
         from diff_engine import DiffEngine
         vcs = _ReportArchiveVCS(old, new, self.budget, extraction_excludes=self.patterns or None)
         try:
             vcs.set_exclude_patterns(self.patterns)
             result = DiffEngine(vcs, show_full_context=self.show_full_context, retain_text_contents=False, detail_store=self.detail_store).generate_diff('old', 'new')
-            self.attach(result, vcs, depth + 1, names)
+            detail = dict(status='compared', members=result.files,
+                          counts=result.summary, filtered=bool(self.patterns),
+                          duplicate_members=vcs.duplicate_members)
+            yield detail, (result, vcs, depth + 1, names)
             for member in result.files:
                 # Only the rendered details are retained; these are not exports.
                 member.old_content = member.new_content = ''
-            return dict(status='compared', members=result.files,
-                        counts=result.summary, filtered=bool(self.patterns),
-                        duplicate_members=vcs.duplicate_members)
         finally:
             vcs.cleanup()
 

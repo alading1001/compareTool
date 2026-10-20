@@ -30,7 +30,7 @@ from logger import warn
 
 
 def _run_capped_process(
-    args: List[str], cwd: str, timeout, max_output_bytes, label: str
+    args: List[str], cwd: str, timeout, max_output_bytes, label: str, *, env=None
 ):
     """并行抽干 stdout/stderr。超时和输出上限均为可选策略。"""
     try:
@@ -39,6 +39,7 @@ def _run_capped_process(
             cwd=cwd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            **({'env': env} if env is not None else {}),
         )
     except FileNotFoundError:
         raise
@@ -1100,7 +1101,7 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
             raise
 
     @classmethod
-    def _run(cls, args: list, cwd: str) -> bytes:
+    def _run(cls, args: list, cwd: str, *, env=None) -> bytes:
         try:
             returncode, stdout, stderr = _run_capped_process(
                 args,
@@ -1108,6 +1109,7 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
                 timeout=cls.COMMAND_TIMEOUT,
                 max_output_bytes=cls.MAX_GIT_COMMAND_OUTPUT_BYTES,
                 label="Git 多版本命令",
+                **({'env': env} if env is not None else {}),
             )
         except FileNotFoundError:
             raise RuntimeError(GIT_NOT_FOUND_MESSAGE)
@@ -1117,6 +1119,10 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
         return stdout
 
     def _git_bytes(self, *args: str) -> bytes:
+        snapshot = getattr(self._content_vcs, '_checkout_snapshot', None)
+        if snapshot is not None and args[0] in ('ls-tree', 'cat-file', 'show'):
+            return self._run([self._git_exe, '--literal-pathspecs', *snapshot.args, *args],
+                             snapshot.root, env=snapshot.env)
         return self._run([self._git_exe, "--literal-pathspecs"] + list(args), self._content_vcs._git_cwd())
 
     def _git(self, *args: str) -> str:
@@ -1810,6 +1816,7 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
                     "--name-status",
                     "-z",
                     "--find-renames=50%",
+                    "-l0",
                     "--",
                     old_dir,
                     new_dir,
@@ -1831,16 +1838,16 @@ class GitMultiVersionVCS(_MultiVersionFolderDelegate):
         return matched
 
     def _diff_changes(self, commit: str, parent: str, threshold: str) -> List[_HistoryChange]:
-        # 忽略子模块的 Git 配置不能让非普通端点绕过最终校验。
+        # 取消 renameLimit，保留完整身份检测；子模块仍进入非普通端点校验。
         if parent:
             args = (
-                "diff", "--name-status", "-z", f"--find-renames={threshold}",
+                "diff", "--name-status", "-z", f"--find-renames={threshold}", "-l0",
                 "--ignore-submodules=none", parent, commit, "--",
             )
         else:
             args = (
                 "diff-tree", "--root", "--no-commit-id", "--name-status", "-z",
-                "-r", f"--find-renames={threshold}", "--ignore-submodules=none", commit, "--",
+                "-r", f"--find-renames={threshold}", "-l0", "--ignore-submodules=none", commit, "--",
             )
         changes = self._parse_git_changes(self._git_bytes(*args))
         scoped = []
@@ -2062,6 +2069,11 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
     MAX_SVN_PATH_BYTES = None
     MAX_SVN_LIST_ENTRIES = None
     COMMAND_TIMEOUT = None
+
+    _is_excluded = SVNVCS._is_excluded
+    _is_excluded_tree = SVNVCS._is_excluded_tree
+    _record_excluded_old_path = SVNVCS._record_excluded_old_path
+    _accept_delivery_paths = SVNVCS._accept_delivery_paths
 
     @staticmethod
     def get_recent_versions(project_path: str, svn_path: str = "", limit: int = 100) -> List[str]:
@@ -2460,24 +2472,28 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
             root_candidate = max(
                 root_copy_candidates,
                 key=lambda item: item[0],
-                default=(0, "", "", 0, False, False),
+                # 空字符串是有效的仓库根前缀；None 才表示没有根 copy。
+                default=(0, None, None, 0, False, False),
             )
             root_copyfrom = root_candidate[1]
             root_source = root_candidate[2]
+            # R 会移除旧目录，即使替换后的新节点是文件也要追溯真实旧根。
             deleted_roots = {
                 self._normalize_repo_path(node.text or "").strip("/")
-                for node in entry_nodes if (node.get("action") or "").upper() == "D"
-                and (node.get("kind") or "").lower() == "dir"
+                for node in entry_nodes
+                if (node.get("action") or "").upper() == "R" or (
+                    (node.get("action") or "").upper() == "D"
+                    and (node.get("kind") or "").lower() == "dir")
             }
             root_transition_is_move = bool(root_source) and _path_is_covered_by_prefix(
                 root_source, deleted_roots
             )
-            root_snapshot_changed = bool(root_copyfrom) and (
+            root_snapshot_changed = root_copyfrom is not None and (
                 root_copyfrom == current_prefix
                 or (root_transition_is_move and root_candidate[3] < revision - 1)
             )
             items = []
-            if root_copyfrom:
+            if root_copyfrom is not None:
                 # 即使移动的是项目祖先，当前项目根也发生了有效的历史前缀
                 # 切换。根标记供选中 revision 检查属性；R 还会在显式子变更
                 # 处理完后补齐真实 r-1/r 的成员变化，不能直接作为普通目录展开。
@@ -2497,7 +2513,8 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                     continue
                 action = (node.get("action") or "").upper()
                 kind = (node.get("kind") or "").lower()
-                if rel_path == "" and root_copyfrom and action in ("A", "R") and kind == "dir":
+                if (rel_path == "" and root_copyfrom is not None
+                        and action in ("A", "R") and kind == "dir"):
                     # 根事件统一由上面的标记处理，避免重复展开成员。
                     # 覆盖移动仍沿源项目追溯，不混入被覆盖的旧目标身份。
                     continue
@@ -2508,7 +2525,7 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                     copyfrom_absolute, current_prefix
                 )
                 copyfrom_historical = False
-                if copyfrom is None and root_copyfrom:
+                if copyfrom is None and root_copyfrom is not None:
                     copyfrom = self._repo_to_project_path(
                         copyfrom_absolute, root_copyfrom
                     )
@@ -2530,7 +2547,7 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                     ),
                 ))
             history[revision] = items
-            if root_copyfrom:
+            if root_copyfrom is not None:
                 transitions.append((revision, current_prefix, root_copyfrom))
                 current_prefix = root_copyfrom
             if (root_snapshot_changed and first_revision is not None
@@ -2554,15 +2571,15 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         # svn log --xml 返回仓库中的字面路径；其中的 %HH 不代表 URL 转义，
         # 解码会把合法文件名改成另一个身份。只有 svn info 的 relative-url
         # 输出需要在其专用解析处 unquote。
-        return "/" + repo_path.replace("\\", "/").strip("/")
+        return "/" + repo_path.strip("/")
 
     def _repo_to_project_path(
-        self, repo_path: str, project_prefix: str = ""
+        self, repo_path: str, project_prefix: Optional[str] = None
     ) -> Optional[str]:
         if not repo_path:
             return None
         normalized = self._normalize_repo_path(repo_path).rstrip("/")
-        prefix = (project_prefix or self._project_repo_path).rstrip("/")
+        prefix = (self._project_repo_path if project_prefix is None else project_prefix).rstrip("/")
         if normalized == prefix:
             return ""
         if not normalized.startswith(prefix + "/"):
@@ -3273,7 +3290,7 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
         return result
 
     def _list_svn_files(self, directory: str, revision: int) -> List[str]:
-        relative = directory.replace("\\", "/").strip("/")
+        relative = directory.strip("/")
         url = self._svn_file_url(str(revision), relative)
         output = self._run_bytes([
             "list", "--xml", "-R", "--non-interactive", "-r", str(revision),
@@ -3294,7 +3311,6 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
                 if entry.get("kind") == "file":
                     name = (
                         (entry.findtext("name") or "")
-                        .replace("\\", "/")
                         .strip("/")
                     )
                     if name and self.MAX_SVN_PATH_BYTES is not None:
@@ -3510,7 +3526,7 @@ class SVNMultiVersionVCS(_MultiVersionFolderDelegate):
     def _svn_file_url(self, version: str, path: str) -> str:
         revision = int(str(version).lstrip("rR"))
         project_prefix = self._project_repo_path_at(revision).rstrip("/")
-        relative = path.replace("\\", "/").strip("/")
+        relative = path.strip("/")
         repo_path = project_prefix + ("/" + relative if relative else "")
         return f"{self._repo_root_url.rstrip('/')}{quote(repo_path, safe='/')}@{revision}"
 

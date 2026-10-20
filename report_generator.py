@@ -6,7 +6,8 @@ from functools import wraps
 from datetime import datetime
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from diff_engine import DiffResult
-from delivery_instructions import DELIVERY_INSTRUCTIONS_FILENAME
+from delivery_instructions import DELIVERY_INSTRUCTIONS_FILENAME, issue_path_text
+from archive_report import iter_archive_events
 from stage_ownership import mark_owned, remove_ownership_marker
 
 
@@ -41,6 +42,8 @@ class ReportGenerator:
             loader=FileSystemLoader(template_dir),
             autoescape=select_autoescape(enabled_extensions=("html", "xml")),
         )
+        self.env.globals.update(iter_archive_events=iter_archive_events,
+                                issue_path_text=issue_path_text)
 
     @measured_phase('report.write', '写入 HTML 报告')
     @resilient_report
@@ -133,7 +136,7 @@ class ReportGenerator:
             yield ('交付未完成，请先核对下面问题清单。' if result.delivery_incomplete else '已导出文件清单。')
             yield '</p><pre>' + escaped(result.comparison_note) + '</pre>'
             for issue in result.issues:
-                yield '<p>' + escaped(f"[{issue['stage']}] {issue['path']} {issue['message']}") + '</p>'
+                yield '<p>' + escaped(f"[{issue['stage']}] {issue_path_text(issue)} {issue['message']}") + '</p>'
             yield '<ul>'
             for file in result.files:
                 yield '<li>' + escaped(f'{file.report_type} {file.old_path + " → " if file.old_path else ""}{file.file_path}') + '</li>'

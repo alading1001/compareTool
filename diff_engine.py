@@ -946,6 +946,8 @@ class DiffEngine:
             if len(old_items) == 1 and len(new_items) == 1:
                 old_item = old_items[0]
                 new_item = new_items[0]
+                if old_item.path == new_item.path:
+                    continue
                 paired_old_ids.add(id(old_item))
                 pairs_by_new_id[id(new_item)] = old_item
 
@@ -953,14 +955,20 @@ class DiffEngine:
             return changed_files
 
         result = []
+        rename_metadata_getter = getattr(self.vcs, 'get_rename_metadata_changes', None)
         for item in changed_files:
             if id(item) in paired_old_ids:
                 continue
             old_item = pairs_by_new_id.get(id(item))
             if old_item:
-                metadata_changes = list(dict.fromkeys(
-                    list(old_item.metadata_changes) + list(item.metadata_changes)
-                ))
+                if callable(rename_metadata_getter):
+                    # D/A 的单侧属性说明包含虚拟的空端点，合并后必须重算。
+                    metadata_changes = list(rename_metadata_getter(
+                        old_version, old_item.path, new_version, item.path))
+                else:
+                    metadata_changes = list(dict.fromkeys(
+                        list(old_item.metadata_changes) + list(item.metadata_changes)
+                    ))
                 result.append(ChangedFile(
                     path=item.path,
                     change_type=ChangeType.RENAMED,

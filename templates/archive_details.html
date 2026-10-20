@@ -1,3 +1,5 @@
+{% for event, detail, member in iter_archive_events(detail) %}
+{% if event == 'section' %}
 <section class="archive-report">
   <div class="archive-note">包内审查明细：只供报告查看，不单独交付、不重新打包，也不生成服务器删除指令。</div>
   {% if detail.status != 'compared' %}
@@ -17,7 +19,8 @@
     {% endfor %}
     {% endif %}
     {% if not detail.members %}<p class="archive-note">本层未发现可展示的成员差异；原始包的新增、删除、属性或字节变化仍然有效。</p>{% endif %}
-    {% for member in detail.members %}
+  {% endif %}
+{% elif event == 'member' %}
     <details class="archive-member">
       <summary><span class="archive-tag archive-tag-{{ member.report_type }}">{{ {'A':'新增','M':'修改','F':'格式变化','D':'删除','R':'重命名'}[member.report_type] }}</span>
         {% if member.old_path %}{{ member.old_path }} → {% endif %}{{ member.file_path }}
@@ -26,14 +29,15 @@
       <template class="archive-member-template">
       {% if member.archive_details %}
         {% for note in member.metadata_changes %}<p class="archive-note">{{ note }}</p>{% endfor %}
-        {% with detail=member.archive_details %}{% include 'archive_details.html' %}{% endwith %}
       {% else %}
         <div class="archive-inline-nav"><button type="button" data-archive-step="-1">上一处</button>
           <span class="archive-diff-count"></span><button type="button" data-archive-step="1">下一处</button></div>
         <div class="archive-leaf">{% with detail_file=member %}{% include 'file_detail.html' %}{% endwith %}</div>
       {% endif %}
+{% elif event == 'member_end' %}
       </template><div class="archive-member-body"></div>
     </details>
-    {% endfor %}
-  {% endif %}
+{% elif event == 'section_end' %}
 </section>
+{% endif %}
+{% endfor %}

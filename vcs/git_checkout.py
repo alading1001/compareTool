@@ -2,6 +2,7 @@
 
 import hashlib
 import os
+import re
 import stat
 import subprocess
 from collections import OrderedDict
@@ -35,6 +36,10 @@ class GitCheckoutSnapshot:
         })
         self.sources = self._attribute_paths(vcs)
         before = self._source_state(self.sources)
+        replacements = self.replace_ref_state(vcs)
+        if replacements != getattr(vcs, '_replacement_state', replacements):
+            raise RuntimeError('Git 替换引用在任务快照期间发生变化，已中止生成')
+        self.replacement_state = replacements
         try:
             self.root = create_temp_dir("comparetool_git_checkout_")
             object_format = vcs._run_bytes(["rev-parse", "--show-object-format"]).decode("ascii").strip()
@@ -46,6 +51,18 @@ class GitCheckoutSnapshot:
             alternate = os.path.join(self.root, "objects", "info", "alternates")
             with open(alternate, "w", encoding="utf-8", newline="\n") as stream:
                 stream.write(objects.replace("\\", "/") + "\n")
+            # 共享对象不包含 refs/replace；正文和属性探针须使用同一固定映射。
+            self.env['GIT_REPLACE_REF_BASE'] = 'refs/replace/'
+            if replacements[0] is not None:
+                self.env['GIT_NO_REPLACE_OBJECTS'] = replacements[0]
+            if replacements[2]:
+                self._run([f'--git-dir={self.root}', 'config',
+                           'core.useReplaceRefs', replacements[2]])
+            updates = ''.join(f'update refs/replace/{old} {new}\n'
+                              for old, new in replacements[3])
+            if updates:
+                self._run([f'--git-dir={self.root}', 'update-ref', '--stdin'],
+                          data=updates.encode('ascii'))
             global_attrs = os.path.join(self.root, "global_attributes")
             with open(global_attrs, "wb") as target:
                 for index, path in enumerate(self.sources[:2]):
@@ -74,9 +91,30 @@ class GitCheckoutSnapshot:
             if before != self._source_state(self._attribute_paths(vcs)):
                 raise RuntimeError("Git 属性文件在任务快照期间发生变化，已中止生成")
             self.source_state = before
+            if replacements != self.replace_ref_state(vcs):
+                raise RuntimeError('Git 替换引用在任务快照期间发生变化，已中止生成')
         except BaseException:
             self.cleanup()
             raise
+
+    @staticmethod
+    def replace_ref_state(vcs):
+        disabled = os.environ.get('GIT_NO_REPLACE_OBJECTS')
+        namespace = os.environ.get('GIT_REPLACE_REF_BASE')
+        prefix = namespace or 'refs/replace/'
+        policy = vcs._read_git_config_value('core.useReplaceRefs')
+        payload = vcs._run_bytes(['for-each-ref', '--format=%(refname)%00%(objectname)',
+                                  '--', prefix])
+        records = []
+        base = prefix.encode('utf-8', 'surrogateescape')
+        for record in payload.splitlines():
+            name, separator, target = record.partition(b'\0')
+            if separator and name.startswith(base):
+                original = name[len(base):]
+                if (re.fullmatch(rb'(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})', original)
+                        and re.fullmatch(rb'(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})', target)):
+                    records.append((original.decode('ascii'), target.decode('ascii')))
+        return disabled, namespace, policy, tuple(sorted(records))
 
     @staticmethod
     def _attribute_paths(vcs):
@@ -131,6 +169,8 @@ class GitCheckoutSnapshot:
     def verify_source(self, vcs):
         if self.source_state != self._source_state(self._attribute_paths(vcs)):
             raise RuntimeError("Git 属性文件在任务快照期间发生变化，已中止生成")
+        if self.replacement_state != self.replace_ref_state(vcs):
+            raise RuntimeError('Git 替换引用在任务快照期间发生变化，已中止生成')
 
     def _run(self, args, *, endpoint=None, data=None):
         env = dict(self.env)

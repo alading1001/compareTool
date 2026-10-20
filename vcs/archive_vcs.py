@@ -1570,6 +1570,14 @@ class ArchiveVCS(BaseVCS):
                 )
         return self._filter_files(files)
 
+    def get_rename_metadata_changes(self, old_version, old_path, new_version, new_path):
+        """改名后的权限说明比较真实成员，不能合并两个单侧空端点。"""
+        old = self._old_metadata.get(old_path)
+        new = self._new_metadata.get(new_path)
+        if old and new and old != new:
+            return [f"压缩包文件模式：{old['mode']} → {new['mode']}"]
+        return []
+
     def _require_materialized_path(self, file_path):
         fixed = getattr(self, "_sparse_patterns", None)
         if fixed is not None and any(self._match_glob_pattern(file_path, p, True) for p in fixed):

@@ -19,9 +19,10 @@ class MissingGitObject(FileNotFoundError):
 class GitBatchReader:
     CHUNK_SIZE = 1024 * 1024
 
-    def __init__(self, git, cwd):
+    def __init__(self, git, cwd, *, env=None):
         self.git = git
         self.cwd = cwd
+        self.env = dict(env) if env is not None else None
         self._process = None
         self._stderr = None
         self._lock = threading.Lock()
@@ -38,7 +39,7 @@ class GitBatchReader:
         self._stderr = open_temp_file(prefix="comparetool_git_batch_")
         try:
             self._process = subprocess.Popen(
-                [self.git, "cat-file", "--batch"], cwd=self.cwd,
+                [self.git, "cat-file", "--batch"], cwd=self.cwd, env=self.env,
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                 stderr=self._stderr, bufsize=64 * 1024,
             )
