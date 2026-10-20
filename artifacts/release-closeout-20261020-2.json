@@ -2,7 +2,7 @@
   "schema": "comparetool.release-closeout.v2",
   "date": "2026-10-20",
   "verified_at_beijing": "2026-10-20T17:23:18+08:00",
-  "release_state": "source-committed-and-pushed; local-release-and-installation-live-verified; knowledge-closed; cleanup-pending",
+  "release_state": "source-committed-and-pushed; local-release-and-installation-live-verified; knowledge-closed; cleaned",
   "source_commit": "ef7d55ea79dd5bccd87c0fbdfe71176c4e801ea8",
   "build": {
     "metadata": {
@@ -404,7 +404,8 @@
     "url": "https://github.com/alading1001/compareTool.git",
     "source_commit_observed": "ef7d55ea79dd5bccd87c0fbdfe71176c4e801ea8",
     "source_push_verified": true,
-    "receipt_commit": "发布凭证与 README 在后续中文收尾提交中推送；最终提交及远端一致性在任务最终回执核对。"
+    "receipt_commit": "ebedcabb6b8f8d72ddf6dd648cb37b4d448f7b79",
+    "receipt_push_verified": true
   },
   "facts": {
     "code": {
@@ -451,8 +452,8 @@
       "modifications": false
     },
     "workspace": {
-      "status": "pending",
-      "reason": "仅临时现场清场待汇报后确认；所有实现及发布文档纳入中文提交。",
+      "status": "changed-and-verified",
+      "reason": "用户在最终报告后回复“清理”；精确清理六个临时目录及八个辅助文件，正式包、配置、备份及清单外历史目录完整保留。",
       "worktrees": "worktree D:/AI/project/compareTool_myself\nHEAD ef7d55ea79dd5bccd87c0fbdfe71176c4e801ea8\nbranch refs/heads/master",
       "markdown_files": 33
     }
@@ -461,122 +462,150 @@
     {
       "path": ".tmp/audit_current_20261020_c0bdbd9b",
       "reason": "本轮首次隔离回归及沙箱失败现场",
-      "disposition": "preview-only; preserved pending explicit post-report confirmation",
+      "disposition": "deleted after explicit post-report user confirmation",
       "files": 768,
       "bytes": 43443010,
-      "reparse_paths_preserved": []
+      "reparse_paths_preserved": [],
+      "actual_deleted_files": 768,
+      "actual_deleted_bytes": 43443010
     },
     {
       "path": ".tmp/audit_current_20261020_db472b17",
       "reason": "本轮只读审查、缺陷复现及原始回归副本",
-      "disposition": "preview-only; preserved pending explicit post-report confirmation",
+      "disposition": "deleted after explicit post-report user confirmation",
       "files": 964,
       "bytes": 43312232,
-      "reparse_paths_preserved": []
+      "reparse_paths_preserved": [],
+      "actual_deleted_files": 964,
+      "actual_deleted_bytes": 43312232
     },
     {
       "path": ".tmp/audit_current_20261020_f11ff679",
       "reason": "本轮修复后四份全量回归副本",
-      "disposition": "preview-only; preserved pending explicit post-report confirmation",
+      "disposition": "deleted after explicit post-report user confirmation",
       "files": 771,
       "bytes": 43522913,
-      "reparse_paths_preserved": []
+      "reparse_paths_preserved": [],
+      "actual_deleted_files": 771,
+      "actual_deleted_bytes": 43522913
     },
     {
       "path": ".tmp/fix_review_20261020_01a15850",
       "reason": "本轮修复前备份、对照和专项复跑现场",
-      "disposition": "preview-only; preserved pending explicit post-report confirmation",
+      "disposition": "deleted after explicit post-report user confirmation",
       "files": 1364,
       "bytes": 76183068,
-      "reparse_paths_preserved": []
+      "reparse_paths_preserved": [],
+      "actual_deleted_files": 1364,
+      "actual_deleted_bytes": 76183068
     },
     {
       "path": ".tmp/release_build_9ee67ezi",
       "reason": "本次已发布 EXE 的可重建 PyInstaller 中间产物",
-      "disposition": "preview-only; preserved pending explicit post-report confirmation",
+      "disposition": "deleted after explicit post-report user confirmation",
       "files": 17,
       "bytes": 48000553,
-      "reparse_paths_preserved": []
+      "reparse_paths_preserved": [],
+      "actual_deleted_files": 17,
+      "actual_deleted_bytes": 48000553
     },
     {
       "path": ".tmp/release_closeout_20261020_2",
       "reason": "本次发布夹具、报告、窗口文本与原始日志",
-      "disposition": "preview-only; preserved pending explicit post-report confirmation",
+      "disposition": "deleted after explicit post-report user confirmation",
       "files": 207,
       "bytes": 8099215,
-      "reparse_paths_preserved": []
+      "reparse_paths_preserved": [],
+      "actual_deleted_files": 211,
+      "actual_deleted_bytes": 8103464
     },
     {
       "path": ".tmp/audit_20261020_current.py",
       "reason": "本次已完成的一次性审查/发布脚本或提交正文",
-      "disposition": "preview-only; preserved pending explicit post-report confirmation",
+      "disposition": "deleted after explicit post-report user confirmation",
       "files": 1,
       "bytes": 2967,
-      "reparse_paths_preserved": []
+      "reparse_paths_preserved": [],
+      "actual_deleted_files": 1,
+      "actual_deleted_bytes": 2967
     },
     {
       "path": ".tmp/release_closeout_20261020_2_install.py",
       "reason": "本次已完成的一次性审查/发布脚本或提交正文",
-      "disposition": "preview-only; preserved pending explicit post-report confirmation",
+      "disposition": "deleted after explicit post-report user confirmation",
       "files": 1,
       "bytes": 2134,
-      "reparse_paths_preserved": []
+      "reparse_paths_preserved": [],
+      "actual_deleted_files": 1,
+      "actual_deleted_bytes": 2134
     },
     {
       "path": ".tmp/release_closeout_20261020_2_preflight.py",
       "reason": "本次已完成的一次性审查/发布脚本或提交正文",
-      "disposition": "preview-only; preserved pending explicit post-report confirmation",
+      "disposition": "deleted after explicit post-report user confirmation",
       "files": 1,
       "bytes": 3302,
-      "reparse_paths_preserved": []
+      "reparse_paths_preserved": [],
+      "actual_deleted_files": 1,
+      "actual_deleted_bytes": 3302
     },
     {
       "path": ".tmp/release_closeout_20261020_2_prepare_smoke.py",
       "reason": "本次已完成的一次性审查/发布脚本或提交正文",
-      "disposition": "preview-only; preserved pending explicit post-report confirmation",
+      "disposition": "deleted after explicit post-report user confirmation",
       "files": 1,
       "bytes": 4257,
-      "reparse_paths_preserved": []
+      "reparse_paths_preserved": [],
+      "actual_deleted_files": 1,
+      "actual_deleted_bytes": 4257
     },
     {
       "path": ".tmp/release_closeout_20261020_2_receipt.py",
       "reason": "本次已完成的一次性审查/发布脚本或提交正文",
-      "disposition": "preview-only; preserved pending explicit post-report confirmation",
+      "disposition": "deleted after explicit post-report user confirmation",
       "files": 1,
       "bytes": 10614,
-      "reparse_paths_preserved": []
+      "reparse_paths_preserved": [],
+      "actual_deleted_files": 1,
+      "actual_deleted_bytes": 10614
     },
     {
       "path": ".tmp/release_closeout_20261020_2_verify_bundle.py",
       "reason": "本次已完成的一次性审查/发布脚本或提交正文",
-      "disposition": "preview-only; preserved pending explicit post-report confirmation",
+      "disposition": "deleted after explicit post-report user confirmation",
       "files": 1,
       "bytes": 3949,
-      "reparse_paths_preserved": []
+      "reparse_paths_preserved": [],
+      "actual_deleted_files": 1,
+      "actual_deleted_bytes": 3949
     },
     {
       "path": ".tmp/release_closeout_20261020_2_verify_native.py",
       "reason": "本次已完成的一次性审查/发布脚本或提交正文",
-      "disposition": "preview-only; preserved pending explicit post-report confirmation",
+      "disposition": "deleted after explicit post-report user confirmation",
       "files": 1,
       "bytes": 3180,
-      "reparse_paths_preserved": []
+      "reparse_paths_preserved": [],
+      "actual_deleted_files": 1,
+      "actual_deleted_bytes": 3180
     },
     {
       "path": ".tmp/release_closeout_20261020_2_commit_source.txt",
       "reason": "本次已完成的一次性审查/发布脚本或提交正文",
-      "disposition": "preview-only; preserved pending explicit post-report confirmation",
+      "disposition": "deleted after explicit post-report user confirmation",
       "files": 1,
       "bytes": 624,
-      "reparse_paths_preserved": []
+      "reparse_paths_preserved": [],
+      "actual_deleted_files": 1,
+      "actual_deleted_bytes": 624
     }
   ],
-  "cleanup_performed": false,
+  "cleanup_performed": true,
   "cleanup_totals": {
     "directories": 6,
     "helper_files": 8,
-    "files": 4099,
-    "logical_bytes": 262592018
+    "files": 4103,
+    "logical_bytes": 262596267
   },
   "protected": {
     "dist": "dist/CompareTool.exe",
@@ -594,7 +623,7 @@
     "other_projects": "out-of-scope",
     "production_services": "not-applicable",
     "memory_write": "out-of-scope",
-    "cleanup": "pending: final report followed by explicit user confirmation"
+    "cleanup": "changed-and-verified: exact approved allowlist only"
   },
   "warnings": [
     "完整源码回归中 1 项 Windows 符号链接测试因 WinError 1314 跳过，未计为通过。",
@@ -614,5 +643,25 @@
       "target": "D:\\java\\applications\\CompareTool\\CompareTool.exe",
       "working_directory": "D:\\java\\applications\\CompareTool"
     }
-  ]
+  ],
+  "previewed_cleanup_totals": {
+    "directories": 6,
+    "helper_files": 8,
+    "files": 4099,
+    "logical_bytes": 262592018
+  },
+  "cleanup_result": {
+    "reference": "artifacts/cleanup-closeout-20261020-2.json",
+    "completed_at": "2026-10-20T17:27:12+08:00",
+    "user_confirmation": "清理",
+    "deleted_directories": 6,
+    "deleted_helper_files": 8,
+    "files": 4103,
+    "logical_bytes_removed": 262596267,
+    "protected_hashes_unchanged": true,
+    "tracked_files_unchanged_during_deletion": true,
+    "scope_note": "目录预览后新增的最终回执、提交正文及检查脚本随该已批准目录一并清理；未扩大目录或辅助文件清单。"
+  },
+  "evidence_root_status": "removed by explicitly approved cleanup; canonical source/build/runtime/installation verification remains in committed artifacts",
+  "inventory_file_status": "removed with approved release site; inventory/rule/final-state summaries retained in committed release and cleanup receipts"
 }
