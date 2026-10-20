@@ -1,0 +1,618 @@
+{
+  "schema": "comparetool.release-closeout.v2",
+  "date": "2026-10-20",
+  "verified_at_beijing": "2026-10-20T17:23:18+08:00",
+  "release_state": "source-committed-and-pushed; local-release-and-installation-live-verified; knowledge-closed; cleanup-pending",
+  "source_commit": "ef7d55ea79dd5bccd87c0fbdfe71176c4e801ea8",
+  "build": {
+    "metadata": {
+      "version": "2026.10.20.2",
+      "build_id": "11dbbf3810",
+      "built_at": "2026-10-20T17:11:26+08:00",
+      "commit": "ef7d55ea79dd5bccd87c0fbdfe71176c4e801ea8",
+      "dirty": false,
+      "source_sha256": "11dbbf381019532de9f61ab0a5c27ad261e1ab7d79e860ba3d9404ac826e8ff9",
+      "exe_sha256": "f21d5d5ff3625fd716c1c5a929f7ed862cadac293069f51f53fb9aa46b8abb89"
+    },
+    "bundle_verification": {
+      "modules": [
+        "app_version.py",
+        "archive_endpoints.py",
+        "archive_report.py",
+        "delivery_instructions.py",
+        "diff_engine.py",
+        "file_exporter.py",
+        "html_details.py",
+        "logger.py",
+        "main.py",
+        "path_safety.py",
+        "report_generator.py",
+        "stable_diff.py",
+        "stage_ownership.py",
+        "task_progress.py",
+        "ui_progress.py",
+        "vcs/archive_vcs.py",
+        "vcs/base.py",
+        "vcs/folder_vcs.py",
+        "vcs/git_batch.py",
+        "vcs/git_checkout.py",
+        "vcs/git_paths.py",
+        "vcs/git_probe_batch.py",
+        "vcs/git_vcs.py",
+        "vcs/multi_version_vcs.py",
+        "vcs/raw_cache.py",
+        "vcs/svn_vcs.py",
+        "vcs/temp_storage.py",
+        "vcs/__init__.py"
+      ],
+      "resources": [
+        "templates/archive_details.html",
+        "templates/archive_script.html",
+        "templates/archive_style.html",
+        "templates/file_detail.html",
+        "templates/multi_report.html",
+        "templates/report.html",
+        "templates/result_issues.html",
+        "templates/summary_issues.html",
+        "assets/icons/app.ico",
+        "assets/icons/compass.ico",
+        "assets/icons/ct.ico",
+        "assets/icons/diff.ico",
+        "assets/icons/prism.ico",
+        "assets/icons/prism2.ico",
+        "assets/icons/source/compass.png",
+        "assets/icons/source/ct.png",
+        "assets/icons/source/diff.png",
+        "assets/icons/source/prism.png",
+        "assets/icons/source/prism2.png"
+      ],
+      "module_count": 28,
+      "resource_count": 19,
+      "embedded_metadata": {
+        "version": "2026.10.20.2",
+        "build_id": "11dbbf3810",
+        "built_at": "2026-10-20T17:11:26+08:00",
+        "commit": "ef7d55ea79dd5bccd87c0fbdfe71176c4e801ea8",
+        "dirty": false,
+        "source_sha256": "11dbbf381019532de9f61ab0a5c27ad261e1ab7d79e860ba3d9404ac826e8ff9"
+      },
+      "metadata_matches": true,
+      "runtime_matches_full_regression": true,
+      "manual_bytes_match": true,
+      "tests": {
+        "tests": 14,
+        "successful": true,
+        "failures": [],
+        "errors": [],
+        "skipped": []
+      },
+      "scope": "EXE 中实际代码对象在本机 Python 下运行的定向回归；真实 EXE GUI 另行验收。"
+    },
+    "manual_sha256": "ee58ab468d67631ce2c26bf924b9f58f0cfe983efc4b5db943aabc5d06f86877",
+    "manual_unchanged": true,
+    "manual_regenerated": false
+  },
+  "smoke": {
+    "actual_exe": "D:\\AI\\project\\compareTool_myself\\dist\\CompareTool.exe",
+    "window_title": "代码比对报告工具 v2026.10.20.2 [11dbbf3810]",
+    "modes": [
+      "git",
+      "git_multi",
+      "svn",
+      "svn_multi",
+      "folder",
+      "archive"
+    ],
+    "multi_projects": 6,
+    "multi_changed_files": 30,
+    "multi_exported_files": 48,
+    "single_exported_files": 8,
+    "exported_bytes_match": true,
+    "native_git_filters_match": true,
+    "unicode_input_output_paths_preserved": true,
+    "no_adjacent_repository_content": true,
+    "nested_container_depth": 5,
+    "old_new_deep_content_visible": true,
+    "private_output_stages_clean": true,
+    "reports": [
+      "D:\\AI\\project\\compareTool_myself\\.tmp\\release_closeout_20261020_2\\native_output \\20261020\\multi_run_20261020_171500_636_ec5aab8e\\multi_compare_report_20261020_171500_636.html",
+      "D:\\AI\\project\\compareTool_myself\\.tmp\\release_closeout_20261020_2\\native_output \\20261020\\work_diff.html"
+    ],
+    "report_sha256": {
+      "native_output \\20261020\\multi_run_20261020_171500_636_ec5aab8e\\multi_compare_report_20261020_171500_636.html": "0dd3c08943161f2d2b9fb75af95393199728dc67de74fd5335269bf0dbf239f7",
+      "native_output \\20261020\\work_diff.html": "cfbbdc244f9d2ae81e83a0700272cc0a44a03d3fc210d5b7d40d07e9457b5ef9"
+    },
+    "tasks": [
+      {
+        "schema": "comparetool.task.v1",
+        "task_id": "20261020_171536_2cd094baa608",
+        "mode": "multi",
+        "build": {
+          "version": "2026.10.20.2",
+          "build_id": "11dbbf3810",
+          "built_at": "2026-10-20T17:11:26+08:00",
+          "commit": "ef7d55ea79dd5bccd87c0fbdfe71176c4e801ea8",
+          "dirty": false,
+          "source_sha256": "11dbbf381019532de9f61ab0a5c27ad261e1ab7d79e860ba3d9404ac826e8ff9"
+        },
+        "success": true,
+        "seconds": 13.243064,
+        "phases": {
+          "output.clear": {
+            "calls": 1,
+            "seconds": 0.010075499998492887,
+            "exclusive_seconds": 0.010075499998492887
+          },
+          "git.changes": {
+            "calls": 1,
+            "seconds": 3.088993699999264,
+            "exclusive_seconds": 3.088993699999264
+          },
+          "diff.renames": {
+            "calls": 34,
+            "seconds": 0.4857636999877286,
+            "exclusive_seconds": 0.4857636999877286
+          },
+          "diff.render": {
+            "calls": 36,
+            "seconds": 0.2638258999977552,
+            "exclusive_seconds": 0.2638258999977552
+          },
+          "diff.total": {
+            "calls": 36,
+            "seconds": 5.021634399985487,
+            "exclusive_seconds": 0.17153909999979078
+          },
+          "project.prepare": {
+            "calls": 6,
+            "seconds": 10.144009500003449,
+            "exclusive_seconds": 5.271794600004796
+          },
+          "svn.changes": {
+            "calls": 1,
+            "seconds": 0.9293269999980112,
+            "exclusive_seconds": 0.9293269999980112
+          },
+          "folder.capture": {
+            "calls": 2,
+            "seconds": 0.015280399999028305,
+            "exclusive_seconds": 0.015280399999028305
+          },
+          "folder.compare": {
+            "calls": 1,
+            "seconds": 0.005471799999213545,
+            "exclusive_seconds": 0.005471799999213545
+          },
+          "folder.snapshot": {
+            "calls": 2,
+            "seconds": 0.05427610000333516,
+            "exclusive_seconds": 0.05427610000333516
+          },
+          "folder.verify": {
+            "calls": 2,
+            "seconds": 0.00715670000136015,
+            "exclusive_seconds": 0.00715670000136015
+          },
+          "archive.extract": {
+            "calls": 31,
+            "seconds": 0.692852900003345,
+            "exclusive_seconds": 0.692852900003345
+          },
+          "output.export": {
+            "calls": 6,
+            "seconds": 0.6895340000010037,
+            "exclusive_seconds": 0.6895340000010037
+          },
+          "output.commit": {
+            "calls": 7,
+            "seconds": 0.32335310000780737,
+            "exclusive_seconds": 0.32335310000780737
+          },
+          "archive.stage_bind": {
+            "calls": 1,
+            "seconds": 0.07219369999802439,
+            "exclusive_seconds": 0.07219369999802439
+          },
+          "archive.report": {
+            "calls": 6,
+            "seconds": 1.1097216000016488,
+            "exclusive_seconds": 0.26744920001146966
+          },
+          "report.write_multi": {
+            "calls": 1,
+            "seconds": 0.0634901000012178,
+            "exclusive_seconds": 0.0634901000012178
+          },
+          "output.instructions": {
+            "calls": 1,
+            "seconds": 0.01502970000001369,
+            "exclusive_seconds": 0.01502970000001369
+          }
+        },
+        "counts": {
+          "overwrite_targets": 0,
+          "project_count": 6,
+          "html_fragment_count": 60,
+          "html_fragment_bytes": 33661,
+          "issue_count": 0,
+          "failed_items": 0,
+          "delivery_incomplete": false,
+          "total_files": 30,
+          "added_files": 6,
+          "modified_files": 12,
+          "format_changed_files": 0,
+          "deleted_files": 6,
+          "renamed_files": 6,
+          "required_directory_deletions": 0,
+          "total_added_lines": 12,
+          "total_deleted_lines": 12,
+          "skipped_line_count_files": 6,
+          "report_omitted_files": 0,
+          "line_counts_complete": false
+        },
+        "error_type": null,
+        "log_error": "",
+        "status": "completed"
+      },
+      {
+        "schema": "comparetool.task.v1",
+        "task_id": "20261020_171657_94b42d47e77b",
+        "mode": "git",
+        "build": {
+          "version": "2026.10.20.2",
+          "build_id": "11dbbf3810",
+          "built_at": "2026-10-20T17:11:26+08:00",
+          "commit": "ef7d55ea79dd5bccd87c0fbdfe71176c4e801ea8",
+          "dirty": false,
+          "source_sha256": "11dbbf381019532de9f61ab0a5c27ad261e1ab7d79e860ba3d9404ac826e8ff9"
+        },
+        "success": true,
+        "seconds": 4.260361,
+        "phases": {
+          "output.clear": {
+            "calls": 1,
+            "seconds": 0.007782000000588596,
+            "exclusive_seconds": 0.007782000000588596
+          },
+          "git.changes": {
+            "calls": 1,
+            "seconds": 3.042156999999861,
+            "exclusive_seconds": 3.042156999999861
+          },
+          "diff.renames": {
+            "calls": 6,
+            "seconds": 0.12155020000136574,
+            "exclusive_seconds": 0.12155020000136574
+          },
+          "diff.render": {
+            "calls": 6,
+            "seconds": 0.07117660000221804,
+            "exclusive_seconds": 0.07117660000221804
+          },
+          "diff.total": {
+            "calls": 6,
+            "seconds": 3.2542145999941567,
+            "exclusive_seconds": 0.019330799990711967
+          },
+          "project.prepare": {
+            "calls": 1,
+            "seconds": 3.44868139999744,
+            "exclusive_seconds": 0.21761089999927208
+          },
+          "output.export": {
+            "calls": 1,
+            "seconds": 0.2159919000005175,
+            "exclusive_seconds": 0.2159919000005175
+          },
+          "archive.stage_bind": {
+            "calls": 1,
+            "seconds": 0.01390509999691858,
+            "exclusive_seconds": 0.01390509999691858
+          },
+          "archive.extract": {
+            "calls": 5,
+            "seconds": 0.10760189999928116,
+            "exclusive_seconds": 0.10760189999928116
+          },
+          "archive.report": {
+            "calls": 1,
+            "seconds": 0.1727577999990899,
+            "exclusive_seconds": 0.0420118000038201
+          },
+          "report.write": {
+            "calls": 1,
+            "seconds": 0.054737099999329075,
+            "exclusive_seconds": 0.054737099999329075
+          },
+          "output.instructions": {
+            "calls": 1,
+            "seconds": 0.015489999997953419,
+            "exclusive_seconds": 0.015489999997953419
+          },
+          "output.commit": {
+            "calls": 1,
+            "seconds": 0.07077899999785586,
+            "exclusive_seconds": 0.07077899999785586
+          }
+        },
+        "counts": {
+          "overwrite_targets": 0,
+          "html_fragment_count": 10,
+          "html_fragment_bytes": 5619,
+          "issue_count": 0,
+          "delivery_incomplete": false,
+          "failed_items": 0,
+          "total_files": 5,
+          "added_files": 1,
+          "modified_files": 2,
+          "format_changed_files": 0,
+          "deleted_files": 1,
+          "renamed_files": 1,
+          "required_directory_deletions": 0,
+          "total_added_lines": 2,
+          "total_deleted_lines": 2,
+          "line_counts_complete": false,
+          "skipped_line_count_files": 1,
+          "report_omitted_files": 0,
+          "manifest_listed_files": 5,
+          "manifest_omitted_files": 0
+        },
+        "error_type": null,
+        "log_error": "",
+        "status": "completed"
+      }
+    ]
+  },
+  "installation": {
+    "installed": "D:\\java\\applications\\CompareTool\\CompareTool.exe",
+    "backup": "D:\\java\\applications\\CompareTool\\archive\\20261020_171851_before_11dbbf3810",
+    "metadata": {
+      "version": "2026.10.20.2",
+      "build_id": "11dbbf3810",
+      "built_at": "2026-10-20T17:11:26+08:00",
+      "commit": "ef7d55ea79dd5bccd87c0fbdfe71176c4e801ea8",
+      "dirty": false,
+      "source_sha256": "11dbbf381019532de9f61ab0a5c27ad261e1ab7d79e860ba3d9404ac826e8ff9",
+      "exe_sha256": "f21d5d5ff3625fd716c1c5a929f7ed862cadac293069f51f53fb9aa46b8abb89"
+    },
+    "files": {
+      "CompareTool.exe": "f21d5d5ff3625fd716c1c5a929f7ed862cadac293069f51f53fb9aa46b8abb89",
+      "CompareTool_build.json": "73aa26025312fb6d5e93ebba4c422fb86f3f117c71ecb2ead018b51209f9193f",
+      "CompareTool_使用说明书.pdf": "ee58ab468d67631ce2c26bf924b9f58f0cfe983efc4b5db943aabc5d06f86877"
+    },
+    "config_preserved": true,
+    "dist_files_match": true,
+    "installed_window_verified": true,
+    "installed_exit_verified": true,
+    "config_bytes_equal_after_exit": false,
+    "original_config_restored": true
+  },
+  "regression": {
+    "reference": "artifacts/review-input-paths-stage-cleanup-20261020.json",
+    "previous_fix_reference": "artifacts/review-git-repository-path-fixes-20261020.json",
+    "source_tests": 787,
+    "passed": 786,
+    "skipped": 1,
+    "failures": 0,
+    "errors": 0,
+    "targeted_passed": 70,
+    "note": "源码阶段凭证保留生成时的未打包边界；当前发布状态以本凭证为准。"
+  },
+  "remote": {
+    "branch": "master",
+    "remote": "origin",
+    "url": "https://github.com/alading1001/compareTool.git",
+    "source_commit_observed": "ef7d55ea79dd5bccd87c0fbdfe71176c4e801ea8",
+    "source_push_verified": true,
+    "receipt_commit": "发布凭证与 README 在后续中文收尾提交中推送；最终提交及远端一致性在任务最终回执核对。"
+  },
+  "facts": {
+    "code": {
+      "status": "verified-current",
+      "evidence": "构建基于干净源码提交；全部 28 个应用代码对象与完整回归快照一致。"
+    },
+    "runtime": {
+      "status": "changed-and-verified",
+      "evidence": "dist 真实窗口及业务任务、安装版版本/指纹/路径/正常退出均核验。"
+    },
+    "docs": {
+      "status": "changed-and-verified",
+      "evidence": "完整性合同、源码验证凭证与 README 现役发布入口同步；本地链接逐项核验。"
+    },
+    "rules": {
+      "status": "verified-current",
+      "authority": "AGENTS.md",
+      "claude_import": "@AGENTS.md",
+      "rules": {
+        "C:\\Users\\12939\\.codex\\AGENTS.md": {
+          "bytes": 5537,
+          "sha256": "d91f4101aaefaecd19cbdfcae42abf0503df772ba1ffb11d0eaee9b1c7eed19d",
+          "symlink": false,
+          "resolved": "C:\\Users\\12939\\.codex\\AGENTS.md"
+        },
+        "D:\\AI\\project\\compareTool_myself\\AGENTS.md": {
+          "bytes": 27042,
+          "sha256": "27b893b657e4bf14193a8117cbc1ca3cd57782383b3cf221b66f089883bcc26a",
+          "symlink": false,
+          "resolved": "D:\\AI\\project\\compareTool_myself\\AGENTS.md"
+        },
+        "D:\\AI\\project\\compareTool_myself\\CLAUDE.md": {
+          "bytes": 24,
+          "sha256": "573138e19d3359c451b7898112a03167e4e7bf356ecd698dc87d933d37de0b96",
+          "symlink": false,
+          "resolved": "D:\\AI\\project\\compareTool_myself\\CLAUDE.md"
+        }
+      },
+      "modifications": false
+    },
+    "memory": {
+      "status": "out-of-scope",
+      "mechanism": "generated-read-only",
+      "modifications": false
+    },
+    "workspace": {
+      "status": "pending",
+      "reason": "仅临时现场清场待汇报后确认；所有实现及发布文档纳入中文提交。",
+      "worktrees": "worktree D:/AI/project/compareTool_myself\nHEAD ef7d55ea79dd5bccd87c0fbdfe71176c4e801ea8\nbranch refs/heads/master",
+      "markdown_files": 33
+    }
+  },
+  "cleanup_preview": [
+    {
+      "path": ".tmp/audit_current_20261020_c0bdbd9b",
+      "reason": "本轮首次隔离回归及沙箱失败现场",
+      "disposition": "preview-only; preserved pending explicit post-report confirmation",
+      "files": 768,
+      "bytes": 43443010,
+      "reparse_paths_preserved": []
+    },
+    {
+      "path": ".tmp/audit_current_20261020_db472b17",
+      "reason": "本轮只读审查、缺陷复现及原始回归副本",
+      "disposition": "preview-only; preserved pending explicit post-report confirmation",
+      "files": 964,
+      "bytes": 43312232,
+      "reparse_paths_preserved": []
+    },
+    {
+      "path": ".tmp/audit_current_20261020_f11ff679",
+      "reason": "本轮修复后四份全量回归副本",
+      "disposition": "preview-only; preserved pending explicit post-report confirmation",
+      "files": 771,
+      "bytes": 43522913,
+      "reparse_paths_preserved": []
+    },
+    {
+      "path": ".tmp/fix_review_20261020_01a15850",
+      "reason": "本轮修复前备份、对照和专项复跑现场",
+      "disposition": "preview-only; preserved pending explicit post-report confirmation",
+      "files": 1364,
+      "bytes": 76183068,
+      "reparse_paths_preserved": []
+    },
+    {
+      "path": ".tmp/release_build_9ee67ezi",
+      "reason": "本次已发布 EXE 的可重建 PyInstaller 中间产物",
+      "disposition": "preview-only; preserved pending explicit post-report confirmation",
+      "files": 17,
+      "bytes": 48000553,
+      "reparse_paths_preserved": []
+    },
+    {
+      "path": ".tmp/release_closeout_20261020_2",
+      "reason": "本次发布夹具、报告、窗口文本与原始日志",
+      "disposition": "preview-only; preserved pending explicit post-report confirmation",
+      "files": 207,
+      "bytes": 8099215,
+      "reparse_paths_preserved": []
+    },
+    {
+      "path": ".tmp/audit_20261020_current.py",
+      "reason": "本次已完成的一次性审查/发布脚本或提交正文",
+      "disposition": "preview-only; preserved pending explicit post-report confirmation",
+      "files": 1,
+      "bytes": 2967,
+      "reparse_paths_preserved": []
+    },
+    {
+      "path": ".tmp/release_closeout_20261020_2_install.py",
+      "reason": "本次已完成的一次性审查/发布脚本或提交正文",
+      "disposition": "preview-only; preserved pending explicit post-report confirmation",
+      "files": 1,
+      "bytes": 2134,
+      "reparse_paths_preserved": []
+    },
+    {
+      "path": ".tmp/release_closeout_20261020_2_preflight.py",
+      "reason": "本次已完成的一次性审查/发布脚本或提交正文",
+      "disposition": "preview-only; preserved pending explicit post-report confirmation",
+      "files": 1,
+      "bytes": 3302,
+      "reparse_paths_preserved": []
+    },
+    {
+      "path": ".tmp/release_closeout_20261020_2_prepare_smoke.py",
+      "reason": "本次已完成的一次性审查/发布脚本或提交正文",
+      "disposition": "preview-only; preserved pending explicit post-report confirmation",
+      "files": 1,
+      "bytes": 4257,
+      "reparse_paths_preserved": []
+    },
+    {
+      "path": ".tmp/release_closeout_20261020_2_receipt.py",
+      "reason": "本次已完成的一次性审查/发布脚本或提交正文",
+      "disposition": "preview-only; preserved pending explicit post-report confirmation",
+      "files": 1,
+      "bytes": 10614,
+      "reparse_paths_preserved": []
+    },
+    {
+      "path": ".tmp/release_closeout_20261020_2_verify_bundle.py",
+      "reason": "本次已完成的一次性审查/发布脚本或提交正文",
+      "disposition": "preview-only; preserved pending explicit post-report confirmation",
+      "files": 1,
+      "bytes": 3949,
+      "reparse_paths_preserved": []
+    },
+    {
+      "path": ".tmp/release_closeout_20261020_2_verify_native.py",
+      "reason": "本次已完成的一次性审查/发布脚本或提交正文",
+      "disposition": "preview-only; preserved pending explicit post-report confirmation",
+      "files": 1,
+      "bytes": 3180,
+      "reparse_paths_preserved": []
+    },
+    {
+      "path": ".tmp/release_closeout_20261020_2_commit_source.txt",
+      "reason": "本次已完成的一次性审查/发布脚本或提交正文",
+      "disposition": "preview-only; preserved pending explicit post-report confirmation",
+      "files": 1,
+      "bytes": 624,
+      "reparse_paths_preserved": []
+    }
+  ],
+  "cleanup_performed": false,
+  "cleanup_totals": {
+    "directories": 6,
+    "helper_files": 8,
+    "files": 4099,
+    "logical_bytes": 262592018
+  },
+  "protected": {
+    "dist": "dist/CompareTool.exe",
+    "installed": "D:\\java\\applications\\CompareTool",
+    "dist_previous_release_archives": [
+      "D:\\AI\\project\\compareTool_myself\\dist\\archive\\20261020_171126_release_build_9ee67ezi"
+    ],
+    "installed_previous_release_archive": "D:\\java\\applications\\CompareTool\\archive\\20261020_171851_before_11dbbf3810",
+    "configuration_bytes_preserved": true,
+    "tracked_evidence": "artifacts/review-*-20261020.json and artifacts/release-closeout-20261020-2.json",
+    "historical_tmp": "本轮清单外历史 .tmp 及其他项目均不动"
+  },
+  "boundaries": {
+    "onsite_repositories": "out-of-scope",
+    "other_projects": "out-of-scope",
+    "production_services": "not-applicable",
+    "memory_write": "out-of-scope",
+    "cleanup": "pending: final report followed by explicit user confirmation"
+  },
+  "warnings": [
+    "完整源码回归中 1 项 Windows 符号链接测试因 WinError 1314 跳过，未计为通过。",
+    "AGENTS.md 为 27042 字节，占参考 32768 字节项目指令预算的 82.53%；本次未扩增，不据此推断宿主截断。",
+    "包内代码对象回归在本机 Python 执行；真实 EXE 另有六模式混合及单项目业务冒烟，均不等于现场仓库或所有输入规模验收。"
+  ],
+  "evidence_root": "D:\\AI\\project\\compareTool_myself\\.tmp\\release_closeout_20261020_2",
+  "inventory_file": "D:\\AI\\project\\compareTool_myself\\.tmp\\release_closeout_20261020_2\\inventory.json",
+  "shortcuts": [
+    {
+      "path": "C:\\Users\\12939\\Desktop\\CompareTool.exe - 快捷方式.lnk",
+      "target": "D:\\java\\applications\\CompareTool\\CompareTool.exe",
+      "working_directory": "D:\\java\\applications\\CompareTool"
+    },
+    {
+      "path": "C:\\Users\\12939\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\CompareTool.lnk",
+      "target": "D:\\java\\applications\\CompareTool\\CompareTool.exe",
+      "working_directory": "D:\\java\\applications\\CompareTool"
+    }
+  ]
+}
