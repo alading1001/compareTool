@@ -1,0 +1,191 @@
+{
+  "prepared_at": "2026-10-20T09:15:50+08:00",
+  "confirmation": {
+    "text": "清理吧",
+    "scope": "Exactly eight directories from the preceding committed cleanup preview."
+  },
+  "head_before": "29f058573b335ad90ccc00626c265bafdef0bc96",
+  "receipt_sha256_before": "03c4f8a78ea1ea9140fb79251353bf7c9a77fda64b75d9dc5e97b98ff05cca2e",
+  "targets": [
+    {
+      "relative": ".tmp/fix_review_20261020_b8f87e1e30",
+      "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\fix_review_20261020_b8f87e1e30",
+      "files": 189,
+      "bytes": 10840360
+    },
+    {
+      "relative": ".tmp/endpoint_validation_5df0a2cf97",
+      "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\endpoint_validation_5df0a2cf97",
+      "files": 278,
+      "bytes": 13175712
+    },
+    {
+      "relative": ".tmp/endpoint_validation_c4db5bc340",
+      "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\endpoint_validation_c4db5bc340",
+      "files": 234,
+      "bytes": 12332702
+    },
+    {
+      "relative": ".tmp/endpoint_validation_aac1a409e9",
+      "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\endpoint_validation_aac1a409e9",
+      "files": 231,
+      "bytes": 12135045
+    },
+    {
+      "relative": ".tmp/endpoint_validation_d2f0f929b0",
+      "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\endpoint_validation_d2f0f929b0",
+      "files": 230,
+      "bytes": 12029413
+    },
+    {
+      "relative": ".tmp/endpoint_validation_e2e6308343",
+      "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\endpoint_validation_e2e6308343",
+      "files": 232,
+      "bytes": 12439360
+    },
+    {
+      "relative": ".tmp/release_build_jos5fjbq",
+      "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\release_build_jos5fjbq",
+      "files": 17,
+      "bytes": 47985998
+    },
+    {
+      "relative": ".tmp/release_closeout_20261020",
+      "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\release_closeout_20261020",
+      "files": 190,
+      "bytes": 22478489
+    }
+  ],
+  "protected": [
+    {
+      "path": "D:\\AI\\project\\compareTool_myself\\dist\\CompareTool.exe",
+      "sha256": "3dc30edb711c9023e07573cf7e91ebf1800a4c0fb7347dba7b364e68700230a7"
+    },
+    {
+      "path": "D:\\AI\\project\\compareTool_myself\\dist\\CompareTool_build.json",
+      "sha256": "2e9feb37e3ee326c02b111d9f7e41712a21367c4df2826546ce6d4aac58c640a"
+    },
+    {
+      "path": "D:\\AI\\project\\compareTool_myself\\dist\\CompareTool_使用说明书.pdf",
+      "sha256": "ee58ab468d67631ce2c26bf924b9f58f0cfe983efc4b5db943aabc5d06f86877"
+    },
+    {
+      "path": "D:\\AI\\project\\compareTool_myself\\dist\\compareTool_config.json",
+      "sha256": "95fd3423682d58a74c0ffb049fa6e08d7f1e87b23004015060e24bc5022f620f"
+    },
+    {
+      "path": "D:\\java\\applications\\CompareTool\\CompareTool.exe",
+      "sha256": "3dc30edb711c9023e07573cf7e91ebf1800a4c0fb7347dba7b364e68700230a7"
+    },
+    {
+      "path": "D:\\java\\applications\\CompareTool\\CompareTool_build.json",
+      "sha256": "2e9feb37e3ee326c02b111d9f7e41712a21367c4df2826546ce6d4aac58c640a"
+    },
+    {
+      "path": "D:\\java\\applications\\CompareTool\\CompareTool_使用说明书.pdf",
+      "sha256": "ee58ab468d67631ce2c26bf924b9f58f0cfe983efc4b5db943aabc5d06f86877"
+    },
+    {
+      "path": "D:\\java\\applications\\CompareTool\\compareTool_config.json",
+      "sha256": "77dca4dee17f84de11dd4dc6898697b0bad0fb37c3d2c6b4f43dd32841d71fc0"
+    },
+    {
+      "path": "D:\\AI\\project\\compareTool_myself\\docs\\CompareTool_使用说明书.pdf",
+      "sha256": "ee58ab468d67631ce2c26bf924b9f58f0cfe983efc4b5db943aabc5d06f86877"
+    },
+    {
+      "path": "D:\\java\\applications\\CompareTool\\archive\\20261020_090931_before_1fc8eae745\\CompareTool.exe",
+      "sha256": "ab84dc3f2812d204e09c11b70198aebf3a66fe85bf5cd32af010b699ff7dd0d7"
+    },
+    {
+      "path": "D:\\java\\applications\\CompareTool\\archive\\20261020_090931_before_1fc8eae745\\CompareTool_build.json",
+      "sha256": "dbdd7b96a45833cddeb6ff66326a6afcecc470814d2ff8fe3f5da1767013a45d"
+    },
+    {
+      "path": "D:\\java\\applications\\CompareTool\\archive\\20261020_090931_before_1fc8eae745\\compareTool_config.json",
+      "sha256": "77dca4dee17f84de11dd4dc6898697b0bad0fb37c3d2c6b4f43dd32841d71fc0"
+    },
+    {
+      "path": "D:\\java\\applications\\CompareTool\\archive\\20261020_090931_before_1fc8eae745\\CompareTool_使用说明书.pdf",
+      "sha256": "ee58ab468d67631ce2c26bf924b9f58f0cfe983efc4b5db943aabc5d06f86877"
+    }
+  ],
+  "dist_archives": [
+    "D:\\AI\\project\\compareTool_myself\\dist\\archive\\20260926_014138_before_release",
+    "D:\\AI\\project\\compareTool_myself\\dist\\archive\\20260926_103516_release_build_9pj14mkq",
+    "D:\\AI\\project\\compareTool_myself\\dist\\archive\\20260926_115737_before_archive_report",
+    "D:\\AI\\project\\compareTool_myself\\dist\\archive\\20260926_175756_release_build_mynfhef6",
+    "D:\\AI\\project\\compareTool_myself\\dist\\archive\\20260926_181906_release_build_1mdxk_8u",
+    "D:\\AI\\project\\compareTool_myself\\dist\\archive\\20260927_094739_release_build_01j9_j47",
+    "D:\\AI\\project\\compareTool_myself\\dist\\archive\\20260927_143814_release_build_bsn99pw0",
+    "D:\\AI\\project\\compareTool_myself\\dist\\archive\\20260927_155726_release_build_mjxauc8c",
+    "D:\\AI\\project\\compareTool_myself\\dist\\archive\\20260927_235343_release_build_u101o0z3",
+    "D:\\AI\\project\\compareTool_myself\\dist\\archive\\20260928_085648_release_build_smi_893s",
+    "D:\\AI\\project\\compareTool_myself\\dist\\archive\\20260928_092119_release_build_90mvxaad",
+    "D:\\AI\\project\\compareTool_myself\\dist\\archive\\20261009_164113_release_build_2u8yd4y_",
+    "D:\\AI\\project\\compareTool_myself\\dist\\archive\\20261009_164608_release_build_v3k49hcv",
+    "D:\\AI\\project\\compareTool_myself\\dist\\archive\\20261011_225554_release_build_8gk8belo",
+    "D:\\AI\\project\\compareTool_myself\\dist\\archive\\20261012_162506_release_build_rfn1yk4v",
+    "D:\\AI\\project\\compareTool_myself\\dist\\archive\\20261013_003006_release_build_s4s_66wp",
+    "D:\\AI\\project\\compareTool_myself\\dist\\archive\\20261013_003411_release_build_q5mgpsr9",
+    "D:\\AI\\project\\compareTool_myself\\dist\\archive\\20261013_081650_release_build_ziheuor2",
+    "D:\\AI\\project\\compareTool_myself\\dist\\archive\\20261013_112652_release_build_93a4nmc1",
+    "D:\\AI\\project\\compareTool_myself\\dist\\archive\\20261013_115401_release_build_4y8nszf9",
+    "D:\\AI\\project\\compareTool_myself\\dist\\archive\\20261013_115634_release_build_im0kppaz",
+    "D:\\AI\\project\\compareTool_myself\\dist\\archive\\20261013_145558_release_build_mn3ncbrp",
+    "D:\\AI\\project\\compareTool_myself\\dist\\archive\\20261016_164815_release_build_5tznf_2g",
+    "D:\\AI\\project\\compareTool_myself\\dist\\archive\\20261016_224302_release_build_uxlk144y",
+    "D:\\AI\\project\\compareTool_myself\\dist\\archive\\20261017_013230_release_build_ecggilwu",
+    "D:\\AI\\project\\compareTool_myself\\dist\\archive\\20261017_193929_release_build_e3v3usol",
+    "D:\\AI\\project\\compareTool_myself\\dist\\archive\\20261020_090305_release_build_jos5fjbq"
+  ],
+  "runtime": {
+    "app_version.py": "8d22d58304f5e100a96f16f129cd32bfb67915f056ad4bd0696707dbc6a07d44",
+    "archive_endpoints.py": "7b0739ad4ab6ffa34b516b07e4011e17678b449335998d25c70f14e4dd291058",
+    "archive_report.py": "bc5af40c361ed2197f664d65a156bf64b375973444143a8e52f4566a293f21b2",
+    "delivery_instructions.py": "69c6df38eadb9f74d871c81f7b276cabd2fd97f132d27ae83be74b368915ecc2",
+    "diff_engine.py": "fbb54dca01fd4e503561e1c2a29a04fa3e947547be2aa5301c595f2f267190c0",
+    "file_exporter.py": "c401586b4347a12a41ec31c410c583e71cb83817ea862f1b6e558ab9ee318911",
+    "html_details.py": "1b0c13e07fa7e7188dc6bbf972708cdebfd9bd3cbcce335c50a6487ccac7e325",
+    "logger.py": "8e683db696c101111d917914dc1526305a6d29b03e7a1745e9f5e9ce95c91926",
+    "main.py": "963679141e6362bbeb39c626b23ade9366b0b5e60a338836359dd9a5db06bc87",
+    "path_safety.py": "9238eaa36815186d858f68425fc3b70123130b7fec5336f30a446d46416a7249",
+    "report_generator.py": "bd196728641c3161508772c751cec3e3b32b3b13c13bd499535198ee778ae5b8",
+    "stable_diff.py": "86802ac128926313105b909a22acb8050eca41c84eafa5fc4577abdf67ca2d43",
+    "stage_ownership.py": "cd24ca3a26d48f3637005387f0ddf0a980b33911c09db1f4d2b759c4a0f8b787",
+    "task_progress.py": "6fec0ef94cdfa865475a5877338129574206f24232032647b3cb050b8ec753ae",
+    "ui_progress.py": "743f4917a187f00145c94d78640daaca21577c13a368923f486d59c2bf8a865a",
+    "vcs/__init__.py": "8fb86391432641e7b720313b271eecf44f5f994a4491288fd2b9c78ccb754f86",
+    "vcs/archive_vcs.py": "bf13fa58dec6015a3c078a623a3f166ca520c8582f4e7125d71e5078af35aff8",
+    "vcs/base.py": "9f6a7774f41f88ba030c439211f1cc738a96be9b6ff99dab60d7b1980154061d",
+    "vcs/folder_vcs.py": "433dea2a1d781163486043b12039b0427e8e774a382eb9320dced07a8a442c0b",
+    "vcs/git_batch.py": "8f0cc51747b93daae3671137404d98771665f2091047ce00c40dfc898678d5d6",
+    "vcs/git_checkout.py": "5b5d2c628dbcb4421883e1ad62bb5f503cb4ce28a579eff01d0f87971bb5aae9",
+    "vcs/git_probe_batch.py": "ebd05e0cef9a02ba6abeb2f4611acdfd39ffa32e36b912b2417cb1197756ddd4",
+    "vcs/git_vcs.py": "849c4a3e1111f21808caceb9da648205471502e5046a45eec4fe9d2b1382a1a4",
+    "vcs/multi_version_vcs.py": "3b562c509671f5d9252cc8916e6e4a5adda692435f7ce684beed102194594589",
+    "vcs/raw_cache.py": "b6333fa9fde388c503ff17a35130a1532a3354f94227db05c989e95db3efe8c3",
+    "vcs/svn_vcs.py": "1af906ce3660a1033e54c29d4ee5e8033b737ce50d820254bc3788a9fa2604dd",
+    "vcs/temp_storage.py": "977c714d50029822f030c1acf703f0b633cfae5239ec99c620ee816286250ab3"
+  },
+  "prior_final_git_verification": {
+    "head": "29f058573b335ad90ccc00626c265bafdef0bc96",
+    "source_commit": "acc3e672941b7315b9b164bb749ac984d4b9c49e",
+    "status_clean": true,
+    "runtime_fingerprint_matches": true,
+    "exe_sha256": "3dc30edb711c9023e07573cf7e91ebf1800a4c0fb7347dba7b364e68700230a7",
+    "published_version": "2026.10.20.1",
+    "receipt_sha256": "03c4f8a78ea1ea9140fb79251353bf7c9a77fda64b75d9dc5e97b98ff05cca2e"
+  },
+  "total_files": 1601,
+  "total_bytes": 143417079,
+  "status": "cleaned-and-verified",
+  "completed_at": "2026-10-20T09:16:19+08:00",
+  "deleted_directories": 8,
+  "protected_hashes_unchanged": true,
+  "runtime_files_unchanged": true,
+  "old_release_backups_retained": true,
+  "branch_worktree_git_operations": false,
+  "remote_push": false,
+  "logical_bytes_removed": 143417079
+}

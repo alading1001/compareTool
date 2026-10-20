@@ -1,7 +1,7 @@
 {
   "date": "2026-10-20",
   "verified_at": "2026-10-20T09:11:48+08:00",
-  "release_state": "local-release-live-verified; knowledge-closed; cleanup-retained",
+  "release_state": "local-release-live-verified; knowledge-closed; cleaned",
   "source_commit": "acc3e672941b7315b9b164bb749ac984d4b9c49e",
   "build": {
     "metadata": {
@@ -486,68 +486,84 @@
     "workspace": {
       "status": "changed-and-verified",
       "original_local_code_integrated": true,
-      "cleanup": "pending: retained until post-report confirmation"
+      "cleanup": "changed-and-verified: exactly eight approved temporary directories removed; release/configuration/backups unchanged"
     }
   },
   "cleanup_preview": [
     {
       "path": ".tmp/fix_review_20261020_b8f87e1e30",
-      "disposition": "retained; cleanup pending post-report confirmation",
+      "disposition": "deleted after explicit post-report user confirmation",
       "reason": "Review baseline or isolated regression evidence; no cleanup authorized after report.",
       "bytes": 10840360,
-      "files": 189
+      "files": 189,
+      "actual_deleted_files": 189,
+      "actual_deleted_bytes": 10840360
     },
     {
       "path": ".tmp/endpoint_validation_5df0a2cf97",
-      "disposition": "retained; cleanup pending post-report confirmation",
+      "disposition": "deleted after explicit post-report user confirmation",
       "reason": "Review baseline or isolated regression evidence; no cleanup authorized after report.",
       "bytes": 13175712,
-      "files": 278
+      "files": 278,
+      "actual_deleted_files": 278,
+      "actual_deleted_bytes": 13175712
     },
     {
       "path": ".tmp/endpoint_validation_c4db5bc340",
-      "disposition": "retained; cleanup pending post-report confirmation",
+      "disposition": "deleted after explicit post-report user confirmation",
       "reason": "Review baseline or isolated regression evidence; no cleanup authorized after report.",
       "bytes": 12332702,
-      "files": 234
+      "files": 234,
+      "actual_deleted_files": 234,
+      "actual_deleted_bytes": 12332702
     },
     {
       "path": ".tmp/endpoint_validation_aac1a409e9",
-      "disposition": "retained; cleanup pending post-report confirmation",
+      "disposition": "deleted after explicit post-report user confirmation",
       "reason": "Review baseline or isolated regression evidence; no cleanup authorized after report.",
       "bytes": 12135045,
-      "files": 231
+      "files": 231,
+      "actual_deleted_files": 231,
+      "actual_deleted_bytes": 12135045
     },
     {
       "path": ".tmp/endpoint_validation_d2f0f929b0",
-      "disposition": "retained; cleanup pending post-report confirmation",
+      "disposition": "deleted after explicit post-report user confirmation",
       "reason": "Review baseline or isolated regression evidence; no cleanup authorized after report.",
       "bytes": 12029413,
-      "files": 230
+      "files": 230,
+      "actual_deleted_files": 230,
+      "actual_deleted_bytes": 12029413
     },
     {
       "path": ".tmp/endpoint_validation_e2e6308343",
-      "disposition": "retained; cleanup pending post-report confirmation",
+      "disposition": "deleted after explicit post-report user confirmation",
       "reason": "Review baseline or isolated regression evidence; no cleanup authorized after report.",
       "bytes": 12439360,
-      "files": 232
+      "files": 232,
+      "actual_deleted_files": 232,
+      "actual_deleted_bytes": 12439360
     },
     {
       "path": ".tmp/release_build_jos5fjbq",
       "reason": "Reproducible PyInstaller intermediates",
       "bytes": 47985998,
       "files": 17,
-      "disposition": "retained; cleanup pending post-report confirmation"
+      "disposition": "deleted after explicit post-report user confirmation",
+      "actual_deleted_files": 17,
+      "actual_deleted_bytes": 47985998
     },
     {
       "path": ".tmp/release_closeout_20261020",
       "reason": "Local release inputs, reports, UI text and build logs",
       "bytes": 22477567,
       "files": 188,
-      "disposition": "retained; cleanup pending post-report confirmation"
+      "disposition": "deleted after explicit post-report user confirmation",
+      "actual_deleted_files": 190,
+      "actual_deleted_bytes": 22478489
     }
   ],
-  "cleanup_performed": false,
+  "cleanup_performed": true,
   "preserved_prior_release": {
     "dist": {
       "CompareTool.exe": {
@@ -610,5 +626,16 @@
     "Business smoke verifies local fixtures and actual Windows EXE, not onsite repositories or untested input sizes."
   ],
   "evidence_root": "D:\\AI\\project\\compareTool_myself\\.tmp\\release_closeout_20261020",
-  "inventory_file": "D:\\AI\\project\\compareTool_myself\\.tmp\\release_closeout_20261020\\inventory.json"
+  "inventory_file": "D:\\AI\\project\\compareTool_myself\\.tmp\\release_closeout_20261020\\inventory.json",
+  "cleanup_result": {
+    "reference": "artifacts/cleanup-closeout-20261020.json",
+    "completed_at": "2026-10-20T09:16:19+08:00",
+    "user_confirmation": "清理吧",
+    "deleted_directories": 8,
+    "files": 1601,
+    "logical_bytes_removed": 143417079,
+    "protected_hashes_unchanged": true
+  },
+  "evidence_root_status": "removed by the approved cleanup; canonical verification results remain in committed artifacts",
+  "inventory_file_status": "removed with raw review site after confirmation; inventory summary retained in this receipt"
 }
