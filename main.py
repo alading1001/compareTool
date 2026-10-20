@@ -74,6 +74,7 @@ DEFAULT_EXCLUDE_RULES = "\n".join([
 ]).strip()
 
 from vcs.git_vcs import GitVCS
+from vcs.git_paths import parse_git_path_records
 from vcs.svn_vcs import SVNVCS
 from vcs.folder_vcs import FolderVCS
 from vcs.archive_vcs import ArchiveVCS
@@ -204,7 +205,7 @@ class CompareToolApp(TaskProgressUI):
                 paths = raw_comparison_paths.get(kind)
                 if isinstance(paths, dict):
                     self._last_comparison_paths[kind] = {
-                        side: paths[side].strip() if isinstance(paths.get(side), str) else ""
+                        side: paths[side] if isinstance(paths.get(side), str) else ""
                         for side in ("old_version", "new_version")
                     }
         self._active_vcs_type = None
@@ -524,12 +525,17 @@ class CompareToolApp(TaskProgressUI):
         # 初始化输出路径和 VCS UI
         self._render_multi_tasks()
         self._on_vcs_changed()
-        self._last_project_path = self._normalize_project_path(self.dir_entry.get().strip())
+        self._last_project_path = self._normalize_project_path(self.dir_entry.get())
         self._refresh_project_name_default(force=True)
         self._switch_exclude_rules_for_current_source(save_previous=False)
         self._remember_recent_project(refresh=True)
 
     # ========== 界面交互 ==========
+
+    @staticmethod
+    def _version_input(vcs_type: str, value: str) -> str:
+        # 文件夹/压缩包的版本输入是文件系统路径，空白可能属于真实名称。
+        return value if vcs_type in ("folder", "archive") else value.strip()
 
     @staticmethod
     def _normalize_project_path(path: str) -> str:
@@ -562,7 +568,7 @@ class CompareToolApp(TaskProgressUI):
             if not isinstance(raw_path, str) or not isinstance(raw_name, str):
                 warn(f"忽略损坏的最近项目 #{index}: 路径或项目名类型无效")
                 continue
-            project_path = raw_path.strip()
+            project_path = raw_path
             project_name = self._sanitize_project_name(raw_name)
             if family not in ("git", "svn") or not project_path or not project_name:
                 warn(f"忽略损坏的最近项目 #{index}: 类型、路径或项目名无效")
@@ -605,8 +611,8 @@ class CompareToolApp(TaskProgressUI):
                 new_version = "文件级首尾端点"
             if (
                 not project_name or
-                not isinstance(old_version, str) or not old_version.strip() or
-                not isinstance(new_version, str) or not new_version.strip() or
+                not isinstance(old_version, str) or not self._version_input(vcs_type, old_version) or
+                not isinstance(new_version, str) or not self._version_input(vcs_type, new_version) or
                 not isinstance(project_path, str) or
                 (vcs_type not in ("folder", "archive") and not project_path.strip())
             ):
@@ -626,9 +632,9 @@ class CompareToolApp(TaskProgressUI):
             normalized.append({
                 "project_name": project_name,
                 "vcs_type": vcs_type,
-                "project_path": project_path.strip(),
-                "old_version": old_version.strip(),
-                "new_version": new_version.strip(),
+                "project_path": project_path,
+                "old_version": self._version_input(vcs_type, old_version),
+                "new_version": self._version_input(vcs_type, new_version),
                 "exclude_key": item.get("exclude_key", "") if isinstance(item.get("exclude_key", ""), str) else "",
                 "exclude_rules": exclude_rules,
                 "show_project_root": self._option_bool(item.get("show_project_root"), default=True),
@@ -681,7 +687,7 @@ class CompareToolApp(TaskProgressUI):
         family = self._vcs_family(vcs_type)
         if not family:
             return
-        project_path = (project_path if project_path is not None else self.dir_entry.get().strip()).strip()
+        project_path = project_path if project_path is not None else self.dir_entry.get()
         project_name = self._sanitize_project_name(
             project_name if project_name is not None else self._current_project_name_for_output()
         )
@@ -709,7 +715,7 @@ class CompareToolApp(TaskProgressUI):
         item = self._recent_project_value_map.get(self.project_name_var.get())
         if not item:
             return
-        old_path = self._normalize_project_path(self.dir_entry.get().strip())
+        old_path = self._normalize_project_path(self.dir_entry.get())
         new_path = item.get("project_path", "")
         project_name = item.get("project_name", "")
         self.dir_entry.delete(0, tk.END)
@@ -845,11 +851,13 @@ class CompareToolApp(TaskProgressUI):
             except (FileNotFoundError, OSError) as exc:
                 raise _RepositoryUnavailableError(f"无法确认 Git 工作树根目录：{project_root}\n{exc}") from exc
             if top_result.returncode == 0:
-                git_root_text = top_result.stdout.decode(
-                    "utf-8", errors="surrogateescape"
-                ).strip()
-                if not git_root_text:
-                    raise _RepositoryUnavailableError(f"无法确认 Git 工作树根目录：{project_root}")
+                try:
+                    git_root_text, = parse_git_path_records(top_result.stdout, 1)
+                    if not os.path.isabs(git_root_text) or not os.path.isdir(git_root_text):
+                        raise ValueError('Git 工作树根目录不是有效的绝对目录')
+                except ValueError as exc:
+                    raise _RepositoryUnavailableError(
+                        f"无法确认 Git 工作树根目录：{project_root}\n{exc}") from exc
                 repository_root = os.path.realpath(
                     os.path.abspath(git_root_text)
                 )
@@ -877,10 +885,12 @@ class CompareToolApp(TaskProgressUI):
                     and bare_result.stdout.strip().lower() == b"true"
                     and git_dir_result.returncode == 0
                 )
-                git_dir_text = git_dir_result.stdout.decode(
-                    "utf-8", errors="surrogateescape"
-                ).strip()
-                if not git_bare or not git_dir_text:
+                try:
+                    git_dir_text, = parse_git_path_records(git_dir_result.stdout, 1)
+                except ValueError:
+                    git_dir_text = ""
+                if (not git_bare or not os.path.isabs(git_dir_text)
+                        or not os.path.isdir(git_dir_text)):
                     detail = (top_result.stderr or top_result.stdout).decode(
                         "utf-8", errors="replace"
                     ).strip()
@@ -901,13 +911,13 @@ class CompareToolApp(TaskProgressUI):
                 )
             except OSError as exc:
                 raise ValueError(f"无法确认 Git 元数据目录，已拒绝生成：{exc}") from exc
-            metadata_paths = [
-                line.removesuffix("\r")
-                for line in metadata_result.stdout.decode("utf-8", "surrogateescape").split("\n")
-                if line
-            ]
-            if (metadata_result.returncode != 0 or len(metadata_paths) != 2
-                    or not all(os.path.isabs(path) for path in metadata_paths)):
+            try:
+                metadata_paths = parse_git_path_records(metadata_result.stdout, 2)
+            except ValueError:
+                metadata_paths = []
+            if (metadata_result.returncode != 0 or not metadata_paths
+                    or not all(os.path.isabs(path) and os.path.isdir(path)
+                               for path in metadata_paths)):
                 raise ValueError("无法确认 Git 元数据目录，已拒绝生成：\n"
                                  + (metadata_result.stderr or metadata_result.stdout).decode(
                                      "utf-8", "replace"))
@@ -1277,9 +1287,9 @@ class CompareToolApp(TaskProgressUI):
     def _current_project_key(self) -> str:
         return self._project_key_for_values(
             self.vcs_var.get(),
-            self.dir_entry.get().strip(),
-            self.old_version_var.get().strip(),
-            self.new_version_var.get().strip(),
+            self.dir_entry.get(),
+            self._version_input(self.vcs_var.get(), self.old_version_var.get()),
+            self._version_input(self.vcs_var.get(), self.new_version_var.get()),
         )
 
     def _save_current_exclude_rules_for_current_key(self):
@@ -1307,9 +1317,9 @@ class CompareToolApp(TaskProgressUI):
 
     def _default_project_name(self) -> str:
         vcs_type = self.vcs_var.get()
-        project_path = self.dir_entry.get().strip()
-        old_version = self.old_version_var.get().strip()
-        new_version = self.new_version_var.get().strip()
+        project_path = self.dir_entry.get()
+        old_version = self._version_input(self.vcs_var.get(), self.old_version_var.get())
+        new_version = self._version_input(self.vcs_var.get(), self.new_version_var.get())
         if vcs_type == "archive":
             source = new_version
             if not source or not os.path.isfile(source):
@@ -1347,7 +1357,7 @@ class CompareToolApp(TaskProgressUI):
 
     def _on_project_path_changed(self):
         """项目路径变化时，清空 Git/SVN 相关版本选择，避免跨项目复用版本号。"""
-        current = self._normalize_project_path(self.dir_entry.get().strip())
+        current = self._normalize_project_path(self.dir_entry.get())
         previous = getattr(self, "_last_project_path", current)
         if current != previous:
             self._version_request_id += 1
@@ -1398,7 +1408,7 @@ class CompareToolApp(TaskProgressUI):
         self._update_after_id = None
         self._refresh_project_name_default()
         self._switch_exclude_rules_for_current_source()
-        output_dir = self.output_dir_var.get().strip()
+        output_dir = self.output_dir_var.get()
         if not output_dir:
             self.report_path_var.set("")
             self.old_export_var.set("")
@@ -1415,7 +1425,7 @@ class CompareToolApp(TaskProgressUI):
         self.new_export_var.set(self._join_display_path(effective_output_dir, "newVersion"))
 
     def _effective_output_dir(self, output_dir: str = "", batch_name: str = None) -> str:
-        output_dir = output_dir or self.output_dir_var.get().strip()
+        output_dir = output_dir or self.output_dir_var.get()
         if not output_dir:
             return ""
         if batch_name is None:
@@ -1436,8 +1446,8 @@ class CompareToolApp(TaskProgressUI):
             if not hasattr(self, "_last_comparison_paths"):
                 self._last_comparison_paths = {}
             self._last_comparison_paths[vcs_type] = {
-                "old_version": self.old_version_var.get().strip(),
-                "new_version": self.new_version_var.get().strip(),
+                "old_version": self._version_input(self.vcs_var.get(), self.old_version_var.get()),
+                "new_version": self._version_input(self.vcs_var.get(), self.new_version_var.get()),
             }
 
     def _on_vcs_changed(self):
@@ -1558,7 +1568,7 @@ class CompareToolApp(TaskProgressUI):
             self._on_project_path_changed()
 
     def _browse_dir(self, var):
-        current = var.get().strip()
+        current = var.get()
         initial_dir = current if os.path.isdir(current) else os.path.dirname(current)
         options = {"initialdir": initial_dir} if os.path.isdir(initial_dir) else {}
         path = filedialog.askdirectory(title="选择保存目录", **options)
@@ -1566,7 +1576,7 @@ class CompareToolApp(TaskProgressUI):
             var.set(path)
 
     def _browse_archive(self, var):
-        initial_dir = os.path.dirname(var.get().strip())
+        initial_dir = os.path.dirname(var.get())
         options = {"initialdir": initial_dir} if os.path.isdir(initial_dir) else {}
         path = filedialog.askopenfilename(
             title="选择压缩包",
@@ -1710,7 +1720,7 @@ class CompareToolApp(TaskProgressUI):
             messagebox.showinfo("提示", "文件夹模式无需获取版本列表，请直接选择文件夹。")
             return
 
-        project_path = self.dir_entry.get().strip()
+        project_path = self.dir_entry.get()
         if not project_path:
             messagebox.showwarning("提示", "请先选择项目目录")
             return
@@ -1740,7 +1750,7 @@ class CompareToolApp(TaskProgressUI):
             return (
                 self._version_request_id == request_id and
                 self.vcs_var.get() == vcs_type and
-                self._normalize_project_path(self.dir_entry.get().strip()) ==
+                self._normalize_project_path(self.dir_entry.get()) ==
                 self._normalize_project_path(project_path)
             )
 
@@ -1921,9 +1931,9 @@ class CompareToolApp(TaskProgressUI):
 
     def _task_from_current_form(self) -> dict:
         vcs_type = self.vcs_var.get()
-        project_path = self.dir_entry.get().strip()
-        old_version = self.old_version_var.get().strip()
-        new_version = self.new_version_var.get().strip()
+        project_path = self.dir_entry.get()
+        old_version = self._version_input(self.vcs_var.get(), self.old_version_var.get())
+        new_version = self._version_input(self.vcs_var.get(), self.new_version_var.get())
         is_folder = vcs_type == "folder"
         is_archive = vcs_type == "archive"
         is_multi = vcs_type in ("git_multi", "svn_multi")
@@ -2040,7 +2050,7 @@ class CompareToolApp(TaskProgressUI):
         # exclude_key 是可重建的定位信息；旧任务可能缺失或保留旧路径。
         # 按已经回填的来源绑定任务快照，避免下一次刷新把它当成项目切换。
         self._last_exclude_key = self._current_project_key()
-        self._last_project_path = self._normalize_project_path(self.dir_entry.get().strip())
+        self._last_project_path = self._normalize_project_path(self.dir_entry.get())
         self._update_output_paths()
         self._sync_multi_task_buttons()
         self.status_var.set(f"正在编辑多项目任务: {task.get('project_name', '')}")
@@ -2081,7 +2091,7 @@ class CompareToolApp(TaskProgressUI):
     def _confirm_output_batch(self, actual_output_dir: str = "") -> bool:
         if not actual_output_dir:
             self._refresh_output_paths_now()
-        output_dir = self.output_dir_var.get().strip()
+        output_dir = self.output_dir_var.get()
         batch_name = self._normalize_output_batch_field()
         effective_output_dir = (
             actual_output_dir
@@ -2276,9 +2286,9 @@ class CompareToolApp(TaskProgressUI):
         self._check_multi_display_path_conflicts(project_results)
 
     def _generate(self):
-        project_path = self.dir_entry.get().strip()
-        old_version = self.old_version_var.get().strip()
-        new_version = self.new_version_var.get().strip()
+        project_path = self.dir_entry.get()
+        old_version = self._version_input(self.vcs_var.get(), self.old_version_var.get())
+        new_version = self._version_input(self.vcs_var.get(), self.new_version_var.get())
         vcs_type = self.vcs_var.get()
         is_folder = vcs_type == "folder"
         is_archive = vcs_type == "archive"
@@ -2329,9 +2339,9 @@ class CompareToolApp(TaskProgressUI):
             return
         self._refresh_output_paths_now()
 
-        report_path = self.report_path_var.get().strip()
-        old_export = self.old_export_var.get().strip()
-        new_export = self.new_export_var.get().strip()
+        report_path = self.report_path_var.get()
+        old_export = self.old_export_var.get()
+        new_export = self.new_export_var.get()
 
         if not report_path:
             messagebox.showwarning("提示", "请先选择输出目录")
@@ -2387,7 +2397,7 @@ class CompareToolApp(TaskProgressUI):
             project_path, vcs_type, old_version, new_version, project_name,
             exclude_patterns, show_full, show_project_root,
             report_path, old_export, new_export,
-            os.path.abspath(self.output_dir_var.get().strip()),
+            os.path.abspath(self.output_dir_var.get()),
             ignore_archive_root,
         ), kwargs={"recursive_archives": recursive_archives}, daemon=True)
         thread.start()
@@ -2396,7 +2406,7 @@ class CompareToolApp(TaskProgressUI):
         if not self._multi_tasks:
             messagebox.showwarning("提示", "请先添加至少一个多项目任务")
             return
-        output_dir = self.output_dir_var.get().strip()
+        output_dir = self.output_dir_var.get()
         if not output_dir:
             messagebox.showwarning("提示", "请先选择输出目录")
             return
@@ -2828,14 +2838,14 @@ class CompareToolApp(TaskProgressUI):
         self._remember_recent_project(refresh=False)
         self._remember_comparison_paths()
         data = {
-            "project_path": self.dir_entry.get().strip(),
+            "project_path": self.dir_entry.get(),
             "vcs_type": self.vcs_var.get(),
             "project_exclude_rules": self._project_exclude_rules,
             "project_display_options": self._project_display_options,
             "recent_projects": self._recent_projects,
             "last_comparison_paths": getattr(self, "_last_comparison_paths", {}),
             "multi_tasks": self._multi_tasks,
-            "output_dir": self.output_dir_var.get().strip(),
+            "output_dir": self.output_dir_var.get(),
         }
         try:
             _save_config(data)

@@ -167,8 +167,8 @@ class ExportOutputRegressionTests(unittest.TestCase):
         with project_temp_dir() as root:
             target_old = os.path.join(root, "old")
             target_new = os.path.join(root, "new")
-            first_stage = os.path.join(root, "first-stage")
-            os.makedirs(first_stage)
+            first_stage = FileExporter._make_stage_dir(
+                target_old, stage_parent=root, trusted_root=root)
             exporter = self._empty_exporter()
 
             with mock.patch.object(
@@ -180,6 +180,7 @@ class ExportOutputRegressionTests(unittest.TestCase):
                     exporter.prepare_export(target_old, target_new)
 
             self.assertFalse(os.path.exists(first_stage))
+            self.assertFalse(os.path.exists(os.path.dirname(first_stage)))
 
     def test_ntfs_ads_component_is_rejected(self):
         with project_temp_dir() as root:
@@ -365,7 +366,7 @@ class DiffAndConfigRegressionTests(unittest.TestCase):
         valid = {
             "project_name": " Demo ",
             "vcs_type": "git",
-            "project_path": " C:/repo ",
+            "project_path": "C:/repo\u2003",
             "old_version": " old ",
             "new_version": " new ",
         }
@@ -380,7 +381,8 @@ class DiffAndConfigRegressionTests(unittest.TestCase):
         self.assertEqual(1, len(tasks))
         self.assertEqual("Demo", tasks[0]["project_name"])
         self.assertEqual("git", tasks[0]["vcs_type"])
-        self.assertEqual("C:/repo", tasks[0]["project_path"])
+        self.assertEqual(valid["project_path"], tasks[0]["project_path"])
+        self.assertEqual(("old", "new"), (tasks[0]["old_version"], tasks[0]["new_version"]))
 
     def test_legacy_multi_version_task_is_migrated_to_file_endpoints(self):
         app = CompareToolApp.__new__(CompareToolApp)

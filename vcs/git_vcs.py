@@ -8,6 +8,7 @@ from typing import List
 from .base import BaseVCS, ChangedFile, ChangeType
 from .git_checkout import GitCheckoutSnapshot
 from .git_batch import GitBatchReader
+from .git_paths import parse_git_path_records
 from logger import info, warn
 
 
@@ -81,14 +82,25 @@ class GitVCS(BaseVCS):
                     [self._git, "rev-parse", "--is-bare-repository", "--absolute-git-dir"],
                     cwd=self.project_path, capture_output=True, timeout=self.COMMAND_TIMEOUT,
                 )
-                lines = bare.stdout.decode("utf-8", "surrogateescape").splitlines()
-                if bare.returncode == 0 and len(lines) == 2 and lines[0] == "true":
-                    self._repository_root, self._project_prefix = lines[1], ""
-                    return self._repository_root
+                if bare.returncode == 0:
+                    try:
+                        lines = parse_git_path_records(bare.stdout, 2)
+                    except ValueError as exc:
+                        raise RuntimeError(f"无法确定 Git 裸仓库范围：{exc}") from exc
+                    if (lines[0] == "true" and os.path.isabs(lines[1])
+                            and os.path.isdir(lines[1])):
+                        self._repository_root, self._project_prefix = lines[1], ""
+                        return self._repository_root
                 raise RuntimeError("无法确定 Git 项目范围：\n" + result.stderr.decode("utf-8", "replace"))
-            lines = result.stdout.decode("utf-8", "surrogateescape").splitlines()
-            self._repository_root = lines[0]
-            self._project_prefix = lines[1] if len(lines) > 1 else ""
+            try:
+                root, prefix = parse_git_path_records(result.stdout, 2)
+                if (not os.path.isabs(root) or not os.path.isdir(root)
+                        or (prefix and (os.path.isabs(prefix) or not prefix.endswith('/')))
+                        or not os.path.samefile(os.path.join(root, prefix), self.project_path)):
+                    raise ValueError('Git 根目录及项目相对路径与所选目录不一致')
+            except (OSError, ValueError) as exc:
+                raise RuntimeError(f"无法确定 Git 项目范围：{exc}") from exc
+            self._repository_root, self._project_prefix = root, prefix
         return self._repository_root
 
     def _repo_path(self, project_path):

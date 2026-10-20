@@ -18,6 +18,7 @@ def project_temp_dir():
 
 def git_metadata_result(source):
     path = os.path.abspath(os.path.join(source, '.git'))
+    os.makedirs(path, exist_ok=True)
     return subprocess.CompletedProcess([], 0, (path + '\n' + path + '\n').encode('utf-8'), b'')
 
 

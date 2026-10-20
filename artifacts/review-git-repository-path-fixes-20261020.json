@@ -1,0 +1,208 @@
+{
+  "schema": "comparetool.source-fix-verification.v1",
+  "status": "SOURCE_VERIFIED_EXE_NOT_BUILT",
+  "base_commit": "71d7ea31de38a4836950f78b653c0a5b95c0f7cf",
+  "scope": [
+    "R1: Git 根目录末尾 Unicode 空白导致源码保护失效",
+    "R2: Git 路径 Unicode 行分隔符导致静默读取相邻仓库"
+  ],
+  "implementation": [
+    "Git 路径使用共享 LF/CRLF 记录解析器，保留 Unicode 字符并验证完整记录数量。",
+    "输出预检验证实际绝对根目录及 git-dir/common-dir，删除之前仍拦截已跟踪源码和元数据重叠。",
+    "普通/多版本共用项目范围解析；根目录、相对前缀与所选目录的实际文件系统身份一致后才发布缓存。",
+    "同步报告与导出合同；界面流程未变。"
+  ],
+  "changed_source_files": {
+    "main.py": "022aaacea211fa571f1259d8fad980155a8270af87783c835e04b96935a2b237",
+    "vcs/git_vcs.py": "7dfa549c9a6d9d8e3f00ea89bcfe092f10d8a0e7bba52c824b4ee25e6aeb92a5",
+    "vcs/git_paths.py": "baaec7a1a93ae03b2165a5bb5ad046041c0c939908d1f0c9cdbcaaf9e1a52756",
+    "tests/test_review_git_repository_paths.py": "087a1ca71eda063b37cb2d74ac04817011ba79f6d95ddd5a790acf2176354d2f",
+    "docs/report-and-export-contract.md": "1b35f489f5c40a2f589a5aed1a15d9cace150ea7f2ba1d14b7c861e97d76ff39",
+    "tests/test_output_compatibility_after_aug27.py": "d874fcbeb641c8368427779034ddd8b799c9bee85f825ce0bca33e2cba7b4e41"
+  },
+  "new_regressions": {
+    "count": 7,
+    "before": "expected failures reproduced on unmodified source",
+    "after": "7 passed, 0 failed, 0 errors",
+    "cases": [
+      "尾部 U+2003 的仓库内已跟踪报告和 old/new 源码在删除前拦截，含单/多项目入口。",
+      "U+0085/U+2028/U+2029 仓库根旁存在诱导错误仓库时，普通/多版本均读取正确端点。",
+      "含 U+2028 的项目子目录保持项目范围，导出按固定属性为 CRLF。",
+      "含 U+2028 与尾部 U+2003 的裸仓库保持端点及元数据保护。",
+      "尾空白仓库继续允许外部及工作树内专用未跟踪输出。",
+      "CRLF 命令记录仍正确解析根目录及空项目前缀。",
+      "缺少结束符、空/相对根、额外记录或错误项目映射拒绝且不发布范围缓存。"
+    ],
+    "before_log": ".tmp\\fix_git_paths_20261020_01a15818\\before-final.log",
+    "after_log": ".tmp\\fix_git_paths_20261020_01a15818\\new-cases.log"
+  },
+  "original_review_fixtures_after": [
+    {
+      "scenario": "tracked source protection",
+      "mode": "git",
+      "status": "failed",
+      "source_sha256_before": "52539f25735b12b7632a953ba58fa04d2873dda00f7045f51f401b6fd7177943",
+      "source_sha256_after": "52539f25735b12b7632a953ba58fa04d2873dda00f7045f51f401b6fd7177943",
+      "error": "仓库内输出目标包含 Git 已跟踪文件或子模块，为避免覆盖源码已拒绝生成：\nD:\\AI\\project\\compareTool_myself\\.tmp\\full_review_20261020_01a15818\\git_paths_probe\\white \\project\\oldVersion\\Demo\nD:\\AI\\project\\compareTool_myself\\.tmp\\full_review_20261020_01a15818\\git_paths_probe\\white \\project\\newVersion\\Demo\nD:\\AI\\project\\compareTool_myself\\.tmp\\full_review_20261020_01a15818\\git_paths_probe\\white \\project\\Demo_diff.html\nD:\\AI\\project\\compareTool_myself\\.tmp\\full_review_20261020_01a15818\\git_paths_probe\\white \\project\\Demo_上线操作说明.txt"
+    },
+    {
+      "scenario": "tracked source protection",
+      "mode": "git_multi",
+      "status": "failed",
+      "source_sha256_before": "52539f25735b12b7632a953ba58fa04d2873dda00f7045f51f401b6fd7177943",
+      "source_sha256_after": "52539f25735b12b7632a953ba58fa04d2873dda00f7045f51f401b6fd7177943",
+      "error": "仓库内输出目标包含 Git 已跟踪文件或子模块，为避免覆盖源码已拒绝生成：\nD:\\AI\\project\\compareTool_myself\\.tmp\\full_review_20261020_01a15818\\git_paths_probe\\white \\project\\oldVersion\\Demo\nD:\\AI\\project\\compareTool_myself\\.tmp\\full_review_20261020_01a15818\\git_paths_probe\\white \\project\\newVersion\\Demo\nD:\\AI\\project\\compareTool_myself\\.tmp\\full_review_20261020_01a15818\\git_paths_probe\\white \\project\\Demo_diff.html\nD:\\AI\\project\\compareTool_myself\\.tmp\\full_review_20261020_01a15818\\git_paths_probe\\white \\project\\Demo_上线操作说明.txt"
+    },
+    {
+      "scenario": "correct repository identity",
+      "mode": "git",
+      "status": "completed",
+      "issues": [],
+      "reported_path": "D:\\AI\\project\\compareTool_myself\\.tmp\\full_review_20261020_01a15818\\git_paths_probe\\line separator",
+      "actual_export": {
+        "Intended/a.txt": "6e65770a"
+      },
+      "files": [
+        [
+          "a.txt",
+          "M"
+        ]
+      ]
+    },
+    {
+      "scenario": "correct repository identity",
+      "mode": "git_multi",
+      "status": "completed",
+      "issues": [],
+      "reported_path": "D:\\AI\\project\\compareTool_myself\\.tmp\\full_review_20261020_01a15818\\git_paths_probe\\line separator",
+      "actual_export": {
+        "Intended/a.txt": "6e65770a"
+      },
+      "files": [
+        [
+          "a.txt",
+          "M"
+        ]
+      ]
+    }
+  ],
+  "full_regression": {
+    "status": "complete_after_fixture_rerun",
+    "discovered": 780,
+    "selected_results": 780,
+    "passed": 779,
+    "failures": 0,
+    "errors": 0,
+    "skipped": [
+      [
+        "test_review_regressions.ArchiveAndFolderRegressionTests.test_folder_file_symlink_cannot_read_outside_root",
+        "当前 Windows 未允许创建测试符号链接: [WinError 1314] 客户端没有所需的特权。: 'D:\\\\AI\\\\project\\\\compareTool_myself\\\\.tmp\\\\fix_git_paths_20261020_01a15818\\\\source2\\\\.tmp\\\\tmp63nnv16_\\\\secret.txt' -> 'D:\\\\AI\\\\project\\\\compareTool_myself\\\\.tmp\\\\fix_git_paths_20261020_01a15818\\\\source2\\\\.tmp\\\\tmp63nnv16_\\\\new\\\\linked.txt'"
+      ]
+    ],
+    "unique_test_ids": 780,
+    "new_test_ids": [
+      "test_review_git_repository_paths.GitRepositoryPathTests.test_bare_unicode_root_keeps_endpoints_and_metadata_protection",
+      "test_review_git_repository_paths.GitRepositoryPathTests.test_crlf_command_records_preserve_root_and_empty_project_prefix",
+      "test_review_git_repository_paths.GitRepositoryPathTests.test_malformed_root_records_stop_before_clear_or_scope_cache",
+      "test_review_git_repository_paths.GitRepositoryPathTests.test_trailing_space_allows_external_and_untracked_outputs",
+      "test_review_git_repository_paths.GitRepositoryPathTests.test_trailing_unicode_space_cannot_bypass_tracked_output_protection",
+      "test_review_git_repository_paths.GitRepositoryPathTests.test_unicode_line_separators_never_select_adjacent_repository",
+      "test_review_git_repository_paths.GitRepositoryPathTests.test_unicode_project_prefix_keeps_scope_and_checkout_bytes"
+    ],
+    "isolated_snapshots": 4,
+    "snapshot_input_files": 187,
+    "original_snapshot_hash_matches": [
+      187,
+      187,
+      187,
+      187
+    ],
+    "final_fixture_snapshot_hash_matches": 187,
+    "shard_seconds": [
+      731.359,
+      752.375,
+      684.453,
+      659.812
+    ],
+    "evidence_directory": ".tmp\\fix_git_paths_20261020_01a15818",
+    "result_sha256": {
+      "result0.json": "bbd9746b96a3a9c5b3888755b9d8b60b15da4b0dbc70d567c20d1e736a0eae8e",
+      "result1.json": "2e59fa9f83b6164f1b5f8b6138dfd109e8b81c1b907d0b3c86f763a1897ed160",
+      "result2.json": "ecb58c0fcbe82fd3df35ccc5653b024d2fab5dfb18fb655bed18edc2272c104f",
+      "result3.json": "2abfd78dfd255ef3addae511b8041423cff66f1ca4fea9cc94512d4ec32c0af0"
+    },
+    "fixture_rerun": {
+      "reason": "四项旧模拟 Git 预检测试返回了不存在的 .git 元数据目录；测试 helper 补齐实际目录，保留生产目录有效性检查和原有断言。",
+      "production_code_changed_after_full_run": false,
+      "initial_failures": [
+        [
+          "test_output_compatibility_after_aug27.OutputCompatibilityAfterAug27Tests.test_git_descendant_output_rejects_tracked_source_target",
+          "ValueError: 无法确认 Git 元数据目录，已拒绝生成：\nD:\\AI\\project\\compareTool_myself\\.tmp\\fix_git_paths_20261020_01a15818\\source2\\.tmp\\tmpbl00j53j\\repo\\.git\nD:\\AI\\project\\compareTool_myself\\.tmp\\fix_git_paths_20261020_01a15818\\source2\\.tmp\\tmpbl00j53j\\repo\\.git\n\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"D:\\AI\\project\\compareTool_myself\\.tmp\\fix_git_paths_20261020_01a15818\\source2\\tests\\test_output_compatibility_after_aug27.py\", line 47, in test_git_descendant_output_rejects_tracked_source_target\n    with self.assertRaisesRegex(ValueError, \"Git 已跟踪\"):\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: \"Git 已跟踪\" does not match \"无法确认 Git 元数据目录，已拒绝生成：\nD:\\AI\\project\\compareTool_myself\\.tmp\\fix_git_paths_20261020_01a15818\\source2\\.tmp\\tmpbl00j53j\\repo\\.git\nD:\\AI\\project\\compareTool_myself\\.tmp\\fix_git_paths_20261020_01a15818\\source2\\.tmp\\tmpbl00j53j\\repo\\.git\n\"\n"
+        ]
+      ],
+      "initial_errors": [
+        [
+          "test_output_compatibility_after_aug27.OutputCompatibilityAfterAug27Tests.test_existing_output_may_contain_metadata_named_source_content",
+          "Traceback (most recent call last):\n  File \"D:\\AI\\project\\compareTool_myself\\.tmp\\fix_git_paths_20261020_01a15818\\source2\\tests\\test_output_compatibility_after_aug27.py\", line 276, in test_existing_output_may_contain_metadata_named_source_content\n    CompareToolApp._validate_repository_output_targets(\n  File \"D:\\AI\\project\\compareTool_myself\\.tmp\\fix_git_paths_20261020_01a15818\\source2\\main.py\", line 916, in _validate_repository_output_targets\n    raise ValueError(\"无法确认 Git 元数据目录，已拒绝生成：\\n\"\nValueError: 无法确认 Git 元数据目录，已拒绝生成：\nD:\\AI\\project\\compareTool_myself\\.tmp\\fix_git_paths_20261020_01a15818\\source2\\.tmp\\tmpqhv4xdqt\\repo\\.git\nD:\\AI\\project\\compareTool_myself\\.tmp\\fix_git_paths_20261020_01a15818\\source2\\.tmp\\tmpqhv4xdqt\\repo\\.git\n\n"
+        ],
+        [
+          "test_output_compatibility_after_aug27.OutputCompatibilityAfterAug27Tests.test_formal_output_may_replace_previously_exported_git_tree",
+          "Traceback (most recent call last):\n  File \"D:\\AI\\project\\compareTool_myself\\.tmp\\fix_git_paths_20261020_01a15818\\source2\\tests\\test_output_compatibility_after_aug27.py\", line 301, in test_formal_output_may_replace_previously_exported_git_tree\n    CompareToolApp._validate_repository_output_targets(\n  File \"D:\\AI\\project\\compareTool_myself\\.tmp\\fix_git_paths_20261020_01a15818\\source2\\main.py\", line 916, in _validate_repository_output_targets\n    raise ValueError(\"无法确认 Git 元数据目录，已拒绝生成：\\n\"\nValueError: 无法确认 Git 元数据目录，已拒绝生成：\nD:\\AI\\project\\compareTool_myself\\.tmp\\fix_git_paths_20261020_01a15818\\source2\\.tmp\\tmpn1oxji5n\\repo\\.git\nD:\\AI\\project\\compareTool_myself\\.tmp\\fix_git_paths_20261020_01a15818\\source2\\.tmp\\tmpn1oxji5n\\repo\\.git\n\n"
+        ],
+        [
+          "test_output_compatibility_after_aug27.OutputCompatibilityAfterAug27Tests.test_git_descendant_output_allows_untracked_previous_output",
+          "Traceback (most recent call last):\n  File \"D:\\AI\\project\\compareTool_myself\\.tmp\\fix_git_paths_20261020_01a15818\\source2\\tests\\test_output_compatibility_after_aug27.py\", line 71, in test_git_descendant_output_allows_untracked_previous_output\n    CompareToolApp._validate_repository_output_targets(\n  File \"D:\\AI\\project\\compareTool_myself\\.tmp\\fix_git_paths_20261020_01a15818\\source2\\main.py\", line 916, in _validate_repository_output_targets\n    raise ValueError(\"无法确认 Git 元数据目录，已拒绝生成：\\n\"\nValueError: 无法确认 Git 元数据目录，已拒绝生成：\nD:\\AI\\project\\compareTool_myself\\.tmp\\fix_git_paths_20261020_01a15818\\source2\\.tmp\\tmp8sium29k\\repo\\.git\nD:\\AI\\project\\compareTool_myself\\.tmp\\fix_git_paths_20261020_01a15818\\source2\\.tmp\\tmp8sium29k\\repo\\.git\n\n"
+        ]
+      ],
+      "run": 26,
+      "passed": 26,
+      "seconds": 114.26600000000326,
+      "test_ids": [
+        "test_output_compatibility_after_aug27.OutputCompatibilityAfterAug27Tests.test_bare_git_repository_can_still_write_to_external_output",
+        "test_output_compatibility_after_aug27.OutputCompatibilityAfterAug27Tests.test_existing_output_may_contain_metadata_named_source_content",
+        "test_output_compatibility_after_aug27.OutputCompatibilityAfterAug27Tests.test_file_target_inside_nested_repository_is_not_written",
+        "test_output_compatibility_after_aug27.OutputCompatibilityAfterAug27Tests.test_fixed_repository_endpoint_may_write_to_dedicated_child",
+        "test_output_compatibility_after_aug27.OutputCompatibilityAfterAug27Tests.test_fixed_repository_mode_still_rejects_output_over_source",
+        "test_output_compatibility_after_aug27.OutputCompatibilityAfterAug27Tests.test_formal_output_may_replace_previously_exported_git_tree",
+        "test_output_compatibility_after_aug27.OutputCompatibilityAfterAug27Tests.test_git_descendant_output_allows_untracked_previous_output",
+        "test_output_compatibility_after_aug27.OutputCompatibilityAfterAug27Tests.test_git_descendant_output_rejects_tracked_source_target",
+        "test_output_compatibility_after_aug27.OutputCompatibilityAfterAug27Tests.test_git_subdirectory_project_allows_untracked_sibling_output",
+        "test_output_compatibility_after_aug27.OutputCompatibilityAfterAug27Tests.test_git_subdirectory_project_detects_tracked_sibling_target",
+        "test_output_compatibility_after_aug27.OutputCompatibilityAfterAug27Tests.test_git_subdirectory_project_still_detects_tracked_target",
+        "test_output_compatibility_after_aug27.OutputCompatibilityAfterAug27Tests.test_repository_metadata_directory_is_never_an_output_target",
+        "test_output_compatibility_after_aug27.OutputCompatibilityAfterAug27Tests.test_svn_descendant_output_rejects_versioned_target",
+        "test_output_compatibility_after_aug27.OutputCompatibilityAfterAug27Tests.test_svn_subdirectory_project_detects_versioned_sibling_target",
+        "test_output_compatibility_after_aug27.OutputCompatibilityAfterAug27Tests.test_svn_subdirectory_project_detects_versioned_target",
+        "test_output_compatibility_after_aug27.OutputCompatibilityAfterAug27Tests.test_windows_drive_root_is_a_valid_common_output_root",
+        "test_review_git_repository_paths.GitRepositoryPathTests.test_bare_unicode_root_keeps_endpoints_and_metadata_protection",
+        "test_review_git_repository_paths.GitRepositoryPathTests.test_crlf_command_records_preserve_root_and_empty_project_prefix",
+        "test_review_git_repository_paths.GitRepositoryPathTests.test_malformed_root_records_stop_before_clear_or_scope_cache",
+        "test_review_git_repository_paths.GitRepositoryPathTests.test_trailing_space_allows_external_and_untracked_outputs",
+        "test_review_git_repository_paths.GitRepositoryPathTests.test_trailing_unicode_space_cannot_bypass_tracked_output_protection",
+        "test_review_git_repository_paths.GitRepositoryPathTests.test_unicode_line_separators_never_select_adjacent_repository",
+        "test_review_git_repository_paths.GitRepositoryPathTests.test_unicode_project_prefix_keeps_scope_and_checkout_bytes",
+        "test_review_metadata_depth_and_diagnostics.ExternalGitMetadataTests.test_external_and_untracked_worktree_outputs_remain_available",
+        "test_review_metadata_depth_and_diagnostics.ExternalGitMetadataTests.test_separate_and_linked_metadata_never_reach_output_deletion",
+        "test_review_metadata_depth_and_diagnostics.ExternalGitMetadataTests.test_unreadable_metadata_identity_stops_before_clear"
+      ],
+      "sha256": "82b8f1da288eb0e67b7df50c84a2f6f5883bfdbe399f5b3be205d83fab0c249f"
+    }
+  },
+  "validation_note": "初版新增报告断言直接搜索原始 HTML，会误判 HtmlDiff 高亮拆分的文本；最终版本按可见正文核验，初始 targeted.log 不作为最终验收。",
+  "boundaries": {
+    "exe_built": false,
+    "installed_files_changed": false,
+    "git_staged": false,
+    "git_committed": false,
+    "git_pushed": false,
+    "source_validation_only": true
+  },
+  "completed_at": "2026-10-20T15:41:48.162316+08:00",
+  "environment": {
+    "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+    "os": "Windows-11-10.0.22621-SP0",
+    "git": "git version 2.53.0.windows.2",
+    "svn": "1.14.2"
+  },
+  "git_status_before_evidence": " M docs/report-and-export-contract.md\n M main.py\n M tests/test_output_compatibility_after_aug27.py\n M vcs/git_vcs.py\n?? tests/test_review_git_repository_paths.py\n?? vcs/git_paths.py\n"
+}

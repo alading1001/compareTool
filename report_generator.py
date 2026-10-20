@@ -8,7 +8,8 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from diff_engine import DiffResult
 from delivery_instructions import DELIVERY_INSTRUCTIONS_FILENAME, issue_path_text
 from archive_report import iter_archive_events
-from stage_ownership import mark_owned, remove_ownership_marker
+from stage_ownership import (mark_owned, remove_ownership_marker, record_owned_path,
+                             replace_owned_file, cleanup_owned_path)
 
 
 def resilient_report(function):
@@ -153,6 +154,7 @@ class ReportGenerator:
         )
         total = 0
         try:
+            record_owned_path(temporary)
             mark_owned(temporary)
             if hasattr(stream, 'enable_buffering'):
                 stream.enable_buffering(64)
@@ -170,16 +172,15 @@ class ReportGenerator:
                     target.write(payload)
                 target.flush()
                 os.fsync(target.fileno())
-            os.replace(temporary, output_path)
+            replace_owned_file(temporary, output_path)
             remove_ownership_marker(temporary)
         except BaseException:
             if fd >= 0:
                 os.close(fd)
             try:
-                os.remove(temporary)
+                cleanup_owned_path(temporary, os.remove)
             except OSError:
                 pass
-            remove_ownership_marker(temporary)
             raise
 
     @staticmethod

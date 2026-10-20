@@ -1,0 +1,107 @@
+{
+  "schema": "comparetool.review_fixes.v1",
+  "status": "SOURCE_VERIFIED_EXE_NOT_BUILT",
+  "completed_at_beijing": "2026-10-20T17:03:13+08:00",
+  "base_commit": "71d7ea31de38a4836950f78b653c0a5b95c0f7cf",
+  "repaired_findings": [
+    {
+      "priority": "P1",
+      "file": "main.py",
+      "behavior": "保留界面、预检、生成、任务快照、最近项目及配置恢复中的真实文件系统路径；文件夹及归档路径不作为版本文本修剪。",
+      "verification": "真实 Tk 窗口入口对照相邻 Git 仓库；实际已跟踪输出在任何删除前拒绝；文件夹/输出/保存/恢复路径和实际交付字节一致。"
+    },
+    {
+      "priority": "P2",
+      "file": "vcs/git_checkout.py",
+      "behavior": "外部属性、info 属性和对象库路径复用 LF/CRLF 记录解析，保留合法名称空白及 Unicode 行分隔符。",
+      "verification": "core.attributesfile 尾随 U+2003/U+2028，并存在规则相反的相似文件；普通及多版本导出逐字节等于原生 Git filters 的固定端点结果。"
+    },
+    {
+      "priority": "P2",
+      "file": "file_exporter.py",
+      "behavior": "失败清理复核当前进程新建的对象与父目录身份，保留外部替换；报告原子写入显式转移暂存身份，不凭历史标记或名称授权删除。",
+      "verification": "单/多项目实际工作线程在 Windows 发布重试间被外来不同 FileId 替换，拒绝发布后仍保留外来字节；子目录、父目录替换及无所有权名称同样保留；正常报告与导出无额外暂存残留。"
+    }
+  ],
+  "targeted": {
+    "tests": 70,
+    "successful": true,
+    "failures": [],
+    "errors": [],
+    "skipped": [],
+    "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\fix_review_20261020_01a15850\\targeted_e6ed79db"
+  },
+  "negative_control": {
+    "tests": 7,
+    "expected_to_fail": true,
+    "successful": false,
+    "failed_scenarios": [
+      "test_review_input_paths_and_stage_cleanup.ExternalAttributePathTests.test_external_attribute_names_keep_exact_native_export_bytes (attributes='space_attributes\\u2003', kind='space')",
+      "test_review_input_paths_and_stage_cleanup.ExternalAttributePathTests.test_external_attribute_names_keep_exact_native_export_bytes (attributes='line-separator_attributes\\u2028', kind='line-separator')",
+      "test_review_input_paths_and_stage_cleanup.InputPathTests.test_real_gui_rejects_tracked_output_before_any_clear",
+      "test_review_input_paths_and_stage_cleanup.InputPathTests.test_folder_paths_survive_generation_task_save_and_window_restore",
+      "test_review_input_paths_and_stage_cleanup.InputPathTests.test_real_gui_keeps_selected_repository_output_and_saved_paths",
+      "test_review_input_paths_and_stage_cleanup.StageCleanupIdentityTests.test_replaced_child_or_parent_is_preserved_and_unowned_names_never_authorize_cleanup",
+      "test_review_input_paths_and_stage_cleanup.StageCleanupIdentityTests.test_single_and_multi_failed_publish_keep_foreign_replacement (multi=False)",
+      "test_review_input_paths_and_stage_cleanup.StageCleanupIdentityTests.test_single_and_multi_failed_publish_keep_foreign_replacement (multi=True)"
+    ],
+    "source": "本轮修复前的源码文件备份，叠加同一组新增回归。"
+  },
+  "full_regression": {
+    "tests": 787,
+    "passed": 786,
+    "failures": [],
+    "errors": [],
+    "skipped": [
+      [
+        "test_review_regressions.ArchiveAndFolderRegressionTests.test_folder_file_symlink_cannot_read_outside_root",
+        "当前 Windows 未允许创建测试符号链接: [WinError 1314] 客户端没有所需的特权。: 'D:\\\\AI\\\\project\\\\compareTool_myself\\\\.tmp\\\\fix_review_20261020_01a15850\\\\review_module_e4a7cfa7\\\\source\\\\.tmp\\\\tmpbr7xub2c\\\\secret.txt' -> 'D:\\\\AI\\\\project\\\\compareTool_myself\\\\.tmp\\\\fix_review_20261020_01a15850\\\\review_module_e4a7cfa7\\\\source\\\\.tmp\\\\tmpbr7xub2c\\\\new\\\\linked.txt'"
+      ]
+    ],
+    "discovered": 787,
+    "exact_test_inventory_covered": true,
+    "root": "D:\\AI\\project\\compareTool_myself\\.tmp\\audit_current_20261020_f11ff679",
+    "refreshed_module": {
+      "root": "D:\\AI\\project\\compareTool_myself\\.tmp\\fix_review_20261020_01a15850\\review_module_e4a7cfa7",
+      "tests": 22,
+      "successful": true,
+      "skipped": [
+        [
+          "test_review_regressions.ArchiveAndFolderRegressionTests.test_folder_file_symlink_cannot_read_outside_root",
+          "当前 Windows 未允许创建测试符号链接: [WinError 1314] 客户端没有所需的特权。: 'D:\\\\AI\\\\project\\\\compareTool_myself\\\\.tmp\\\\fix_review_20261020_01a15850\\\\review_module_e4a7cfa7\\\\source\\\\.tmp\\\\tmpbr7xub2c\\\\secret.txt' -> 'D:\\\\AI\\\\project\\\\compareTool_myself\\\\.tmp\\\\fix_review_20261020_01a15850\\\\review_module_e4a7cfa7\\\\source\\\\.tmp\\\\tmpbr7xub2c\\\\new\\\\linked.txt'"
+        ]
+      ]
+    },
+    "method": "四份全量分组结果中，有两个旧断言与新合同冲突。只调整该测试模块的这两个夹具，并在最终源码独立副本复跑全部 22 项；以复跑结果替换同模块旧结果后按 ID 去重。所有生产源码及其他测试文件与全量快照逐字节一致。",
+    "superseded_failures": [
+      [
+        "test_review_regressions.DiffAndConfigRegressionTests.test_malformed_config_tasks_are_ignored_and_valid_task_is_normalized",
+        "Traceback (most recent call last):\n  File \"D:\\AI\\project\\compareTool_myself\\.tmp\\audit_current_20261020_f11ff679\\source_1\\tests\\test_review_regressions.py\", line 383, in test_malformed_config_tasks_are_ignored_and_valid_task_is_normalized\n    self.assertEqual(\"C:/repo\", tasks[0][\"project_path\"])\nAssertionError: 'C:/repo' != ' C:/repo '\n- C:/repo\n+  C:/repo \n? +       +\n\n"
+      ],
+      [
+        "test_review_regressions.ExportOutputRegressionTests.test_second_stage_creation_failure_cleans_first_stage",
+        "Traceback (most recent call last):\n  File \"D:\\AI\\project\\compareTool_myself\\.tmp\\audit_current_20261020_f11ff679\\source_1\\tests\\test_review_regressions.py\", line 182, in test_second_stage_creation_failure_cleans_first_stage\n    self.assertFalse(os.path.exists(first_stage))\nAssertionError: True is not false\n"
+      ]
+    ]
+  },
+  "source_verification": {
+    "files": 189,
+    "final_snapshot_changed": [],
+    "full_run_only_changed_test_file": [
+      "tests/test_review_regressions.py"
+    ],
+    "unrelated_preexisting_files_changed": [],
+    "diff_check_exit_code": 0,
+    "no_staged_changes": true
+  },
+  "boundaries": {
+    "exe_rebuilt": false,
+    "installed_exe_replaced": false,
+    "exe_smoke_verified": false,
+    "staged": false,
+    "committed": false,
+    "pushed": false,
+    "production_or_onsite_verified": false
+  },
+  "notes": "TEMP/TMP/COMPARETOOL_TEMP_DIR 均位于本次项目独占目录。WinError 1314 是符号链接权限环境跳过。全量执行首次自动审批审核超时，唯一一次重试后正常启动。"
+}

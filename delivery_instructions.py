@@ -38,8 +38,6 @@ def prepare_delivery_instructions(
         write_delivery_instructions(project_results, stage_path)
         return stage_path, target_path
     except BaseException:
-        if os.path.isfile(stage_path):
-            os.remove(stage_path)
         FileExporter._cleanup_stage(stage_path)
         raise
 

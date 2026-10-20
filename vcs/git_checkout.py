@@ -9,6 +9,7 @@ from collections import OrderedDict
 
 from .temp_storage import create_temp_dir, remove_temp_dir
 from .git_probe_batch import GitProbeBatch, ProbeBatchUnavailable
+from .git_paths import parse_git_path_records
 
 
 class GitCheckoutSnapshot:
@@ -44,9 +45,9 @@ class GitCheckoutSnapshot:
             self.root = create_temp_dir("comparetool_git_checkout_")
             object_format = vcs._run_bytes(["rev-parse", "--show-object-format"]).decode("ascii").strip()
             self._run(["init", "--bare", "--template=", f"--object-format={object_format}", self.root])
-            objects = vcs._run_bytes([
+            objects, = parse_git_path_records(vcs._run_bytes([
                 "rev-parse", "--path-format=absolute", "--git-path", "objects"
-            ]).decode("utf-8", "surrogateescape").strip()
+            ]), 1)
             # 只读共享对象库；cat-file 不向源仓库写入对象、索引或配置。
             alternate = os.path.join(self.root, "objects", "info", "alternates")
             with open(alternate, "w", encoding="utf-8", newline="\n") as stream:
@@ -124,11 +125,11 @@ class GitCheckoutSnapshot:
             if name == "GIT_ATTR_SYSTEM" and no_system not in ("", "0", "false", "no", "off"):
                 paths.append("")
                 continue
-            raw = vcs._run_bytes(["var", name]).decode("utf-8", "surrogateescape").strip()
+            raw, = parse_git_path_records(vcs._run_bytes(["var", name]), 1)
             paths.append(os.path.abspath(os.path.join(vcs._git_cwd(), raw)) if raw else "")
-        raw = vcs._run_bytes([
+        raw, = parse_git_path_records(vcs._run_bytes([
             "rev-parse", "--path-format=absolute", "--git-path", "info/attributes"
-        ]).decode("utf-8", "surrogateescape").strip()
+        ]), 1)
         paths.append(raw)
         return paths
 

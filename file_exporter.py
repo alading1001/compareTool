@@ -22,7 +22,9 @@ from path_safety import (
     TreePathCollision,
     safe_join,
 )
-from stage_ownership import mark_owned, remove_ownership_marker
+from stage_ownership import (mark_owned, record_owned_path, owned_path_owner,
+                             owned_path_is_current, cleanup_owned_path, forget_owned_path,
+                             ownership_marker)
 from vcs.base import ChangeType, comparison_versions
 
 
@@ -299,24 +301,26 @@ class FileExporter:
     def _cleanup_stage(cls, stage: str):
         if not stage:
             return
-        parent = os.path.dirname(os.path.abspath(stage))
-        owner = parent if os.path.basename(parent).startswith(".comparetool_stage_") else stage
-        if os.path.lexists(stage):
-            try:
-                cls._remove_path(stage)
-            except OSError as exc:
-                warn(f"清理导出暂存目录失败: {stage}: {exc}")
+        stage = os.path.abspath(stage)
+        owner = owned_path_owner(stage)
+        try:
+            if owner != stage and os.path.lexists(owner) and not owned_path_is_current(owner):
+                warn('暂存根已被替换，保留该路径: ' + owner)
+                forget_owned_path(stage)
+                forget_owned_path(owner)
+                forget_owned_path(ownership_marker(owner))
                 return
-        if os.path.basename(parent).startswith(".comparetool_stage_"):
-            try:
-                os.rmdir(parent)
-            except FileNotFoundError:
-                pass
-            except OSError as exc:
-                warn(f"清理导出暂存根失败: {parent}: {exc}")
-        if os.path.lexists(owner):
-            return
-        remove_ownership_marker(owner)
+            if not cleanup_owned_path(stage, cls._remove_path):
+                if owner != stage:
+                    forget_owned_path(owner)
+                    forget_owned_path(ownership_marker(owner))
+                return
+            if owner != stage:
+                cleanup_owned_path(owner, os.rmdir)
+        except OSError as exc:
+            warn(f"清理导出暂存目录失败，已保留现场: {stage}: {exc}")
+            for path in (stage, owner, ownership_marker(stage), ownership_marker(owner)):
+                forget_owned_path(path)
 
     def _write_file(self, base_dir: str, rel_path: str, version: str, text_content: str):
         file_path = self._safe_join(base_dir, rel_path)
@@ -413,7 +417,9 @@ class FileExporter:
         os.makedirs(parent, exist_ok=True)
         cls._validate_trusted_paths(anchor, [parent], "输出暂存目录")
         stage_root = tempfile.mkdtemp(prefix=".comparetool_stage_", dir=parent)
+        stage = ""
         try:
+            record_owned_path(stage_root)
             cls._validate_trusted_paths(
                 anchor, [stage_root], "输出暂存目录"
             )
@@ -422,13 +428,15 @@ class FileExporter:
                 return stage_root
             stage = os.path.join(stage_root, os.path.basename(target_dir))
             os.makedirs(stage)
+            record_owned_path(stage, owner=stage_root)
             cls._validate_trusted_paths(
                 anchor, [stage_root, stage], "输出暂存目录"
             )
             return stage
         except BaseException:
-            shutil.rmtree(stage_root, ignore_errors=True)
-            remove_ownership_marker(stage_root)
+            cls._cleanup_stage(stage_root)
+            if stage:
+                forget_owned_path(stage)
             raise
 
     @classmethod
@@ -455,17 +463,14 @@ class FileExporter:
         )
         os.close(fd)
         try:
+            record_owned_path(stage_path)
             cls._validate_trusted_paths(
                 anchor, [stage_path], "输出暂存文件"
             )
             mark_owned(stage_path)
             return stage_path
         except BaseException:
-            try:
-                os.remove(stage_path)
-            except OSError:
-                pass
-            remove_ownership_marker(stage_path)
+            cls._cleanup_stage(stage_path)
             raise
 
     @classmethod
