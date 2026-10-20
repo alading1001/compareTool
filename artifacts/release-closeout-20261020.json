@@ -1,0 +1,614 @@
+{
+  "date": "2026-10-20",
+  "verified_at": "2026-10-20T09:11:48+08:00",
+  "release_state": "local-release-live-verified; knowledge-closed; cleanup-retained",
+  "source_commit": "acc3e672941b7315b9b164bb749ac984d4b9c49e",
+  "build": {
+    "metadata": {
+      "version": "2026.10.20.1",
+      "build_id": "1fc8eae745",
+      "built_at": "2026-10-20T09:03:05+08:00",
+      "commit": "acc3e672941b7315b9b164bb749ac984d4b9c49e",
+      "dirty": false,
+      "source_sha256": "1fc8eae74556cc9483fbd81d913e98733fe385889affdaf557670cba1d3785d2",
+      "exe_sha256": "3dc30edb711c9023e07573cf7e91ebf1800a4c0fb7347dba7b364e68700230a7"
+    },
+    "embedded_metadata_matches": true,
+    "modules": [
+      "app_version.py",
+      "archive_endpoints.py",
+      "archive_report.py",
+      "delivery_instructions.py",
+      "diff_engine.py",
+      "file_exporter.py",
+      "html_details.py",
+      "logger.py",
+      "main.py",
+      "path_safety.py",
+      "report_generator.py",
+      "stable_diff.py",
+      "stage_ownership.py",
+      "task_progress.py",
+      "ui_progress.py",
+      "vcs/__init__.py",
+      "vcs/archive_vcs.py",
+      "vcs/base.py",
+      "vcs/folder_vcs.py",
+      "vcs/git_batch.py",
+      "vcs/git_checkout.py",
+      "vcs/git_probe_batch.py",
+      "vcs/git_vcs.py",
+      "vcs/multi_version_vcs.py",
+      "vcs/raw_cache.py",
+      "vcs/svn_vcs.py",
+      "vcs/temp_storage.py"
+    ],
+    "resources": [
+      "templates/archive_details.html",
+      "templates/archive_script.html",
+      "templates/archive_style.html",
+      "templates/file_detail.html",
+      "templates/multi_report.html",
+      "templates/report.html",
+      "templates/result_issues.html",
+      "templates/summary_issues.html",
+      "assets/icons/app.ico",
+      "assets/icons/compass.ico",
+      "assets/icons/ct.ico",
+      "assets/icons/diff.ico",
+      "assets/icons/prism.ico",
+      "assets/icons/prism2.ico",
+      "assets/icons/source/compass.png",
+      "assets/icons/source/ct.png",
+      "assets/icons/source/diff.png",
+      "assets/icons/source/prism.png",
+      "assets/icons/source/prism2.png"
+    ],
+    "runtime_matches_full_regression": true,
+    "manual_sha256": "ee58ab468d67631ce2c26bf924b9f58f0cfe983efc4b5db943aabc5d06f86877",
+    "manual_bytes_match": true
+  },
+  "smoke": {
+    "projects": 7,
+    "modes": [
+      "git",
+      "git_multi",
+      "svn",
+      "svn_multi",
+      "folder",
+      "archive"
+    ],
+    "exported_files": 27,
+    "exported_bytes_match": true,
+    "nested_depth": 8,
+    "single_and_multi_reports": true,
+    "expected_failed_items": 1,
+    "failed_rename_both_paths_visible": true,
+    "failed_rename_not_exported": true,
+    "failed_rename_no_delete_action": true,
+    "replacement_checkout_bytes_match": true,
+    "metadata_ref_unchanged": true,
+    "owned_temporary_directories_clean": true,
+    "tasks": [
+      {
+        "schema": "comparetool.task.v1",
+        "task_id": "20261020_090718_f7d4423767ef",
+        "mode": "multi",
+        "build": {
+          "version": "2026.10.20.1",
+          "build_id": "1fc8eae745",
+          "built_at": "2026-10-20T09:03:05+08:00",
+          "commit": "acc3e672941b7315b9b164bb749ac984d4b9c49e",
+          "dirty": false,
+          "source_sha256": "1fc8eae74556cc9483fbd81d913e98733fe385889affdaf557670cba1d3785d2"
+        },
+        "success": true,
+        "seconds": 14.910948,
+        "phases": {
+          "output.clear": {
+            "calls": 1,
+            "seconds": 0.012178199999652861,
+            "exclusive_seconds": 0.012178199999652861
+          },
+          "git.changes": {
+            "calls": 2,
+            "seconds": 6.807024999999612,
+            "exclusive_seconds": 6.807024999999612
+          },
+          "diff.renames": {
+            "calls": 13,
+            "seconds": 0.009657799999331473,
+            "exclusive_seconds": 0.009657799999331473
+          },
+          "diff.render": {
+            "calls": 15,
+            "seconds": 0.4297017999997479,
+            "exclusive_seconds": 0.4297017999997479
+          },
+          "diff.total": {
+            "calls": 15,
+            "seconds": 7.837542799999028,
+            "exclusive_seconds": 0.13168010000072172
+          },
+          "project.prepare": {
+            "calls": 7,
+            "seconds": 12.706766399999651,
+            "exclusive_seconds": 4.960801400000491
+          },
+          "svn.changes": {
+            "calls": 1,
+            "seconds": 0.34560949999968216,
+            "exclusive_seconds": 0.34560949999968216
+          },
+          "folder.capture": {
+            "calls": 2,
+            "seconds": 0.07513210000024628,
+            "exclusive_seconds": 0.07513210000024628
+          },
+          "folder.compare": {
+            "calls": 1,
+            "seconds": 0.0033386000000064087,
+            "exclusive_seconds": 0.0033386000000064087
+          },
+          "folder.snapshot": {
+            "calls": 2,
+            "seconds": 0.03157349999946746,
+            "exclusive_seconds": 0.03157349999946746
+          },
+          "folder.verify": {
+            "calls": 2,
+            "seconds": 0.0038244000002123357,
+            "exclusive_seconds": 0.0038244000002123357
+          },
+          "archive.extract": {
+            "calls": 9,
+            "seconds": 0.22964989999900354,
+            "exclusive_seconds": 0.22964989999900354
+          },
+          "output.export": {
+            "calls": 7,
+            "seconds": 0.617667800000163,
+            "exclusive_seconds": 0.617667800000163
+          },
+          "output.commit": {
+            "calls": 8,
+            "seconds": 0.26225210000075094,
+            "exclusive_seconds": 0.26225210000075094
+          },
+          "archive.stage_bind": {
+            "calls": 1,
+            "seconds": 0.04689430000007633,
+            "exclusive_seconds": 0.04689430000007633
+          },
+          "archive.report": {
+            "calls": 1,
+            "seconds": 0.3919442999999774,
+            "exclusive_seconds": 0.07071660000110569
+          },
+          "report.write_multi": {
+            "calls": 1,
+            "seconds": 0.05439639999985957,
+            "exclusive_seconds": 0.05439639999985957
+          },
+          "output.instructions": {
+            "calls": 1,
+            "seconds": 0.012523700000201643,
+            "exclusive_seconds": 0.012523700000201643
+          }
+        },
+        "counts": {
+          "overwrite_targets": 0,
+          "project_count": 7,
+          "html_fragment_count": 23,
+          "html_fragment_bytes": 15525,
+          "issue_count": 1,
+          "failed_items": 1,
+          "delivery_incomplete": true,
+          "total_files": 14,
+          "added_files": 1,
+          "modified_files": 12,
+          "format_changed_files": 0,
+          "deleted_files": 0,
+          "renamed_files": 1,
+          "required_directory_deletions": 0,
+          "total_added_lines": 12,
+          "total_deleted_lines": 11,
+          "skipped_line_count_files": 1,
+          "report_omitted_files": 0,
+          "line_counts_complete": false
+        },
+        "error_type": null,
+        "log_error": "",
+        "status": "partial"
+      },
+      {
+        "schema": "comparetool.task.v1",
+        "task_id": "20261020_090806_9696430a451e",
+        "mode": "folder",
+        "build": {
+          "version": "2026.10.20.1",
+          "build_id": "1fc8eae745",
+          "built_at": "2026-10-20T09:03:05+08:00",
+          "commit": "acc3e672941b7315b9b164bb749ac984d4b9c49e",
+          "dirty": false,
+          "source_sha256": "1fc8eae74556cc9483fbd81d913e98733fe385889affdaf557670cba1d3785d2"
+        },
+        "success": true,
+        "seconds": 0.524691,
+        "phases": {
+          "output.clear": {
+            "calls": 1,
+            "seconds": 0.008835100000396778,
+            "exclusive_seconds": 0.008835100000396778
+          },
+          "folder.capture": {
+            "calls": 2,
+            "seconds": 0.0026746999997158127,
+            "exclusive_seconds": 0.0026746999997158127
+          },
+          "folder.compare": {
+            "calls": 1,
+            "seconds": 0.0031235999999807973,
+            "exclusive_seconds": 0.0031235999999807973
+          },
+          "folder.snapshot": {
+            "calls": 2,
+            "seconds": 0.029755500000192114,
+            "exclusive_seconds": 0.029755500000192114
+          },
+          "folder.verify": {
+            "calls": 2,
+            "seconds": 0.002774900000076741,
+            "exclusive_seconds": 0.002774900000076741
+          },
+          "diff.renames": {
+            "calls": 9,
+            "seconds": 0.000545399999282381,
+            "exclusive_seconds": 0.000545399999282381
+          },
+          "diff.render": {
+            "calls": 9,
+            "seconds": 0.015050400000745867,
+            "exclusive_seconds": 0.015050400000745867
+          },
+          "diff.total": {
+            "calls": 9,
+            "seconds": 0.07639279999966675,
+            "exclusive_seconds": 0.022468299999673036
+          },
+          "project.prepare": {
+            "calls": 1,
+            "seconds": 0.050958799999989424,
+            "exclusive_seconds": 0.0011507999997775187
+          },
+          "output.export": {
+            "calls": 1,
+            "seconds": 0.03559140000015759,
+            "exclusive_seconds": 0.03559140000015759
+          },
+          "archive.stage_bind": {
+            "calls": 1,
+            "seconds": 0.005466600000090693,
+            "exclusive_seconds": 0.005466600000090693
+          },
+          "archive.extract": {
+            "calls": 8,
+            "seconds": 0.1770718000002489,
+            "exclusive_seconds": 0.1770718000002489
+          },
+          "archive.report": {
+            "calls": 1,
+            "seconds": 0.26948600000014267,
+            "exclusive_seconds": 0.06582940000043891
+          },
+          "report.write": {
+            "calls": 1,
+            "seconds": 0.0458771000003253,
+            "exclusive_seconds": 0.0458771000003253
+          },
+          "output.instructions": {
+            "calls": 1,
+            "seconds": 0.012153000000125758,
+            "exclusive_seconds": 0.012153000000125758
+          },
+          "output.commit": {
+            "calls": 1,
+            "seconds": 0.04684159999987969,
+            "exclusive_seconds": 0.04684159999987969
+          }
+        },
+        "counts": {
+          "overwrite_targets": 0,
+          "html_fragment_count": 9,
+          "html_fragment_bytes": 3779,
+          "issue_count": 0,
+          "delivery_incomplete": false,
+          "failed_items": 0,
+          "total_files": 1,
+          "added_files": 0,
+          "modified_files": 1,
+          "format_changed_files": 0,
+          "deleted_files": 0,
+          "renamed_files": 0,
+          "required_directory_deletions": 0,
+          "total_added_lines": 0,
+          "total_deleted_lines": 0,
+          "line_counts_complete": false,
+          "skipped_line_count_files": 1,
+          "report_omitted_files": 0,
+          "manifest_listed_files": 1,
+          "manifest_omitted_files": 0
+        },
+        "error_type": null,
+        "log_error": "",
+        "status": "completed"
+      }
+    ],
+    "reports": {
+      "single": {
+        "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\release_closeout_20261020\\output # 报告\\20261020\\FolderNested_diff.html",
+        "sha256": "2e10ad5cd8914c3128baf0071933e1926d977200e6150e9def2c29ba7b0831a3"
+      },
+      "multi": {
+        "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\release_closeout_20261020\\output # 报告\\20261020\\multi_run_20261020_090711_492_ec01946c\\multi_compare_report_20261020_090711_492.html",
+        "sha256": "31fad36b55a4c470accd1fbca32c13dd099d742bba328d29c7e5de0ced1c3a70"
+      }
+    },
+    "exports": {
+      "oldVersion/ArchiveRename/before.txt": "a6328afc76e9db71da297ebff4b0d3e7a7eb3b01d917c05a6573fef121b6ecb6",
+      "oldVersion/FailedRename/good.py": "01d09d19c2139a46aebfb577780d123d7396e97201bc7ead210a2ebff8239dee",
+      "oldVersion/FolderNested/app.zip": "fb8286ac9ae3258cda261cfb927e7f22277ffbb906b5f79d213cf82d10ca9f78",
+      "oldVersion/GitMulti/.gitattributes": "667b93be6ede617192a0c6ac9e3664b1727402239531277b6cd47b53e73a6535",
+      "oldVersion/GitMulti/a.txt": "01d09d19c2139a46aebfb577780d123d7396e97201bc7ead210a2ebff8239dee",
+      "oldVersion/GitMulti/good.py": "864593c84a2ebd9bbbbb5dd05fc26f26d9ab64f07c6c65e4bc15b6eeb1884ae3",
+      "oldVersion/GitSeparate/.gitattributes": "667b93be6ede617192a0c6ac9e3664b1727402239531277b6cd47b53e73a6535",
+      "oldVersion/GitSeparate/a.txt": "01d09d19c2139a46aebfb577780d123d7396e97201bc7ead210a2ebff8239dee",
+      "oldVersion/GitSeparate/good.py": "864593c84a2ebd9bbbbb5dd05fc26f26d9ab64f07c6c65e4bc15b6eeb1884ae3",
+      "oldVersion/SVNMulti/good.txt": "864593c84a2ebd9bbbbb5dd05fc26f26d9ab64f07c6c65e4bc15b6eeb1884ae3",
+      "oldVersion/SVNOrdinary/good.txt": "864593c84a2ebd9bbbbb5dd05fc26f26d9ab64f07c6c65e4bc15b6eeb1884ae3",
+      "oldVersion/SVNMulti/sub # %20/a.txt": "0af67bbab400c0d705ea2ec5b42eaf05387a0db1855559769b135b66fc9067f0",
+      "oldVersion/SVNOrdinary/sub # %20/a.txt": "0af67bbab400c0d705ea2ec5b42eaf05387a0db1855559769b135b66fc9067f0",
+      "newVersion/ArchiveRename/after.txt": "a6328afc76e9db71da297ebff4b0d3e7a7eb3b01d917c05a6573fef121b6ecb6",
+      "newVersion/FailedRename/.gitattributes": "474abbc90daac171402e3081aa241b75e08f5563840ce0ed84ad7932ca1dfb88",
+      "newVersion/FailedRename/good.py": "7aa7a5359173d05b63cfd682e3c38487f3cb4f7f1d60659fe59fab1505977d4c",
+      "newVersion/FolderNested/app.zip": "963ffb583845ae40977028b502075927cb16aa1cc327678cc06162354b7900f6",
+      "newVersion/GitMulti/.gitattributes": "f7dbdf6de7d9b6b2ca39cec372872982331eb9af71ac616332bca7f19b6cdb8a",
+      "newVersion/GitMulti/a.txt": "b426df25816fe2469e0f058f78860620479140eddf569cb09e500d8c84ca4fa1",
+      "newVersion/GitMulti/good.py": "e013f8488e86b7c336ed90de24cc35fdc66643e0813519ee4a2d1f4db1673f36",
+      "newVersion/GitSeparate/.gitattributes": "f7dbdf6de7d9b6b2ca39cec372872982331eb9af71ac616332bca7f19b6cdb8a",
+      "newVersion/GitSeparate/a.txt": "b426df25816fe2469e0f058f78860620479140eddf569cb09e500d8c84ca4fa1",
+      "newVersion/GitSeparate/good.py": "e013f8488e86b7c336ed90de24cc35fdc66643e0813519ee4a2d1f4db1673f36",
+      "newVersion/SVNMulti/good.txt": "e013f8488e86b7c336ed90de24cc35fdc66643e0813519ee4a2d1f4db1673f36",
+      "newVersion/SVNOrdinary/good.txt": "e013f8488e86b7c336ed90de24cc35fdc66643e0813519ee4a2d1f4db1673f36",
+      "newVersion/SVNMulti/sub # %20/a.txt": "68592a9f43a77e2f40dfa6659e25ff8e02bb1f14a29c70101b2f6ad045cf58a4",
+      "newVersion/SVNOrdinary/sub # %20/a.txt": "68592a9f43a77e2f40dfa6659e25ff8e02bb1f14a29c70101b2f6ad045cf58a4"
+    }
+  },
+  "installation": {
+    "backup": "D:\\java\\applications\\CompareTool\\archive\\20261020_090931_before_1fc8eae745",
+    "installed": "D:\\java\\applications\\CompareTool\\CompareTool.exe",
+    "metadata": {
+      "version": "2026.10.20.1",
+      "build_id": "1fc8eae745",
+      "built_at": "2026-10-20T09:03:05+08:00",
+      "commit": "acc3e672941b7315b9b164bb749ac984d4b9c49e",
+      "dirty": false,
+      "source_sha256": "1fc8eae74556cc9483fbd81d913e98733fe385889affdaf557670cba1d3785d2",
+      "exe_sha256": "3dc30edb711c9023e07573cf7e91ebf1800a4c0fb7347dba7b364e68700230a7"
+    },
+    "files": {
+      "CompareTool.exe": "3dc30edb711c9023e07573cf7e91ebf1800a4c0fb7347dba7b364e68700230a7",
+      "CompareTool_build.json": "2e9feb37e3ee326c02b111d9f7e41712a21367c4df2826546ce6d4aac58c640a",
+      "CompareTool_使用说明书.pdf": "ee58ab468d67631ce2c26bf924b9f58f0cfe983efc4b5db943aabc5d06f86877"
+    },
+    "configs_preserved": {
+      "dist": true,
+      "installed": true
+    },
+    "installed_real_window_verified": true,
+    "installed_exit_verified": true,
+    "desktop_shortcut_launched": true,
+    "config_unchanged_after_exit": true,
+    "config_bytes_already_equal_after_exit": false
+  },
+  "regression": {
+    "discovered": 773,
+    "selected_results": 773,
+    "passed": 772,
+    "skipped": 1,
+    "failed": 0,
+    "errors": 0,
+    "selected_results_cover_each_test_once": true,
+    "full_suite_and_rerun_executions": 782,
+    "shards": [
+      {
+        "root": "D:\\AI\\project\\compareTool_myself\\.tmp\\endpoint_validation_c4db5bc340",
+        "tests": 254,
+        "seconds": 971.328,
+        "exit_code": 0,
+        "skipped": [],
+        "log_sha256": "237bad0efa5cf5457c0428d6471061fe57167e64a6552ed3d4d87aa7237aa043"
+      },
+      {
+        "root": "D:\\AI\\project\\compareTool_myself\\.tmp\\endpoint_validation_aac1a409e9",
+        "tests": 227,
+        "seconds": 384.367,
+        "exit_code": 0,
+        "skipped": [
+          "test_folder_file_symlink_cannot_read_outside_root (test_review_regressions.ArchiveAndFolderRegressionTests.test_folder_file_symlink_cannot_read_outside_root) ... skipped \"当前 Windows 未允许创建测试符号链接: [WinError 1314] 客户端没有所需的特权。: 'D:\\\\\\\\AI\\\\\\\\project\\\\\\\\compareTool_myself\\\\\\\\.tmp\\\\\\\\endpoint_validation_aac1a409e9\\\\\\\\source\\\\\\\\.tmp\\\\\\\\tmp382sjcwe\\\\\\\\secret.txt' -> 'D:\\\\\\\\AI\\\\\\\\project\\\\\\\\compareTool_myself\\\\\\\\.tmp\\\\\\\\endpoint_validation_aac1a409e9\\\\\\\\source\\\\\\\\.tmp\\\\\\\\tmp382sjcwe\\\\\\\\new\\\\\\\\linked.txt'\""
+        ],
+        "log_sha256": "46aa51712e78d0d0984409b8c6352d2784d42d6cb398a00533b0cd3260d518b7"
+      },
+      {
+        "root": "D:\\AI\\project\\compareTool_myself\\.tmp\\endpoint_validation_d2f0f929b0",
+        "tests": 135,
+        "seconds": 537.329,
+        "exit_code": 0,
+        "skipped": [],
+        "log_sha256": "52523a5ed597f44886f27bdcfa6819861d0e990c213eac6f96fac58f046e3c97"
+      },
+      {
+        "root": "D:\\AI\\project\\compareTool_myself\\.tmp\\endpoint_validation_e2e6308343",
+        "tests": 157,
+        "seconds": 937.469,
+        "exit_code": 1,
+        "skipped": [],
+        "log_sha256": "defd1149564707e3fdfce04275b367810600b5a10cee524b0c4fc6791f3a4f6c"
+      }
+    ]
+  },
+  "facts": {
+    "code": {
+      "status": "changed-and-verified",
+      "source_matches_full_regression": true
+    },
+    "runtime": {
+      "status": "changed-and-verified",
+      "dist_and_installed_windows_verified": true
+    },
+    "documentation": {
+      "status": "changed-and-verified",
+      "markdown_files": 33,
+      "broken_local_links": []
+    },
+    "rules": {
+      "status": "verified-current",
+      "authority": "AGENTS.md",
+      "claude_import": "@AGENTS.md",
+      "project_bytes": 27042,
+      "reference_default_budget": 32768,
+      "budget_percent": 82.53
+    },
+    "memory": {
+      "status": "out-of-scope",
+      "mode": "generated-read-only; no writes"
+    },
+    "workspace": {
+      "status": "changed-and-verified",
+      "original_local_code_integrated": true,
+      "cleanup": "pending: retained until post-report confirmation"
+    }
+  },
+  "cleanup_preview": [
+    {
+      "path": ".tmp/fix_review_20261020_b8f87e1e30",
+      "disposition": "retained; cleanup pending post-report confirmation",
+      "reason": "Review baseline or isolated regression evidence; no cleanup authorized after report.",
+      "bytes": 10840360,
+      "files": 189
+    },
+    {
+      "path": ".tmp/endpoint_validation_5df0a2cf97",
+      "disposition": "retained; cleanup pending post-report confirmation",
+      "reason": "Review baseline or isolated regression evidence; no cleanup authorized after report.",
+      "bytes": 13175712,
+      "files": 278
+    },
+    {
+      "path": ".tmp/endpoint_validation_c4db5bc340",
+      "disposition": "retained; cleanup pending post-report confirmation",
+      "reason": "Review baseline or isolated regression evidence; no cleanup authorized after report.",
+      "bytes": 12332702,
+      "files": 234
+    },
+    {
+      "path": ".tmp/endpoint_validation_aac1a409e9",
+      "disposition": "retained; cleanup pending post-report confirmation",
+      "reason": "Review baseline or isolated regression evidence; no cleanup authorized after report.",
+      "bytes": 12135045,
+      "files": 231
+    },
+    {
+      "path": ".tmp/endpoint_validation_d2f0f929b0",
+      "disposition": "retained; cleanup pending post-report confirmation",
+      "reason": "Review baseline or isolated regression evidence; no cleanup authorized after report.",
+      "bytes": 12029413,
+      "files": 230
+    },
+    {
+      "path": ".tmp/endpoint_validation_e2e6308343",
+      "disposition": "retained; cleanup pending post-report confirmation",
+      "reason": "Review baseline or isolated regression evidence; no cleanup authorized after report.",
+      "bytes": 12439360,
+      "files": 232
+    },
+    {
+      "path": ".tmp/release_build_jos5fjbq",
+      "reason": "Reproducible PyInstaller intermediates",
+      "bytes": 47985998,
+      "files": 17,
+      "disposition": "retained; cleanup pending post-report confirmation"
+    },
+    {
+      "path": ".tmp/release_closeout_20261020",
+      "reason": "Local release inputs, reports, UI text and build logs",
+      "bytes": 22477567,
+      "files": 188,
+      "disposition": "retained; cleanup pending post-report confirmation"
+    }
+  ],
+  "cleanup_performed": false,
+  "preserved_prior_release": {
+    "dist": {
+      "CompareTool.exe": {
+        "bytes": 21466565,
+        "sha256": "7a7c6b93c5396a9f50e1e8fe21fb1a5908f04597da40f0edb0ead639645b83e3"
+      },
+      "CompareTool_build.json": {
+        "bytes": 354,
+        "sha256": "bec558e2c5261acd24ae8f1c0217c0ec9083035b59334a2efe9d61c74d92d49e"
+      },
+      "CompareTool_使用说明书.pdf": {
+        "bytes": 486730,
+        "sha256": "ee58ab468d67631ce2c26bf924b9f58f0cfe983efc4b5db943aabc5d06f86877"
+      },
+      "metadata": {
+        "version": "2026.10.17.2",
+        "build_id": "fb4828dbc1",
+        "built_at": "2026-10-17T19:39:29+08:00",
+        "commit": "238534618d2667dec79aea035e2455f09522abaa",
+        "dirty": true,
+        "source_sha256": "fb4828dbc1a5012003c3e44a25e04187e0e3257fe3bf7f545d70aac21fc596ca",
+        "exe_sha256": "7a7c6b93c5396a9f50e1e8fe21fb1a5908f04597da40f0edb0ead639645b83e3"
+      }
+    },
+    "installed": {
+      "CompareTool.exe": {
+        "bytes": 21460753,
+        "sha256": "ab84dc3f2812d204e09c11b70198aebf3a66fe85bf5cd32af010b699ff7dd0d7"
+      },
+      "CompareTool_build.json": {
+        "bytes": 354,
+        "sha256": "dbdd7b96a45833cddeb6ff66326a6afcecc470814d2ff8fe3f5da1767013a45d"
+      },
+      "CompareTool_使用说明书.pdf": {
+        "bytes": 486730,
+        "sha256": "ee58ab468d67631ce2c26bf924b9f58f0cfe983efc4b5db943aabc5d06f86877"
+      },
+      "metadata": {
+        "version": "2026.10.17.1",
+        "build_id": "1d2587dd05",
+        "built_at": "2026-10-17T01:32:30+08:00",
+        "commit": "8073e222dfc1acb3f9f61c0252a17319efc5725c",
+        "dirty": true,
+        "source_sha256": "1d2587dd05d650dd7dceb3c1ecf1cc1afaf6591aec06f151c5f044ab94ab37d3",
+        "exe_sha256": "ab84dc3f2812d204e09c11b70198aebf3a66fe85bf5cd32af010b699ff7dd0d7"
+      }
+    }
+  },
+  "boundaries": {
+    "remote": "out-of-scope: no push",
+    "remote_master_observed": "77fc0369da92f96e2ec554147461db328f9b40b9",
+    "production_services": "not-applicable: Windows local desktop app",
+    "other_projects": "out-of-scope",
+    "user_business_tasks_run": false,
+    "unchanged_manual_not_regenerated": true
+  },
+  "warnings": [
+    "One Windows symbolic-link test skipped with WinError 1314; not a pass.",
+    "AGENTS.md is 27042 bytes, 82.53% of the 32768-byte reference project-instruction budget; this is not proof of host truncation.",
+    "Business smoke verifies local fixtures and actual Windows EXE, not onsite repositories or untested input sizes."
+  ],
+  "evidence_root": "D:\\AI\\project\\compareTool_myself\\.tmp\\release_closeout_20261020",
+  "inventory_file": "D:\\AI\\project\\compareTool_myself\\.tmp\\release_closeout_20261020\\inventory.json"
+}
