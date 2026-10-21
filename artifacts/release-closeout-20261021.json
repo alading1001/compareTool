@@ -1,0 +1,255 @@
+{
+  "schema": "comparetool.release-closeout.v2",
+  "date": "2026-10-21",
+  "verified_at_beijing": "2026-10-21T10:39:26+08:00",
+  "release_state": "source-committed-and-pushed; built; GUI-and-installation-pending; knowledge-checkpoint; cleanup-pending",
+  "source_commit": "281873cb312b9ef40fb7db27218b0e09da60800d",
+  "build": {
+    "code_modules_compared": 29,
+    "modules": [
+      "app_version",
+      "archive_endpoints",
+      "archive_formats",
+      "archive_report",
+      "delivery_instructions",
+      "diff_engine",
+      "file_exporter",
+      "html_details",
+      "logger",
+      "main",
+      "path_safety",
+      "report_generator",
+      "stable_diff",
+      "stage_ownership",
+      "task_progress",
+      "ui_progress",
+      "vcs",
+      "vcs.archive_vcs",
+      "vcs.base",
+      "vcs.folder_vcs",
+      "vcs.git_batch",
+      "vcs.git_checkout",
+      "vcs.git_paths",
+      "vcs.git_probe_batch",
+      "vcs.git_vcs",
+      "vcs.multi_version_vcs",
+      "vcs.raw_cache",
+      "vcs.svn_vcs",
+      "vcs.temp_storage"
+    ],
+    "resource_files_compared": 19,
+    "resources": [
+      "templates/archive_details.html",
+      "templates/archive_script.html",
+      "templates/archive_style.html",
+      "templates/file_detail.html",
+      "templates/multi_report.html",
+      "templates/report.html",
+      "templates/result_issues.html",
+      "templates/summary_issues.html",
+      "assets/icons/app.ico",
+      "assets/icons/compass.ico",
+      "assets/icons/ct.ico",
+      "assets/icons/diff.ico",
+      "assets/icons/prism.ico",
+      "assets/icons/prism2.ico",
+      "assets/icons/source/compass.png",
+      "assets/icons/source/ct.png",
+      "assets/icons/source/diff.png",
+      "assets/icons/source/prism.png",
+      "assets/icons/source/prism2.png"
+    ],
+    "metadata": {
+      "version": "2026.10.21.1",
+      "build_id": "e9dd517f30",
+      "built_at": "2026-10-21T10:32:03+08:00",
+      "commit": "281873cb312b9ef40fb7db27218b0e09da60800d",
+      "dirty": false,
+      "source_sha256": "e9dd517f30a00274b86d198c00805187447d6bb6fbc47780e95fe6f35998a724",
+      "exe_sha256": "695f52c11051aba6926f92002b37b95e52bd9e5167a27352906c6c3d19af67d7"
+    },
+    "packaged_code_tests": 15,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "loaded_packaged_modules": [
+      "app_version",
+      "archive_endpoints",
+      "archive_formats",
+      "archive_report",
+      "delivery_instructions",
+      "diff_engine",
+      "file_exporter",
+      "html_details",
+      "logger",
+      "main",
+      "path_safety",
+      "report_generator",
+      "stable_diff",
+      "stage_ownership",
+      "task_progress",
+      "ui_progress",
+      "vcs",
+      "vcs.archive_vcs",
+      "vcs.base",
+      "vcs.folder_vcs",
+      "vcs.git_batch",
+      "vcs.git_checkout",
+      "vcs.git_paths",
+      "vcs.git_probe_batch",
+      "vcs.git_vcs",
+      "vcs.multi_version_vcs",
+      "vcs.raw_cache",
+      "vcs.svn_vcs",
+      "vcs.temp_storage"
+    ]
+  },
+  "smoke": {
+    "status": "pending",
+    "blocker": "Windows desktop locked; waiting for user unlock before any further UI input",
+    "observed_window_title": "代码比对报告工具 v2026.10.21.1 [e9dd517f30]",
+    "visual_and_business_flow_verified": false
+  },
+  "installation": {
+    "target": "D:\\java\\applications\\CompareTool",
+    "backup": "D:\\java\\applications\\CompareTool\\archive\\20261021_103620_before_e9dd517f30",
+    "before_hashes": {
+      "CompareTool.exe": "f21d5d5ff3625fd716c1c5a929f7ed862cadac293069f51f53fb9aa46b8abb89",
+      "CompareTool_build.json": "73aa26025312fb6d5e93ebba4c422fb86f3f117c71ecb2ead018b51209f9193f",
+      "CompareTool_使用说明书.pdf": "ee58ab468d67631ce2c26bf924b9f58f0cfe983efc4b5db943aabc5d06f86877",
+      "compareTool_config.json": "101c9cc36d6feb6b23d04fd981f0ad70ed83d58610bbad20caeaee25cb6e5226"
+    },
+    "installed": false
+  },
+  "shortcuts": [
+    {
+      "path": "C:\\Users\\12939\\Desktop\\CompareTool.exe - 快捷方式.lnk",
+      "target": "D:\\java\\applications\\CompareTool\\CompareTool.exe",
+      "working_directory": "D:\\java\\applications\\CompareTool"
+    },
+    {
+      "path": "C:\\Users\\12939\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\CompareTool.lnk",
+      "target": "D:\\java\\applications\\CompareTool\\CompareTool.exe",
+      "working_directory": "D:\\java\\applications\\CompareTool"
+    }
+  ],
+  "regression_receipt": "artifacts/archive-content-verification-20261021.json",
+  "facts": {
+    "code": {
+      "status": "verified-current",
+      "evidence": "801 unique source tests: 800 passed after documented retries, 1 Windows privilege skip; 15 packaged code tests passed"
+    },
+    "runtime": {
+      "status": "pending",
+      "evidence": "New EXE built; real GUI smoke and replacing installed old version require unlocked desktop"
+    },
+    "documentation": {
+      "status": "changed-and-verified",
+      "evidence": "README, archive contracts and 17-page manual aligned with actual implementation and release state; 17 bookmarks, 11 TOC links, no missing glyphs or out-of-bounds text"
+    },
+    "rules": {
+      "status": "changed-and-verified",
+      "source_of_truth": "AGENTS.md",
+      "claude_import": "CLAUDE.md imports @AGENTS.md",
+      "project_bytes": 27374,
+      "reference_budget_bytes": 32768,
+      "budget_basis": "Skill reference default; no explicit local override found; no observed truncation",
+      "broken_markdown_file_links": []
+    },
+    "memory": {
+      "status": "out-of-scope",
+      "mechanism": "generated-read-only",
+      "writes_performed": false
+    },
+    "workspace": {
+      "status": "pending",
+      "reason": "Source integrated; all listed verification and build directories retained pending post-report cleanup approval",
+      "worktree_count": 1
+    }
+  },
+  "cleanup_preview": {
+    "scope": "Only listed paths; preview only, no deletion authorized or performed",
+    "candidates": [
+      {
+        "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\archive-content-20261021-fafa4f86",
+        "files": 1234,
+        "directories": 114,
+        "bytes": 86061815,
+        "reparse_entries_not_followed": [],
+        "reason": "本次构建与隔离验证现场；正式凭证已归档后才可清理"
+      },
+      {
+        "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\archive-picker-20261021-fb9200ad",
+        "files": 196,
+        "directories": 13,
+        "bytes": 10871765,
+        "reparse_entries_not_followed": [],
+        "reason": "本次构建与隔离验证现场；正式凭证已归档后才可清理"
+      },
+      {
+        "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\release-closeout-20261021-74ac01b0",
+        "files": 24,
+        "directories": 12,
+        "bytes": 21888538,
+        "reparse_entries_not_followed": [],
+        "reason": "本次构建与隔离验证现场；正式凭证已归档后才可清理"
+      },
+      {
+        "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\release_build_1cbjpni0",
+        "files": 17,
+        "directories": 4,
+        "bytes": 48017860,
+        "reparse_entries_not_followed": [],
+        "reason": "本次构建与隔离验证现场；正式凭证已归档后才可清理"
+      },
+      {
+        "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\archive-content-active.json",
+        "files": 1,
+        "directories": 0,
+        "bytes": 296,
+        "reparse_entries_not_followed": [],
+        "reason": "本次构建与隔离验证现场；正式凭证已归档后才可清理"
+      },
+      {
+        "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\archive-picker-active.json",
+        "files": 1,
+        "directories": 0,
+        "bytes": 184,
+        "reparse_entries_not_followed": [],
+        "reason": "本次构建与隔离验证现场；正式凭证已归档后才可清理"
+      },
+      {
+        "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\release-closeout-active.json",
+        "files": 1,
+        "directories": 0,
+        "bytes": 89,
+        "reparse_entries_not_followed": [],
+        "reason": "本次构建与隔离验证现场；正式凭证已归档后才可清理"
+      }
+    ],
+    "total_bytes": 166840547,
+    "protected": [
+      "dist/",
+      "artifacts/",
+      "docs/",
+      "compareTool_config.json",
+      "D:/java/applications/CompareTool/",
+      "D:/java/applications/CompareTool/archive/",
+      ".tmp/manual/"
+    ],
+    "warning": "Verification directories include unique raw logs and samples; keep until user has reviewed final release report and explicitly confirms cleanup"
+  },
+  "cleanup_performed": false,
+  "boundaries": [
+    "Source regression is separate from packaged-code and live EXE validation",
+    "ODS compatibility uses existing local verification outputs, not production acceptance",
+    "Old installation archive and original configuration are protected",
+    "No commit force, branch deletion, unrelated project edits or memory writes"
+  ],
+  "warnings": [
+    "One source test skipped because Windows denied symlink privilege (WinError 1314)",
+    "AGENTS.md is 27374 bytes, above 70% of the 32768-byte reference budget; no truncation observed"
+  ],
+  "evidence_root": "D:\\AI\\project\\compareTool_myself\\.tmp\\release-closeout-20261021-74ac01b0",
+  "inventory_file": "D:\\AI\\project\\compareTool_myself\\.tmp\\release-closeout-20261021-74ac01b0\\inventory.json"
+}
