@@ -2,7 +2,7 @@
   "schema": "comparetool.release-closeout.v2",
   "date": "2026-10-21",
   "verified_at_beijing": "2026-10-21T10:52:18+08:00",
-  "release_state": "source-committed-and-pushed; built; installation-live-verified; knowledge-closed; cleanup-pending",
+  "release_state": "source-committed-and-pushed; built; installation-live-verified; knowledge-closed; cleaned",
   "source_commit": "281873cb312b9ef40fb7db27218b0e09da60800d",
   "build": {
     "code_modules_compared": 29,
@@ -224,8 +224,8 @@
       "writes_performed": false
     },
     "workspace": {
-      "status": "pending",
-      "reason": "Source integrated; all listed verification and build directories retained pending post-report cleanup approval",
+      "status": "changed-and-verified",
+      "reason": "User approved cleanup after complete release report; all 7 approved targets absent, protected hashes and unlisted tmp entries preserved",
       "worktree_count": 1
     }
   },
@@ -301,7 +301,7 @@
     ],
     "warning": "Verification directories include unique raw logs and samples; keep until user has reviewed final release report and explicitly confirms cleanup"
   },
-  "cleanup_performed": false,
+  "cleanup_performed": true,
   "boundaries": [
     "Source regression is separate from packaged-code and live EXE validation",
     "ODS compatibility uses existing local verification outputs, not production acceptance",
@@ -312,6 +312,23 @@
     "One source test skipped because Windows denied symlink privilege (WinError 1314)",
     "AGENTS.md is 27374 bytes, above 70% of the 32768-byte reference budget; no truncation observed"
   ],
-  "evidence_root": "D:\\AI\\project\\compareTool_myself\\.tmp\\release-closeout-20261021-74ac01b0",
-  "inventory_file": "D:\\AI\\project\\compareTool_myself\\.tmp\\release-closeout-20261021-74ac01b0\\inventory.json"
+  "cleanup_preview_is_historical": true,
+  "cleanup_receipt": "artifacts/cleanup-closeout-20261021.json",
+  "cleanup_totals": {
+    "top_directories": 4,
+    "pointer_files": 3,
+    "files": 1500,
+    "directories_including_roots": 162,
+    "logical_bytes_removed": 166934118,
+    "protected_hashes_unchanged": true
+  },
+  "original_evidence_root": "D:\\AI\\project\\compareTool_myself\\.tmp\\release-closeout-20261021-74ac01b0",
+  "original_inventory_file": "D:\\AI\\project\\compareTool_myself\\.tmp\\release-closeout-20261021-74ac01b0\\inventory.json",
+  "original_evidence_state": "Approved temporary verification tree removed; necessary evidence retained in archive and source receipt",
+  "preserved_evidence_archive": {
+    "path": "artifacts/release-evidence-20261021.zip",
+    "bytes": 371445,
+    "sha256": "3b27cf7c79ef9a2cf0726fe2089bdffdb44f8274b9b19e0011151cf909073910",
+    "contents": "回归日志、包内代码验证、真实EXE报告及合成样例；无用户配置及ODS正文"
+  }
 }

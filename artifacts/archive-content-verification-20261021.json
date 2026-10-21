@@ -230,5 +230,8 @@
     "vcs/raw_cache.py": "b6333fa9fde388c503ff17a35130a1532a3354f94227db05c989e95db3efe8c3",
     "vcs/svn_vcs.py": "1af906ce3660a1033e54c29d4ee5e8033b737ce50d820254bc3788a9fa2604dd",
     "vcs/temp_storage.py": "977c714d50029822f030c1acf703f0b633cfae5239ec99c620ee816286250ab3"
-  }
+  },
+  "evidence_roots_are_historical": true,
+  "preserved_evidence_archive": "artifacts/release-evidence-20261021.zip",
+  "cleanup_receipt": "artifacts/cleanup-closeout-20261021.json"
 }
