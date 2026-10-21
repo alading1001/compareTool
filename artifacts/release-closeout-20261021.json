@@ -1,8 +1,8 @@
 {
   "schema": "comparetool.release-closeout.v2",
   "date": "2026-10-21",
-  "verified_at_beijing": "2026-10-21T10:39:26+08:00",
-  "release_state": "source-committed-and-pushed; built; GUI-and-installation-pending; knowledge-checkpoint; cleanup-pending",
+  "verified_at_beijing": "2026-10-21T10:52:18+08:00",
+  "release_state": "source-committed-and-pushed; built; installation-live-verified; knowledge-closed; cleanup-pending",
   "source_commit": "281873cb312b9ef40fb7db27218b0e09da60800d",
   "build": {
     "code_modules_compared": 29,
@@ -105,10 +105,42 @@
     ]
   },
   "smoke": {
-    "status": "pending",
-    "blocker": "Windows desktop locked; waiting for user unlock before any further UI input",
-    "observed_window_title": "代码比对报告工具 v2026.10.21.1 [e9dd517f30]",
-    "visual_and_business_flow_verified": false
+    "status": "passed",
+    "version": "2026.10.21.1",
+    "build_id": "e9dd517f30",
+    "actual_exe": "D:\\AI\\project\\compareTool_myself\\.tmp\\release-closeout-20261021-74ac01b0\\packaged-smoke\\CompareTool.exe",
+    "visual_and_business_flow_verified": true,
+    "picker": {
+      "default_filter_observed": "所有文件 (*.*)",
+      "extensionless_package_visible_and_selected": true,
+      "file": "samples/RenamedZip/old/renamed-package"
+    },
+    "multi_project_business_flow": {
+      "projects": 3,
+      "changed_files": 5,
+      "completion_dialog_observed": true,
+      "output": "D:\\AI\\project\\compareTool_myself\\.tmp\\release-closeout-20261021-74ac01b0\\gui-output\\20261021\\multi_run_20261021_104557_923_868fa219",
+      "original_export_files": 10,
+      "byte_exact": true,
+      "export_hashes": {
+        "oldVersion/FolderText/aaa.tar.gz": "177fa01a0c29ca4203c06bb738301eea76b9f0a69c9b1c83c7d51207bcfec8e3",
+        "oldVersion/FolderText/renamed-package": "4bfe5edef89ec4cc54e6720867eeb2a995bdc647c723e52157b2fc2eb97d6b9b",
+        "oldVersion/OdsGzip/T.dat": "177fa01a0c29ca4203c06bb738301eea76b9f0a69c9b1c83c7d51207bcfec8e3",
+        "oldVersion/RenamedZip/aaa.tar.gz": "177fa01a0c29ca4203c06bb738301eea76b9f0a69c9b1c83c7d51207bcfec8e3",
+        "oldVersion/RenamedZip/T.dat.gz": "3496f0ccd7cfff57038308c0c684874d0892840279e7223cc5fac1767bf181f5",
+        "newVersion/FolderText/aaa.tar.gz": "f182f1e9249a06676165e2e266f8d0139b941b568cfd4095ffc6bbf17a85f230",
+        "newVersion/FolderText/renamed-package": "35aeb3497f8c78c56cdf3813a16f55a794642d9c9906de0aeceaeb7173635b5a",
+        "newVersion/OdsGzip/T.dat": "f182f1e9249a06676165e2e266f8d0139b941b568cfd4095ffc6bbf17a85f230",
+        "newVersion/RenamedZip/aaa.tar.gz": "f182f1e9249a06676165e2e266f8d0139b941b568cfd4095ffc6bbf17a85f230",
+        "newVersion/RenamedZip/T.dat.gz": "3ad1ae7991117a5238d0ab66ce63c95978b70c0cffebf5b96cbc48b89413e29c"
+      },
+      "fake_suffix_text_diffs": 2,
+      "nested_archive_details": 2,
+      "partial_delivery": false
+    },
+    "report_sha256": "192847c8b582a5f5d9b444bf4530f844e9138a3662593ef0a7055acd1cc1d83b",
+    "source_of_assertions": "Actual native UI observations plus exported bytes and rendered HTML; no source worker substitution",
+    "package_identity_dialog_observed": true
   },
   "installation": {
     "target": "D:\\java\\applications\\CompareTool",
@@ -119,7 +151,37 @@
       "CompareTool_使用说明书.pdf": "ee58ab468d67631ce2c26bf924b9f58f0cfe983efc4b5db943aabc5d06f86877",
       "compareTool_config.json": "101c9cc36d6feb6b23d04fd981f0ad70ed83d58610bbad20caeaee25cb6e5226"
     },
-    "installed": false
+    "installed": true,
+    "old_exit_config_change": {
+      "changed_top_keys": [
+        "recent_projects"
+      ],
+      "changed_sha256": "a62ba49f4778f114877e64f2489b03ef911d75d7da9288366d35d37f6a7ef356",
+      "restored_original_bytes": true,
+      "reason": "Normal exit updated recent_projects[0].last_used only; no project name/path/preference changes; original bytes restored for installation"
+    },
+    "after_hashes": {
+      "CompareTool.exe": "695f52c11051aba6926f92002b37b95e52bd9e5167a27352906c6c3d19af67d7",
+      "CompareTool_build.json": "70038f77a2da407db1f30684aee7a577b5f2d09406d838e0ebc6858b5ddece16",
+      "CompareTool_使用说明书.pdf": "8b943dd6c6dcbdf93785344de947c06683c0306e876cacbdc0043c2f71587aae",
+      "compareTool_config.json": "101c9cc36d6feb6b23d04fd981f0ad70ed83d58610bbad20caeaee25cb6e5226"
+    },
+    "config_byte_preserved": true,
+    "installed_at_beijing": "2026-10-21T10:49:28+08:00",
+    "live_verified": true,
+    "normal_exit_verified": true,
+    "configuration_names_and_preferences_preserved": true,
+    "normal_exit_changed_only_recent_last_used": true,
+    "config_restored_after_smoke": true,
+    "config_final_sha256": "101c9cc36d6feb6b23d04fd981f0ad70ed83d58610bbad20caeaee25cb6e5226",
+    "live_observations": {
+      "window_title": "代码比对报告工具 v2026.10.21.1 [e9dd517f30]",
+      "dialog_version": "2026.10.21.1",
+      "dialog_build_id": "e9dd517f30",
+      "dialog_source_commit": "281873cb312b9ef40fb7db27218b0e09da60800d",
+      "dialog_source_sha256": "e9dd517f30a00274b86d198c00805187447d6bb6fbc47780e95fe6f35998a724",
+      "dialog_running_file": "D:\\java\\applications\\CompareTool\\CompareTool.exe"
+    }
   },
   "shortcuts": [
     {
@@ -140,8 +202,8 @@
       "evidence": "801 unique source tests: 800 passed after documented retries, 1 Windows privilege skip; 15 packaged code tests passed"
     },
     "runtime": {
-      "status": "pending",
-      "evidence": "New EXE built; real GUI smoke and replacing installed old version require unlocked desktop"
+      "status": "verified-current",
+      "evidence": "New build installed and actual UI business flow verified"
     },
     "documentation": {
       "status": "changed-and-verified",
@@ -188,9 +250,9 @@
       },
       {
         "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\release-closeout-20261021-74ac01b0",
-        "files": 24,
-        "directories": 12,
-        "bytes": 21888538,
+        "files": 47,
+        "directories": 27,
+        "bytes": 21980628,
         "reparse_entries_not_followed": [],
         "reason": "本次构建与隔离验证现场；正式凭证已归档后才可清理"
       },
@@ -227,7 +289,7 @@
         "reason": "本次构建与隔离验证现场；正式凭证已归档后才可清理"
       }
     ],
-    "total_bytes": 166840547,
+    "total_bytes": 166932637,
     "protected": [
       "dist/",
       "artifacts/",
