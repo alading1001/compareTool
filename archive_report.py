@@ -12,20 +12,33 @@ from vcs.archive_vcs import ArchiveVCS
 from vcs.folder_vcs import FolderVCS
 from vcs.base import comparison_versions
 from vcs.temp_storage import create_temp_dir, remove_temp_dir
-
-ARCHIVE_SUFFIXES = ('.zip', '.jar', '.war', '.ear', '.aar', '.tar',
-                    '.tar.gz', '.tgz', '.tar.bz2', '.tbz2')
+from archive_formats import (ARCHIVE_SUFFIXES, SUPPORTED_FORMATS,
+                             detect_archive_path, is_archive_name)
 
 
 def is_report_archive(path):
-    return str(path or '').lower().endswith(ARCHIVE_SUFFIXES)
+    return bool(path and detect_archive_path(path))
 
 
-def has_archive_candidates(result):
+def _file_endpoints(file, vcs=None, endpoints=None, versions=None):
     from vcs.base import ChangeType
-    return any(is_report_archive(file.file_path) or (
-        file.change_type == ChangeType.RENAMED and is_report_archive(file.old_path)
-    ) for file in result.files)
+    old_name = file.old_path or file.file_path
+    old = None if file.change_type == ChangeType.ADDED else (
+        endpoints.path_for('old', old_name) if endpoints is not None
+        else _endpoint_path(vcs, versions[0], old_name))
+    new = None if file.change_type == ChangeType.DELETED else (
+        endpoints.path_for('new', file.file_path) if endpoints is not None
+        else _endpoint_path(vcs, versions[1], file.file_path))
+    return old, new
+
+
+def has_archive_candidates(result, *, endpoints=None, vcs=None):
+    versions = comparison_versions(vcs, result.old_version, result.new_version) if vcs else None
+    for file in result.files:
+        for path in _file_endpoints(file, vcs, endpoints, versions):
+            if path and (is_report_archive(path) or (is_archive_name(path) and _is_lfs_pointer(path))):
+                return True
+    return False
 
 
 def _is_lfs_pointer(path):
@@ -164,13 +177,15 @@ def iter_archive_events(detail):
 
 
 class _Inspector:
-    def __init__(self, show_full_context, patterns, budget, detail_store=None, best_effort=False):
+    def __init__(self, show_full_context, patterns, budget, detail_store=None, best_effort=False,
+                 before_archive_analysis=None):
         self.show_full_context = show_full_context
         self.patterns = list(patterns or [])
         self.budget = budget
         self.detail_store = detail_store
         self.best_effort = best_effort
         self.issues = []
+        self.before_archive_analysis = before_archive_analysis
 
     def attach(self, result, vcs=None, depth=1, chain=(), *, endpoints=None):
         # 每个生成器保存本层 VCS/空包的上下文，在子层完成后才释放。
@@ -209,22 +224,29 @@ class _Inspector:
             old_version, new_version = comparison_versions(vcs, result.old_version, result.new_version)
         for file in result.files:
             old_name = (file.old_path or file.file_path) if file.change_type == ChangeType.RENAMED else file.file_path
-            if not (is_report_archive(file.file_path) or is_report_archive(old_name)):
-                continue
             try:
-                old = None if file.change_type == ChangeType.ADDED else (
-                    endpoints.path_for('old', old_name) if endpoints is not None
-                    else _endpoint_path(vcs, old_version, old_name))
-                new = None if file.change_type == ChangeType.DELETED else (
-                    endpoints.path_for('new', file.file_path) if endpoints is not None
-                    else _endpoint_path(vcs, new_version, file.file_path))
+                old, new = _file_endpoints(file, vcs, endpoints,
+                    None if endpoints is not None else (old_version, new_version))
+                kinds = [detect_archive_path(path) if path else None for path in (old, new)]
             except (OSError, ValueError, RuntimeError) as exc:
                 raise RuntimeError(f'项目 [{result.project_name}] 包内端点读取失败: {exc}') from exc
             names = chain + (file.file_path,)
-            if ((old and not is_report_archive(old_name)) or
-                    (new and not is_report_archive(file.file_path))):
+            # LFS 仍报告缺少真实包，不能把另一侧的有效容器误归为普通格式切换。
+            lfs_pointer = any(path and (any(kinds) or is_archive_name(name)) and _is_lfs_pointer(path)
+                              for path, name in ((old, old_name), (new, file.file_path)))
+            if not any(kinds) and not lfs_pointer:
+                continue
+            if self.before_archive_analysis is not None:
+                # 在首次真实候选被识别后、正文分析之前固定 stage，避免两次探测
+                # 之间普通文件被换成容器时，新增候选绕过本次交付字节基线。
+                self.before_archive_analysis()
+                self.before_archive_analysis = None
+            if not lfs_pointer and any(kind not in SUPPORTED_FORMATS
+                                       for path, kind in zip((old, new), kinds) if path):
                 file.archive_details = dict(status='unsupported', members=[],
-                    note='一侧文件格式不支持内部展开，仅保留原始文件差异。')
+                    note='一侧为普通文件或识别到暂不支持的压缩格式（' +
+                         ' / '.join(kind or '普通文件' for path, kind in zip((old, new), kinds) if path) +
+                         '），未展开，保留原始文件差异。')
                 continue
             try:
                 with self.inspect(old, new, depth, names) as (detail, child):
@@ -286,13 +308,15 @@ class _Inspector:
 
 @measured_phase('archive.report', '递归分析变化压缩包（仅报告）')
 def enrich_archive_reports(result, vcs=None, *, endpoints=None, show_full_context=True,
-                           exclude_patterns=(), budget=None, detail_store=None, best_effort=False):
+                           exclude_patterns=(), budget=None, detail_store=None, best_effort=False,
+                           before_archive_analysis=None):
     """Attach details without changing result.files, summaries, or delivery paths."""
     if endpoints is None and not isinstance(vcs, (FolderVCS, ArchiveVCS)):
         raise ValueError('此来源没有可直接借用的快照，请显式传入暂存端点')
     inspector = _Inspector(show_full_context, exclude_patterns,
                            budget if budget is not None else ArchiveReportBudget(),
-                           detail_store=detail_store, best_effort=best_effort)
+                           detail_store=detail_store, best_effort=best_effort,
+                           before_archive_analysis=before_archive_analysis)
     inspector.attach(result, vcs, endpoints=endpoints)
     result.issues.extend(inspector.issues)
     result.archive_details_enabled = True

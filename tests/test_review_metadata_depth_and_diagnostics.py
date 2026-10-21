@@ -173,7 +173,7 @@ class DeepArchiveTraversalTests(WorkflowCase):
                 with self.subTest(best_effort=best_effort, limited=limited):
                     old, new = self.root / f'old-{best_effort}-{limited}', self.root / f'new-{best_effort}-{limited}'
                     old.mkdir(); new.mkdir()
-                    data = self.nested(b'leaf', 7) if limited else b'broken inner archive'
+                    data = self.nested(b'leaf', 7) if limited else b'PK\x03\x04broken inner archive'
                     if not limited:
                         for _ in range(7):
                             data = zip_bytes({'inner.jar': data})

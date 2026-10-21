@@ -111,7 +111,7 @@ class AllVCSArchiveTests(WorkflowCase):
         app._do_generate_multi([dict(t, recursive_archives=False) for t in tasks],
             str(out/'report.html'), str(out/'oldVersion'), str(out/'newVersion'), str(out))
         self.assert_success(app); before = tree_hashes(out)
-        Path(tasks[-1]['new_version']).write_bytes(zip_bytes({'app.jar': b'broken'}))
+        Path(tasks[-1]['new_version']).write_bytes(zip_bytes({'app.jar': b'PK\x03\x04broken'}))
         capture = FileExporter.capture_stage_states
         captured = []
         def bind(paths, **options):
@@ -126,7 +126,7 @@ class AllVCSArchiveTests(WorkflowCase):
         self.assert_success(app)
         app._show_error.assert_not_called()
         self.assertIn('包内分析未完成', (out/'report.html').read_text(encoding='utf-8'))
-        self.assertEqual(b'broken', (out/'newVersion/archive/app.jar').read_bytes())
+        self.assertEqual(b'PK\x03\x04broken', (out/'newVersion/archive/app.jar').read_bytes())
         self.assert_no_stages(out)
 
     def test_git_multi_unselected_rename_keeps_old_and_new_paths(self):
@@ -317,7 +317,7 @@ class AllVCSArchiveTests(WorkflowCase):
             self.assertEqual(ChangeType.ADDED, files['added.jar'].change_type)
             self.assertEqual(ChangeType.DELETED, files['delete.jar'].change_type)
             self.assertEqual('identical', files['renamed.jar'].archive_details['status'])
-            self.assertEqual('unsupported', files['suffix.bin'].archive_details['status'])
+            self.assertEqual('identical', files['suffix.bin'].archive_details['status'])
             self.assertTrue(files['mode.jar'].metadata_changes)
             self.assertEqual('identical', files['mode.jar'].archive_details['status'])
             self.assertFalse((out/'oldVersion/Demo/added.jar').exists())

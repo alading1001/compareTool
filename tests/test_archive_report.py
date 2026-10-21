@@ -174,8 +174,8 @@ class ArchiveReportTests(unittest.TestCase):
             self.enrich(vcs, result, budget=ArchiveReportBudget(max_bytes=5))
 
     def test_corrupt_changed_nested_archive_fails(self):
-        vcs, result = self.source({'a.zip': zip_bytes({'inner.jar': b'old-bad'})},
-                                  {'a.zip': zip_bytes({'inner.jar': b'new-bad'})})
+        vcs, result = self.source({'a.zip': zip_bytes({'inner.jar': b'PK\x03\x04old-bad'})},
+                                  {'a.zip': zip_bytes({'inner.jar': b'PK\x03\x04new-bad'})})
         with self.assertRaisesRegex(RuntimeError, 'inner.jar'):
             self.enrich(vcs, result)
 

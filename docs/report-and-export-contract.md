@@ -69,7 +69,7 @@ Git 根目录、项目相对前缀及元数据路径只按命令输出的 LF/CRL
 ## 二进制文件处理
 
 - `DiffEngine.BINARY_EXTS` 定义二进制扩展名集合（`.jar`, `.war`, `.class`, `.dll` 等）
-- `DiffEngine._diff_file()` 对二进制文件提前返回，不读内容，`side_by_side_html` 设为占位提示
+- `DiffEngine._diff_file()` 对二进制文件提前返回，`side_by_side_html` 设为占位提示。固定文件夹及归档端点先有界探测容器内容；真实归档不按普通文本整包读入，普通文本不能只因 `.tar.gz` 等归档后缀被降为二进制。
 - 导出时所有文件（含二进制）统一走 `export_file_to_path()` 分块或子进程直写目标；Git/SVN 的换行转换也在同目录临时文件中分块完成，空文件正常成功，读取失败必须拒绝该文件并记录未完成，不能影响其他独立文件。
 - Git 用固定 commit 的 `git show` 直写，SVN 用固定 URL/revision 的 `svn cat` 直写，Folder/Archive/多版本快照用分块复制；精确重命名匹配使用 blob OID 或分块 SHA-256，不得整文件载入内存。SVN 哈希临时文件必须使用 CompareTool 专用临时根，避免大型内容落到系统盘默认临时目录。
 - Git 和 SVN 导出时按固定端点的换行符策略转换，使导出文件符合所选版本应有的检出字节；并非所有文本都转换为 CRLF（见换行符处理章节）。
@@ -113,7 +113,7 @@ ZIP 目录成员必须为空，非空目录拒绝；普通、兼容属性及已�
 
 压缩 TAR 的成员终止块不等于 gzip/bzip2 流结束；预检须继续按块消费至压缩流 EOF，验证尾部 CRC、长度和截断，包括全部成员被排除的情况。正常 TAR 填充仍接受，不计为成员正文，不改变递归成员预算。损坏输入在严格 API 拒绝；桌面顶层压缩包记为项目未完成，递归包内分析则保留原包字节并标注分析未完成。
 
-`ArchiveVCS` 通过 `vcs.temp_storage.create_temp_dir()` 解压两端，委托 `FolderVCS` 遍历和比较。ZIP 家族为 `.zip/.jar/.war/.ear/.aar`，使用 `zipfile`；TAR 家族为 `.tar/.tar.gz/.tgz/.tar.bz2/.tbz2`，使用 `tarfile`。ZIP 名称未设置 UTF-8 标志时，`_fix_zip_filename()` 将 CP437 解码后的名称还原为原字节，再按 GBK 解码。特殊空目录属性的精确允许条件见 [ZIP 目录属性兼容](zip-directory-compatibility.md)。
+`ArchiveVCS` 通过 `vcs.temp_storage.create_temp_dir()` 解压两端，委托 `FolderVCS` 遍历和比较。根据稳定源句柄的实际内容识别 ZIP、TAR、GZIP 和 gzip/bzip2 压缩 TAR；后缀不决定解析器。GZIP 有界读取解压头以区分 TAR 与单文件流，探测不代替完整预检。普通 GZIP 预检流式统计真实大小并验证全部串接流的 CRC、长度及 EOF，不依赖尾部 32 位长度；实际提取复用单成员计划、排除和安全写入，完整消费量仅在提取时计入共享预算。成员名取外部名称去掉 `.gz`，无该后缀时追加 `.unpacked`，不使用压缩头 FNAME。ZIP 名称未设置 UTF-8 标志时，`_fix_zip_filename()` 将 CP437 解码后的名称还原为原字节，再按 GBK 解码。特殊空目录属性的精确允许条件见 [ZIP 目录属性兼容](zip-directory-compatibility.md)。
 
 构造时先同时捕获并持续持有两个源归档的稳定普通文件句柄，预检和解压只读取这些句柄，不复制整份源包。Windows `deny_writes` 阻止写入和删除，结束前复核路径与句柄身份，不再前后整包哈希；POSIX advisory lock 不能约束不配合的写入者，仍以流式 SHA-256 复核内容。文件夹和归档预捕获路径与实际打开句柄必须比较稳定文件 ID（Windows 卷序列号/FileId，其它平台设备号/inode），不能仅比较大小和 mtime。
 
@@ -209,6 +209,8 @@ A 仅 new、D 仅 old、R 的 old 使用 old_path，其它两侧都必须存在�
 绑定两个外层 stage 根。发布前后比较 expected_stage_states，任何同大小同时间
 戳内容变化或对象替换都必须使本次失败。不能先接受变化后的包再重新计算
 “基线”。这里校验的是本次已分析的交付字节，无候选或关闭时不额外扫描。
+
+候选探测读取实际 stage 内容，覆盖改后缀和无后缀容器，不能再用后缀名单跳过基线绑定或递归。包内假归档后缀的普通文本直接比较，普通二进制不展开；真实但损坏的容器仍报分析未完成，RAR/7z/XZ 等未支持格式明确注明未展开。回归见 `tests/test_archive_content_detection.py`。
 
 来源提供者仅借用路径和普通文件句柄，不拥有 stage，不创建额外原包缓存，
 不得删除 exporter 的暂存目录。桌面入口对包内解析失败保留原包，对模板失败生成基础报告；无法安全发布时清理本次暂存，明确报错且不恢复旧结果。完整验收见 [六模式递归验证](recursive-archives-all-vcs-verification.md)。

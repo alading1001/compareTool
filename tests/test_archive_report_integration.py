@@ -113,11 +113,11 @@ class ArchiveIntegrationTests(unittest.TestCase):
                 str(out/'newVersion'), str(out), recursive_archives=True)
         run(); self.assertTrue(app._last_task_record['success'])
         before = (out/'report.html').read_bytes(), (out/'newVersion/Demo/a.zip').read_bytes()
-        (self.new/'a.zip').write_bytes(b'broken archive')
+        (self.new/'a.zip').write_bytes(b'PK\x03\x04broken archive')
         run(); self.assertTrue(app._last_task_record['success'])
         app._show_error.assert_not_called()
         self.assertIn('包内分析未完成', (out/'report.html').read_text(encoding='utf-8'))
-        self.assertEqual(b'broken archive', (out/'newVersion/Demo/a.zip').read_bytes())
+        self.assertEqual(b'PK\x03\x04broken archive', (out/'newVersion/Demo/a.zip').read_bytes())
 
     def test_html_source_text_is_escaped(self):
         vcs, result = self.source({}, {'a.zip': zip_bytes({'a.txt': b'<script>bad()</script>'})})

@@ -278,7 +278,7 @@ class BestEffortWorkflowTests(WorkflowCase):
         old, new = self.root/(name+'Old'), self.root/(name+'New')
         old.mkdir(); new.mkdir()
         (old/'bad.jar').write_bytes(package(b'old'))
-        (new/'bad.jar').write_bytes(b'broken inner jar')
+        (new/'bad.jar').write_bytes(b'PK\x03\x04broken inner jar')
         (old/'good.txt').write_bytes(b'old\n')
         (new/'good.txt').write_bytes(b'new\n')
         return dict(vcs_type='folder', project_name=name, project_path='',
@@ -297,20 +297,20 @@ class BestEffortWorkflowTests(WorkflowCase):
         folder = self.folder_task()
         old_zip, new_zip = self.root/'old.zip', self.root/'new.zip'
         old_zip.write_bytes(zip_bytes({'bad.jar': package(b'old')}))
-        new_zip.write_bytes(zip_bytes({'bad.jar': b'broken inner jar'}))
+        new_zip.write_bytes(zip_bytes({'bad.jar': b'PK\x03\x04broken inner jar'}))
         tasks = [folder, dict(folder, vcs_type='archive', project_name='Archive',
                              old_version=str(old_zip), new_version=str(new_zip))]
         for kind in ('git', 'svn'):
             repo = Repository(self, kind, kind+'-repository')
             first = repo.commit({'bad.jar': package(b'old')})
-            last = repo.commit({'bad.jar': b'broken inner jar'})
+            last = repo.commit({'bad.jar': b'PK\x03\x04broken inner jar'})
             tasks.extend([repo.task(first, last, project_name=kind),
                           repo.task(last, last, multi=True, project_name=kind+'Multi')])
         for index, task in enumerate(tasks):
             with self.subTest(mode=task['vcs_type']):
                 app, result, out = self.generate(task, True, self.root/str(index))
                 self.assert_report(app, result, out)
-                self.assertEqual(b'broken inner jar', (out/'newVersion'/task['project_name']/'bad.jar').read_bytes())
+                self.assertEqual(b'PK\x03\x04broken inner jar', (out/'newVersion'/task['project_name']/'bad.jar').read_bytes())
                 self.assertEqual('error', next(file for file in result.files if file.file_path=='bad.jar').archive_details['status'])
                 self.assertIn('包内分析未完成', (out/'report.html').read_text(encoding='utf-8'))
 

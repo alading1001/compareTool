@@ -15,6 +15,7 @@ from path_safety import (
 )
 from vcs.base import BaseVCS, ChangedFile, ChangeType, comparison_versions
 from html_details import HtmlFragment
+from archive_formats import is_archive_name
 from stable_diff import (make_table as make_stable_diff_table,
                          iter_table as iter_stable_diff_table, prefer_stable_diff)
 
@@ -271,8 +272,15 @@ class DiffEngine:
             if reset or key not in self._report_budget:
                 self._report_budget[key] = 0
 
-    def _is_binary(self, file_path: str) -> bool:
+    def _is_binary(self, file_path: str, version=None) -> bool:
         ext = os.path.splitext(file_path)[1].lower()
+        detector = getattr(self.vcs, 'get_file_archive_format', None)
+        if version is not None and callable(detector):
+            if detector(version, file_path):
+                return True
+            # 归档后缀不能把实际文本降成二进制；正文仍走完整解码与二进制判断。
+            if is_archive_name(file_path):
+                return False
         return ext in self.BINARY_EXTS
 
     @measured_phase('diff.total', '查找变更并生成明细')
@@ -407,7 +415,8 @@ class DiffEngine:
         new_raw = None
 
         # 二进制文件：只标记变更，不展示内容差异
-        if self._is_binary(cf.path) or (cf.old_path and self._is_binary(cf.old_path)):
+        if ((cf.change_type != ChangeType.DELETED and self._is_binary(cf.path, new_version))
+                or (cf.change_type != ChangeType.ADDED and self._is_binary(old_path, old_version))):
             file_diff.side_by_side_html = self._binary_placeholder(cf)
             file_diff.line_counts_complete = False
             self._prepend_metadata(file_diff)

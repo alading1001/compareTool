@@ -81,7 +81,7 @@ from vcs.archive_vcs import ArchiveVCS
 from vcs.multi_version_vcs import GitMultiVersionVCS, SVNMultiVersionVCS, parse_multi_versions
 from html_details import HtmlDetailStore
 from diff_engine import DiffEngine, DiffResult
-from archive_report import ArchiveReportBudget, enrich_archive_reports, has_archive_candidates
+from archive_report import ArchiveReportBudget, enrich_archive_reports
 from archive_endpoints import StagedArchiveEndpoints
 from report_generator import ReportGenerator
 from file_exporter import FileExporter
@@ -528,6 +528,7 @@ class CompareToolApp(TaskProgressUI):
         self._last_project_path = self._normalize_project_path(self.dir_entry.get())
         self._refresh_project_name_default(force=True)
         self._switch_exclude_rules_for_current_source(save_previous=False)
+        self._restore_recent_project_name()
         self._remember_recent_project(refresh=True)
 
     # ========== 界面交互 ==========
@@ -661,6 +662,21 @@ class CompareToolApp(TaskProgressUI):
 
     def _recent_project_display(self, item: dict) -> str:
         return f"{item.get('project_name', '')}    {self._display_path(item.get('project_path', ''))}"
+
+    def _restore_recent_project_name(self):
+        """启动时先恢复已记忆的名称，避免默认目录名覆盖最近项目记录。"""
+        family = self._vcs_family(self.vcs_var.get())
+        project_path = self.dir_entry.get()
+        if not family or not project_path:
+            return
+        key = self._normalize_project_path(project_path)
+        for item in self._recent_projects:
+            if (item['vcs_family'] == family
+                    and self._normalize_project_path(item['project_path']) == key):
+                self.project_name_var.set(item['project_name'])
+                # 后续延迟刷新输出路径时，也要保留用户此前手工填写的名称。
+                self._project_name_manual = True
+                return
 
     def _refresh_recent_project_values(self):
         if not hasattr(self, "project_name_entry"):
@@ -1581,8 +1597,8 @@ class CompareToolApp(TaskProgressUI):
         path = filedialog.askopenfilename(
             title="选择压缩包",
             filetypes=[
-                ("压缩文件", "*.zip *.jar *.war *.ear *.aar *.tar *.tar.gz *.tgz *.tar.bz2 *.tbz2"),
-                ("所有文件", "*.*"),
+                ("所有文件", "*"),
+                ("常见压缩文件", "*.zip *.jar *.war *.ear *.aar *.tar *.gz *.tgz *.bz2 *.tbz2"),
             ],
             **options,
         )
@@ -2549,15 +2565,16 @@ class CompareToolApp(TaskProgressUI):
                         FileExporter._safe_join(new_export, project_name),
                         trusted_root=trusted_output_root,
                     )
-                    if has_archive_candidates(diff_result):
+                    def bind_archive_stages():
+                        nonlocal expected_stage_states
                         expected_stage_states = FileExporter.capture_stage_states(
                             [stage for stage, _target in export_pairs],
-                            trusted_root=trusted_output_root,
-                        )
+                            trusted_root=trusted_output_root)
                     enrich_archive_reports(
                         diff_result, endpoints=endpoints,
                         show_full_context=show_full, exclude_patterns=exclude_patterns,
                         detail_store=detail_store, best_effort=True,
+                        before_archive_analysis=bind_archive_stages,
                     )
                 report_stage = self._make_report_stage_path(
                     report_path, trusted_output_root
@@ -2685,13 +2702,12 @@ class CompareToolApp(TaskProgressUI):
 
             # Only now are ALL project exports complete. Bind the outer stage
             # roots once, before any recursive inspection; subsequent loops read.
-            recursive_items = [item for item in project_results
-                               if self._option_bool(item["task"].get("recursive_archives"), default=False)]
             expected_stage_states = None
-            if any(has_archive_candidates(item["diff_result"]) for item in recursive_items):
-                expected_stage_states = FileExporter.capture_stage_states(
-                    [stage_old_root, stage_new_root], trusted_root=trusted_output_root,
-                )
+            def bind_archive_stages():
+                nonlocal expected_stage_states
+                if expected_stage_states is None:
+                    expected_stage_states = FileExporter.capture_stage_states(
+                        [stage_old_root, stage_new_root], trusted_root=trusted_output_root)
             for idx, item in enumerate(project_results, 1):
                 task = item["task"]
                 if not self._option_bool(task.get("recursive_archives"), default=False):
@@ -2707,6 +2723,7 @@ class CompareToolApp(TaskProgressUI):
                     show_full_context=self._option_bool(task.get("show_full_context"), default=True),
                     exclude_patterns=task.get("exclude_rules", "").splitlines(),
                     budget=archive_budget, detail_store=detail_store, best_effort=True,
+                    before_archive_analysis=bind_archive_stages,
                 )
 
             template_dir = os.path.join(BASE_DIR, "templates")

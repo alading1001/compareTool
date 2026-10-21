@@ -25,6 +25,7 @@ from .base import BaseVCS, ChangedFile, ChangeType
 from .folder_vcs import FolderVCS
 from .temp_storage import create_temp_dir, remove_temp_dir
 from logger import warn
+from archive_formats import detect_archive_stream, is_tar_header
 
 
 class _SingleRootStructureError(ValueError):
@@ -104,6 +105,8 @@ class ArchiveVCS(BaseVCS):
         self._duplicate_members_by_source = {}
         self._preflighted_sources = set()
         self._tar_preflight_plans = {}
+        self._archive_formats = {}
+        self._gzip_plans = {}
         self._sparse_patterns = (tuple(p.strip() for p in extraction_excludes if p.strip())
                                  if extraction_excludes is not None else None)
         self._sparse_ignore_root = ignore_single_root
@@ -385,15 +388,88 @@ class ArchiveVCS(BaseVCS):
 
     def _extract(self, archive_source, dest: str, metadata: dict):
         archive_path = self._archive_source_name(archive_source)
-        if self._is_zip(archive_path):
+        kind = self._get_archive_format(archive_source)
+        if kind == 'zip':
             self._extract_zip(archive_source, dest, metadata)
-        elif self._is_tar(archive_path):
+        elif kind in ('tar', 'tar_gzip', 'tar_bzip2'):
             self._extract_tar(archive_source, dest, metadata)
+        elif kind == 'gzip':
+            self._extract_gzip(archive_source, dest)
         else:
             raise ValueError(
-                f"不支持的压缩格式: {archive_path}"
-                "（支持 .zip / .jar / .war / .ear / .aar / .tar / .tar.gz / .tgz / .tar.bz2 / .tbz2）"
+                f"文件不是有效的受支持压缩包: {archive_path}（识别格式: {kind or '普通文件'}；支持 ZIP、TAR、GZIP 和压缩 TAR）"
             )
+
+    def _get_archive_format(self, source):
+        if self._is_path_source(source):
+            with open_regular_file_no_links(os.fsdecode(source), deny_writes=True) as opened:
+                return self._get_archive_format(opened)
+        key = self._archive_source_name(source)
+        cache = getattr(self, '_archive_formats', None)
+        if cache is None:
+            self._archive_formats = cache = {}
+        if key not in cache:
+            kind = detect_archive_stream(source)
+            if kind in ('gzip', 'bzip2'):
+                position = source.tell()
+                source.seek(0)
+                try:
+                    reader = (gzip.GzipFile(fileobj=_BorrowedBinaryStream(source), mode='rb')
+                              if kind == 'gzip' else bz2.BZ2File(_BorrowedBinaryStream(source), 'rb'))
+                    with reader:
+                        header = reader.read(512)
+                    if is_tar_header(header):
+                        kind = 'tar_' + kind
+                finally:
+                    source.seek(position)
+            cache[key] = kind
+        return cache[key]
+
+    def _get_gzip_plan(self, source):
+        path = self._archive_source_name(source)
+        plans = getattr(self, '_gzip_plans', None)
+        if plans is None:
+            self._gzip_plans = plans = {}
+        if path not in plans:
+            # 不采用 GZIP 头部可伪造的 FNAME，也不把尾部 32 位长度当成真实大小。
+            name = os.path.basename(path)
+            name = name[:-3] if name.lower().endswith('.gz') else name + '.unpacked'
+            size = 0
+            source.seek(0)
+            try:
+                with gzip.GzipFile(fileobj=_BorrowedBinaryStream(source), mode='rb') as reader:
+                    while True:
+                        block = reader.read(1024 * 1024)
+                        if not block:
+                            break
+                        size += len(block)
+                        for limit in (self.MAX_SINGLE_MEMBER_BYTES, self.MAX_TOTAL_UNCOMPRESSED_BYTES):
+                            if limit is not None and size > limit:
+                                raise ValueError('GZIP 展开大小超过显式限制')
+                self._validate_archive_limits(path, [(name, size, self._archive_stream_size(source), False)])
+                members = (_TarMemberPlan(name, size, tarfile.REGTYPE, 0o644),)
+                self._prepare_sparse_storage(source, members, size)
+                root = os.path.join(os.path.dirname(path), '.comparetool_archive_preflight')
+                self._validate_extraction_targets(source, root, [(name, False)])
+                plans[path] = (name, size)
+            finally:
+                source.seek(0)
+        return plans[path]
+
+    def _extract_gzip(self, source, dest):
+        if self._is_path_source(source):
+            with open_regular_file_no_links(os.fsdecode(source), deny_writes=True) as opened:
+                return self._extract_gzip(opened, dest)
+        name, size = self._get_gzip_plan(source)
+        self._validate_extraction_targets(source, dest, [(name, False)])
+        target = self._member_extract_target(source, dest, name, {})
+        source.seek(0)
+        try:
+            with gzip.GzipFile(fileobj=_BorrowedBinaryStream(source), mode='rb') as reader:
+                self._extract_file_member(reader, size, source, dest, target,
+                                          {}, name, (), frozenset(), {})
+        finally:
+            source.seek(0)
 
     def _prepare_sparse_storage(self, source, members, total_size):
         # Keep all names in original creation order. Only member bodies may be
@@ -582,7 +658,8 @@ class ArchiveVCS(BaseVCS):
         # All members remain subject to safety preflight, even if their bodies
         # will be discarded. Return only the physical storage estimate.
         path = self._archive_source_name(source)
-        if self._is_zip(path):
+        kind = self._get_archive_format(source)
+        if kind == 'zip':
             self._preflight_zip(source)
             source.seek(0)
             try:
@@ -602,11 +679,14 @@ class ArchiveVCS(BaseVCS):
                     return required
             finally:
                 source.seek(0)
-        if self._is_tar(path):
+        if kind in ('tar', 'tar_gzip', 'tar_bzip2'):
             root = os.path.join(os.path.dirname(path), ".comparetool_archive_preflight")
             total, _members = self._get_tar_plan(source, root)
             return self._storage_needed(source, total)
-        raise ValueError(f"不支持的压缩格式: {path}")
+        if kind == 'gzip':
+            _name, size = self._get_gzip_plan(source)
+            return self._storage_needed(source, size)
+        raise ValueError(f"文件不是有效的受支持压缩包: {path}（识别格式: {kind or '普通文件'}）")
 
     def _extract_zip(self, source, dest: str, metadata: dict = None):
         if self._is_path_source(source):
@@ -762,8 +842,7 @@ class ArchiveVCS(BaseVCS):
         if (self.MAX_COMPRESSION_RATIO is not None
                 and total_size / archive_size > self.MAX_COMPRESSION_RATIO):
             raise ValueError(f"压缩包展开比例过高，已拒绝解压: {path}")
-        mode = 'r:gz' if path.lower().endswith(('.gz', '.tgz')) else (
-            'r:bz2' if path.lower().endswith(('.bz2', '.tbz2')) else 'r:')
+        mode = self._tar_read_mode(source)
         source.seek(0)
         try:
             with tarfile.open(fileobj=_BorrowedBinaryStream(source), mode=mode) as tf:
@@ -825,8 +904,7 @@ class ArchiveVCS(BaseVCS):
             self, "_preflighted_sources", set()
         ):
             self._get_tar_plan(source, dest)
-        mode = 'r:gz' if path.lower().endswith(('.gz', '.tgz')) else \
-               'r:bz2' if path.lower().endswith(('.bz2', '.tbz2')) else 'r'
+        mode = self._tar_read_mode(source)
         archive_size = max(self._archive_stream_size(source), 1)
         source.seek(0)
         try:
@@ -887,6 +965,11 @@ class ArchiveVCS(BaseVCS):
             source.seek(0)
 
     @classmethod
+    def _tar_read_mode(cls, source):
+        kind = detect_archive_stream(source)
+        return {'gzip': 'r:gz', 'bzip2': 'r:bz2'}.get(kind, 'r:')
+
+    @classmethod
     def _preflight_tar(cls, source, dest: str, *, member_plan=None, target_validator=None):
         """在 tarfile 解析 PAX/GNU 扩展前先做有界流式头检查。
 
@@ -900,7 +983,7 @@ class ArchiveVCS(BaseVCS):
                 return cls._preflight_tar(opened, dest, member_plan=member_plan,
                                           target_validator=target_validator)
         path = cls._archive_source_name(source)
-        lower = path.lower()
+        compression = detect_archive_stream(source)
         targets = []
         total_size = 0
         metadata_size = 0 if cls.MAX_TAR_METADATA_BYTES is not None else None
@@ -915,9 +998,9 @@ class ArchiveVCS(BaseVCS):
         borrowed = _BorrowedBinaryStream(source)
         stream = (
             gzip.GzipFile(fileobj=borrowed, mode="rb")
-            if lower.endswith((".gz", ".tgz"))
+            if compression == 'gzip'
             else bz2.BZ2File(borrowed, "rb")
-            if lower.endswith((".bz2", ".tbz2"))
+            if compression == 'bzip2'
             else borrowed
         )
         with stream:
@@ -1586,6 +1669,10 @@ class ArchiveVCS(BaseVCS):
     def get_file_content(self, version: str, file_path: str) -> str:
         self._require_materialized_path(file_path)
         return self._folder.get_file_content(self._to_folder_ver(version), file_path)
+
+    def get_file_archive_format(self, version, file_path):
+        self._require_materialized_path(file_path)
+        return self._folder.get_file_archive_format(self._to_folder_ver(version), file_path)
 
     def get_file_content_bytes(self, version: str, file_path: str) -> bytes:
         self._require_materialized_path(file_path)

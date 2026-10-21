@@ -10,7 +10,7 @@ Windows 桌面应用，输入 Git/SVN/文件夹/压缩包 项目路径和版本�
 - Git多版本/SVN多版本支持多选需求相关版本，按每个文件自己的首次/末次选中变更生成首尾净差异
 - 支持多项目批量任务，一次生成跨项目/微服务的总报告并按项目名导出变更文件
 - 支持输出批次名称，在基础输出目录下按系统/版本/上线批次再分一层目录
-- 压缩包模式支持 `.zip` / `.jar` / `.war` / `.ear` / `.aar` / `.tar` / `.tar.gz` / `.tgz` / `.tar.bz2` / `.tbz2`，自动处理中文文件名编码
+- 压缩包模式按内容识别 ZIP、TAR、GZIP 和 gzip/bzip2 压缩 TAR，支持 `.dat.gz` 等单文件压缩及改后缀或无后缀的真实归档，自动处理 ZIP 中文文件名编码
 - 压缩包可勾选「忽略最外层单一文件夹」，按两包内层内容比较；默认不勾选，保留完整目录结构
 - 输入新旧版本号，自动生成**左右分栏对比**的 HTML 报告
 - 左侧文件树，按颜色标记：🟢 新增 / 🔵 修改 / 🟠 格式变化 / 🔴 删除 / 🟣 重命名
@@ -76,7 +76,7 @@ multi_run_.../newVersion/项目名/...
 
 **文件夹对比模式**：选择两个文件夹分别作为旧版本和新版本。生成开始时捕获两端文件身份，用分块字节读取判断差异，只把实际变更端点快照到 CompareTool 专用临时目录，最后复核整个源树；无需 VCS，源目录在此期间变化时会明确失败，避免混入后续内容。
 
-**压缩包比对模式**：选择两个压缩包作为旧版本和新版本，工具自动解压到专用临时目录后比对。支持 `.zip`、`.jar`、`.war`、`.ear`、`.aar`、`.tar`、`.tar.gz`、`.tgz`、`.tar.bz2`、`.tbz2` 格式。解压会拒绝 `../`、绝对/盘符路径、Windows 非法路径及 ADS、符号链接、硬链接和特殊文件。成员数、单成员大小、累计展开量、压缩比及递归层数默认不限，显式注入的资源策略仍有效；长度、CRC、来源身份和实际 I/O 必须通过校验。
+**压缩包比对模式**：选择两个压缩包作为旧版本和新版本，工具按内容识别 ZIP、TAR、GZIP 和 gzip/bzip2 压缩 TAR，自动解压到专用临时目录后比对。选择框默认显示“所有文件”，改后缀或无后缀的真实包也能直接选择；可按需切换到“常见压缩文件”筛选。普通文本改名为 `.tar.gz` 仍会拒绝作为外层包。单文件 GZIP（如 ODS `.dat.gz`）解压后直接比较数据正文；成员名取外部文件名去掉 `.gz`，无 `.gz` 时追加 `.unpacked`，不采用 GZIP 头部的 FNAME。RAR、7z、XZ 可识别但暂不展开。解压会拒绝 `../`、绝对/盘符路径、Windows 非法路径及 ADS、符号链接、硬链接和特殊文件。成员数、单成员大小、累计展开量、压缩比及递归层数默认不限，显式注入的资源策略仍有效；长度、CRC、来源身份和实际 I/O 必须通过校验。
 
 **压缩包外层目录**：如果两包都只有一个顶层文件夹，可勾选「忽略最外层单一文件夹」。例如旧包 `release_old/config/app.xml` 和新包 `release_new/config/app.xml` 会按 `config/app.xml` 比较。仅忽略一层，报告、排除规则和导出使用相同的内层相对路径；报告与上线说明会标明两侧实际比较根目录。任一包结构不满足时，桌面入口将两侧一起退回完整包路径并注明；严格 API 仍拒绝。此设置按新压缩包路径记忆，并保存到每个多项目任务；旧配置默认不勾选。比较发布包时也要检查默认排除规则，避免漏掉需要比较的 WAR、class 等内容。
 
@@ -156,6 +156,8 @@ Windows 文件夹扫描的重复元数据查询和比较根路径解析也已优
 
 ## 正式入口、版本与任务进度
 
+2026-10-21 新增的按内容识别压缩格式、普通 GZIP 和包内假后缀文本比较目前为源码功能，说明书已同步；尚未重新打包或更新安装版。下列正式版本记录仍对应已有 EXE。
+
 使用 `dist/CompareTool.exe`；标题中的版本和构建号用于区分不同构建，底部“版本信息”可查看构建时间、源码指纹和实际运行路径。`build.bat` 通过 `tools/build_release.py` 生成并嵌入构建信息，附带 `CompareTool_build.json`；请使用此入口打包，而非旧的手工 spec。
 
 生成时显示真实阶段、可确定的文件处理数量及已用时间；进度条只表示当前阶段。完成后显示总耗时和日志路径。正常耗时记录在程序目录的 `logs/tasks/`，与输入目录重叠时改用独立用户目录。日志不可写不影响比较结果。
@@ -219,9 +221,10 @@ main.py                  # tkinter GUI 入口，线程管理，配置持久化�
 │   ├── git_checkout.py  # 隔离 Git 属性/配置快照、微小检出探针和流式文本判定
 │   ├── svn_vcs.py       # SVNVCS：svn diff --summarize / svn cat (URL+@peg) / svn log
 │   ├── folder_vcs.py    # FolderVCS：固定树身份、分块比较、快照变更端点并复核源树
-│   ├── archive_vcs.py   # ArchiveVCS：解压 zip/tar 到临时目录，委托 FolderVCS 比对
+│   ├── archive_vcs.py   # ArchiveVCS：按内容解压 ZIP/TAR/GZIP，委托 FolderVCS 比对
 │   └── multi_version_vcs.py # Git/SVN 多版本：历史身份追踪 + 文件级端点快照
 ├── diff_engine.py       # 遍历变更、编码/格式判定、差异统计及左右 HTML
+├── archive_formats.py   # 有界探测真实归档格式，扩展名仅作辅助提示
 ├── stable_diff.py       # HtmlDiff 递归失败时的完整非递归差异表
 ├── report_generator.py  # Jinja2 渲染 templates/report.html → 单文件 HTML
 ├── file_exporter.py     # 变更文件按目录结构导出到 oldVersion/newVersion
@@ -236,7 +239,7 @@ main.py                  # tkinter GUI 入口，线程管理，配置持久化�
 | Git | commit hash / tag / branch | 同左 | `get_file_content_working` 直接读工作副本文件 |
 | SVN | `rNNNNN` 或 `NNNNN` | 同左 | `get_file_content` 使用仓库 URL + peg revision |
 | 文件夹 | 旧文件夹路径 | 新文件夹路径 | 固定树身份，只快照变更端点并复核源树；兼容 `"old"`/`"new"` 和用户输入的实际路径 |
-| 压缩包 | 旧压缩包路径 | 新压缩包路径 | 解压到临时目录后委托 `FolderVCS` 比对；支持 `.zip` / `.jar` / `.war` / `.ear` / `.aar` / `.tar` / `.tar.gz` / `.tgz` / `.tar.bz2` / `.tbz2` |
+| 压缩包 | 旧压缩包路径 | 新压缩包路径 | 按内容识别 ZIP、TAR、GZIP 和 gzip/bzip2 压缩 TAR，解压到临时目录后委托 `FolderVCS` 比对 |
 | Git多版本 | 多个 commit hash | `文件级首尾端点` | 每个文件 old 取首次选中变更的第一父提交，new 取末次选中提交 |
 | SVN多版本 | 多个 `rNNNNN` 或 `NNNNN` | `文件级首尾端点` | 每个文件 old 取首次选中 revision 前状态，new 取末次选中 revision 后状态 |
 

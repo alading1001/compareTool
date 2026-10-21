@@ -177,3 +177,12 @@ class ArchiveConfigurationTests(WorkflowCase):
             with mock.patch('main.filedialog.askopenfilename', return_value='') as dialog:
                 app._browse_archive(app.new_version_var)
                 self.assertEqual(str(folder), dialog.call_args.kwargs['initialdir'])
+                self.assertEqual(('所有文件', '*'), dialog.call_args.kwargs['filetypes'][0])
+                self.assertEqual(str(archive), app.new_version_var.get())
+            for name in ('renamed.data', 'release'):
+                renamed = folder/name
+                renamed.write_bytes(package(b'renamed'))
+                with mock.patch('main.filedialog.askopenfilename', return_value=str(renamed)) as dialog:
+                    app._browse_archive(app.new_version_var)
+                    self.assertEqual(str(renamed), app.new_version_var.get())
+                    self.assertEqual(('所有文件', '*'), dialog.call_args.kwargs['filetypes'][0])

@@ -19,6 +19,7 @@ from path_safety import (
 from .base import BaseVCS, ChangedFile, ChangeType, EndpointSide
 from .temp_storage import create_temp_dir, remove_temp_dir
 from logger import warn
+from archive_formats import detect_archive_stream
 
 
 class FolderVCS(BaseVCS):
@@ -550,6 +551,17 @@ class FolderVCS(BaseVCS):
         if not os.path.isfile(full_path):
             return None
         return os.path.getsize(full_path)
+
+    def get_file_archive_format(self, version, file_path):
+        folder = self._resolve_version_dir(version)
+        path = self._resolve_file_path(folder, file_path)
+        with open_regular_file_no_links(path, deny_writes=True) as source:
+            before = regular_file_handle_identity(source)
+            kind = detect_archive_stream(source)
+            if (regular_file_handle_identity(source) != before
+                    or regular_file_path_identity(path) != before):
+                raise RuntimeError('格式探测期间文件发生变化: ' + file_path)
+            return kind
 
     def get_known_file_raw_size(self, version: str, file_path: str):
         return self.get_file_size(version, file_path)
