@@ -729,10 +729,9 @@ class ArchiveAndTransactionTests(unittest.TestCase):
             vcs = ArchiveVCS(old_tar, new_tar)
             try:
                 files = vcs.get_changed_files()
-                self.assertEqual(1, len(files))
-                self.assertEqual(ChangeType.MODIFIED, files[0].change_type)
-                self.assertFalse(files[0].old_executable)
-                self.assertTrue(files[0].new_executable)
+                self.assertEqual([], files)
+                self.assertEqual([('script.sh', '0644', '0755')],
+                    [(f.path, f.old_mode, f.new_mode) for f in vcs.permission_changes])
             finally:
                 vcs.cleanup()
 
@@ -838,9 +837,9 @@ class ArchiveAndTransactionTests(unittest.TestCase):
             vcs = ArchiveVCS(old_zip, new_zip)
             try:
                 files = vcs.get_changed_files()
-                self.assertEqual(1, len(files))
-                self.assertFalse(files[0].old_executable)
-                self.assertTrue(files[0].new_executable)
+                self.assertEqual([], files)
+                self.assertEqual([('script.sh', '0644', '0755')],
+                    [(f.path, f.old_mode, f.new_mode) for f in vcs.permission_changes])
             finally:
                 vcs.cleanup()
 

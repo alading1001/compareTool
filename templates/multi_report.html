@@ -141,6 +141,9 @@ table.diff span { white-space: pre; }
 </div>
 
 {% if archive_details_enabled %}<div class="delivery-note">已启用包内递归审查。点击带“包内差异”的文件逐层展开；上方汇总及变更清单仍只统计交付文件。包内删除不等于服务器路径删除。</div>{% endif %}
+{% for project in projects %}
+{% with permission_changes=project.diff_result.permission_changes, permission_prefix=project.project_name ~ '/' %}{% include "permission_changes.html" %}{% endwith %}
+{% endfor %}
 <div class="body">
     <div class="sidebar">
         <div class="sidebar-header">
@@ -549,6 +552,9 @@ function openSummary() {
             list.forEach(function(p) { lines.push(p); });
         }
     });
+{% for project in projects %}
+{% with permission_changes=project.diff_result.permission_changes, permission_prefix=(project.project_name ~ '/' if project.show_project_root else '') %}{% include "summary_permissions.html" %}{% endwith %}
+{% endfor %}
     w.document.open();
     w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>多项目变更清单</title></head><body><pre id="summaryText"></pre></body></html>');
     w.document.close();

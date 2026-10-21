@@ -21,7 +21,7 @@ from path_safety import (
     safe_join,
     windows_path_key,
 )
-from .base import BaseVCS, ChangedFile, ChangeType
+from .base import BaseVCS, ChangedFile, ChangeType, FilePermissionChange
 from .folder_vcs import FolderVCS
 from .temp_storage import create_temp_dir, remove_temp_dir
 from logger import warn
@@ -97,6 +97,7 @@ class ArchiveVCS(BaseVCS):
         self._tmp_new = ""
         self._folder = None
         self._old_metadata = {}
+        self.permission_changes = []
         self._new_metadata = {}
         self.old_root_prefix = ""
         self.new_root_prefix = ""
@@ -1631,17 +1632,19 @@ class ArchiveVCS(BaseVCS):
                 for path, keep in decisions.items() if not keep)
         self.required_directory_deletions = self._folder.required_directory_deletions
         by_path = {item.path: item for item in files}
+        self.permission_changes = []
         for path in sorted(set(self._old_metadata) | set(self._new_metadata)):
             if self._is_excluded(path):
                 continue
             old = self._old_metadata.get(path)
             new = self._new_metadata.get(path)
             item = by_path.get(path)
-            if item is None and old != new:
-                item = ChangedFile(path=path, change_type=ChangeType.MODIFIED)
-                files.append(item)
-                by_path[path] = item
             if item is None:
+                # FolderVCS 已按原始正文比较；属性不同不能制造内容修改。
+                # ZIP 可能只有一侧提供 Unix mode，缺失属性不代表权限变化。
+                if old and new and old != new:
+                    self.permission_changes.append(FilePermissionChange(
+                        path, old['mode'], new['mode']))
                 continue
             item.old_executable = old.get("executable") if old else None
             item.new_executable = new.get("executable") if new else None

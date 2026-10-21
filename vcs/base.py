@@ -40,6 +40,14 @@ class ChangedFile:
     new_mode: str = ""
 
 
+@dataclass(frozen=True)
+class FilePermissionChange:
+    """同路径原始内容相同的归档权限变化，不参与内容导出。"""
+    path: str
+    old_mode: str
+    new_mode: str
+
+
 class BaseVCS(ABC):
     """VCS抽象基类，定义统一接口"""
 

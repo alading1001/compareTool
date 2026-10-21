@@ -297,6 +297,7 @@ class _Inspector:
             result = DiffEngine(vcs, show_full_context=self.show_full_context, retain_text_contents=False, detail_store=self.detail_store).generate_diff('old', 'new')
             detail = dict(status='compared', members=result.files,
                           counts=result.summary, filtered=bool(self.patterns),
+                          permission_changes=result.permission_changes,
                           duplicate_members=vcs.duplicate_members)
             yield detail, (result, vcs, depth + 1, names)
             for member in result.files:

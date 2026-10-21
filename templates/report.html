@@ -130,6 +130,7 @@ table.diff span { white-space: pre; }
 {% if comparison_note %}<div class="delivery-note">{{ comparison_note }}</div>{% endif %}
 
 {% with result=diff_result %}{% include "result_issues.html" %}{% endwith %}
+{% with permission_changes=permission_changes | default([]), permission_prefix=(project_name ~ '/' if show_project_root else '') %}{% include "permission_changes.html" %}{% endwith %}
 <div class="summary">
     <div class="card total"><div class="num">{{ summary.total_files }}</div><div class="lbl">变更文件</div></div>
     <div class="card added"><div class="num">{{ summary.added_files }}</div><div class="lbl">新增</div></div>
@@ -607,6 +608,7 @@ function openSummary() {
             });
         }
     });
+{% with permission_changes=permission_changes | default([]), permission_prefix=(project_name ~ '/' if show_project_root else '') %}{% include "summary_permissions.html" %}{% endwith %}
     w.document.open();
     w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title></title></head><body><pre id="summaryText"></pre></body></html>');
     w.document.close();

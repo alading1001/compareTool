@@ -9,6 +9,7 @@
       新增 {{ detail.counts.added_files }}，修改 {{ detail.counts.modified_files }}，
       格式变化 {{ detail.counts.format_changed_files }}，删除 {{ detail.counts.deleted_files }}，
       重命名 {{ detail.counts.renamed_files }}。嵌套包的内部数量单独显示。</div>
+    {% with permission_changes=detail.permission_changes | default([]), permission_prefix='' %}{% include "permission_changes.html" %}{% endwith %}
     {% if detail.filtered %}<p class="archive-note">包内按当前排除规则逐层筛选；不检查被排除成员。排除只影响本明细，不改写交付压缩包。</p>{% endif %}
     {% if detail.duplicate_members %}
     <p class="archive-note">以下同名重复成员已逐份读取并校验内容及文件属性一致，每个路径按一份比较；交付压缩包保持原样。</p>

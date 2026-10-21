@@ -150,8 +150,10 @@ class ArchiveReportTests(unittest.TestCase):
         b = zip_bytes({'run.sh': b'echo ok'}, mode=0o755)
         vcs, result = self.source({'a.zip': a}, {'a.zip': b})
         detail = self.enrich(vcs, result)
-        self.assertTrue(detail['members'][0].metadata_changes)
-        self.assertTrue(detail['members'][0].new_executable)
+        self.assertEqual([], detail['members'])
+        self.assertEqual(0, detail['counts']['modified_files'])
+        self.assertEqual([('run.sh', '0644', '0755')],
+            [(f.path, f.old_mode, f.new_mode) for f in detail['permission_changes']])
 
     def test_nested_depth_limit_is_explicit_failure(self):
         def data(value):

@@ -1,0 +1,345 @@
+{
+  "schema_version": 1,
+  "status": "SOURCE_VERIFIED",
+  "purpose": "压缩包内容差异与独立权限变化分类验收；原始输入及业务正文仅保留本机",
+  "input_summary": {
+    "archives": 2,
+    "members_each": 5802,
+    "regular_files_each": 3543,
+    "directories_each": 2259,
+    "raw_content_changes": 4,
+    "mode_changes": 2880,
+    "permission_only_members": 2877,
+    "archive_bytes_each": 236656640,
+    "source_archives_unchanged": true
+  },
+  "acceptance": [
+    {
+      "case": "all-files",
+      "elapsed_seconds": 145.36982089999947,
+      "summary": {
+        "issue_count": 0,
+        "delivery_incomplete": false,
+        "failed_items": 0,
+        "total_files": 4,
+        "added_files": 0,
+        "modified_files": 4,
+        "format_changed_files": 0,
+        "deleted_files": 0,
+        "renamed_files": 0,
+        "required_directory_deletions": 0,
+        "total_added_lines": 12,
+        "total_deleted_lines": 12,
+        "line_counts_complete": true,
+        "skipped_line_count_files": 0,
+        "report_omitted_files": 0,
+        "manifest_listed_files": 4,
+        "manifest_omitted_files": 0
+      },
+      "permission_only_count": 2877,
+      "exported_files": 8,
+      "all_exported_bytes_equal_original_members": true,
+      "report_M_entries": 4,
+      "entry": "source desktop worker"
+    },
+    {
+      "case": "default-excludes-recursive",
+      "elapsed_seconds": 126.65583799999877,
+      "summary": {
+        "issue_count": 0,
+        "delivery_incomplete": false,
+        "failed_items": 0,
+        "total_files": 4,
+        "added_files": 0,
+        "modified_files": 4,
+        "format_changed_files": 0,
+        "deleted_files": 0,
+        "renamed_files": 0,
+        "required_directory_deletions": 0,
+        "total_added_lines": 12,
+        "total_deleted_lines": 12,
+        "line_counts_complete": true,
+        "skipped_line_count_files": 0,
+        "report_omitted_files": 0,
+        "manifest_listed_files": 4,
+        "manifest_omitted_files": 0
+      },
+      "permission_only_count": 2872,
+      "exported_files": 8,
+      "all_exported_bytes_equal_original_members": true,
+      "report_M_entries": 4,
+      "entry": "source desktop worker"
+    }
+  ],
+  "summary_javascript": [
+    {
+      "case": "all-files",
+      "modified": 4,
+      "permissionOnly": 2877,
+      "scriptExecuted": true
+    },
+    {
+      "case": "default-excludes-recursive",
+      "modified": 4,
+      "permissionOnly": 2872,
+      "scriptExecuted": true
+    }
+  ],
+  "combination_cases": [
+    {
+      "case": "format-permission",
+      "archive": ".zip",
+      "files": [
+        {
+          "path": "run.sh",
+          "old_path": "",
+          "type": "F",
+          "old_mode": "0644",
+          "new_mode": "0755",
+          "permissions": [
+            "压缩包文件模式：0644 → 0755"
+          ],
+          "format": [
+            "换行符：LF → CRLF"
+          ]
+        }
+      ],
+      "exports_exact": true
+    },
+    {
+      "case": "rename-permission",
+      "archive": ".zip",
+      "files": [
+        {
+          "path": "b.sh",
+          "old_path": "a.sh",
+          "type": "R",
+          "old_mode": "0644",
+          "new_mode": "0755",
+          "permissions": [
+            "压缩包文件模式：0644 → 0755"
+          ],
+          "format": []
+        }
+      ],
+      "exports_exact": true
+    },
+    {
+      "case": "rename-format",
+      "archive": ".zip",
+      "files": [
+        {
+          "path": "b.sh",
+          "old_path": "",
+          "type": "A",
+          "old_mode": "",
+          "new_mode": "0644",
+          "permissions": [],
+          "format": []
+        },
+        {
+          "path": "a.sh",
+          "old_path": "",
+          "type": "D",
+          "old_mode": "0644",
+          "new_mode": "",
+          "permissions": [],
+          "format": []
+        }
+      ],
+      "exports_exact": true
+    },
+    {
+      "case": "rename-format-permission",
+      "archive": ".zip",
+      "files": [
+        {
+          "path": "b.sh",
+          "old_path": "",
+          "type": "A",
+          "old_mode": "",
+          "new_mode": "0755",
+          "permissions": [],
+          "format": []
+        },
+        {
+          "path": "a.sh",
+          "old_path": "",
+          "type": "D",
+          "old_mode": "0644",
+          "new_mode": "",
+          "permissions": [],
+          "format": []
+        }
+      ],
+      "exports_exact": true
+    },
+    {
+      "case": "format-permission",
+      "archive": ".tar",
+      "files": [
+        {
+          "path": "run.sh",
+          "old_path": "",
+          "type": "F",
+          "old_mode": "0644",
+          "new_mode": "0755",
+          "permissions": [
+            "压缩包文件模式：0644 → 0755"
+          ],
+          "format": [
+            "换行符：LF → CRLF"
+          ]
+        }
+      ],
+      "exports_exact": true
+    },
+    {
+      "case": "rename-permission",
+      "archive": ".tar",
+      "files": [
+        {
+          "path": "b.sh",
+          "old_path": "a.sh",
+          "type": "R",
+          "old_mode": "0644",
+          "new_mode": "0755",
+          "permissions": [
+            "压缩包文件模式：0644 → 0755"
+          ],
+          "format": []
+        }
+      ],
+      "exports_exact": true
+    },
+    {
+      "case": "rename-format",
+      "archive": ".tar",
+      "files": [
+        {
+          "path": "b.sh",
+          "old_path": "",
+          "type": "A",
+          "old_mode": "",
+          "new_mode": "0644",
+          "permissions": [],
+          "format": []
+        },
+        {
+          "path": "a.sh",
+          "old_path": "",
+          "type": "D",
+          "old_mode": "0644",
+          "new_mode": "",
+          "permissions": [],
+          "format": []
+        }
+      ],
+      "exports_exact": true
+    },
+    {
+      "case": "rename-format-permission",
+      "archive": ".tar",
+      "files": [
+        {
+          "path": "b.sh",
+          "old_path": "",
+          "type": "A",
+          "old_mode": "",
+          "new_mode": "0755",
+          "permissions": [],
+          "format": []
+        },
+        {
+          "path": "a.sh",
+          "old_path": "",
+          "type": "D",
+          "old_mode": "0644",
+          "new_mode": "",
+          "permissions": [],
+          "format": []
+        }
+      ],
+      "exports_exact": true
+    }
+  ],
+  "regression": {
+    "isolated_full_run": {
+      "tests": 807,
+      "passed": 802,
+      "errors": 4,
+      "skipped": 1,
+      "seconds": 2799.56,
+      "error_cause": "旧调用方直接渲染单项目模板未提供 diff_result",
+      "fixed_in": [
+        "report_generator.py",
+        "templates/report.html"
+      ]
+    },
+    "all_four_errors_retested_passed": true,
+    "final_report_related_run": {
+      "tests": 156,
+      "passed": 156,
+      "failures": 0,
+      "errors": 0,
+      "seconds": 228.322
+    },
+    "coverage_statement": "完整回归发现四个模板兼容错误，修复后四项及156项相关回归通过；未宣称最终源码再次单次全量807项全通过",
+    "skipped_case": {
+      "name": "test_folder_file_symlink_cannot_read_outside_root",
+      "reason": "Windows WinError 1314"
+    },
+    "deep_archive_cases": {
+      "real_archive_layers": 400,
+      "single_and_multi_render_layers": 2000
+    },
+    "logs_retained_locally": [
+      {
+        "label": "full.log",
+        "bytes": 7152,
+        "sha256": "ff287765b8b40238584091370bcd01e3cac7464cd70a7367cee72ce26237f8fc"
+      },
+      {
+        "label": "reports.log",
+        "bytes": 105,
+        "sha256": "b01bbda56bfb606afc6250e7aa97ef97622787a1866b097ce0d597c72a819af6"
+      }
+    ],
+    "nonfatal_warning": "完整回归日志中有 Tk 窗口销毁后的回调警告；不计为测试失败"
+  },
+  "contracts": {
+    "same_path_permission_only": "独立记录，内容计数、文件树、manifest、导出均不包含此类文件",
+    "format_and_permission": "F并附格式、权限说明，导出两侧原始正文",
+    "exact_rename_and_permission": "R并附路径、权限说明，按真实新旧路径导出",
+    "rename_and_format_with_or_without_permission": "A+D；不推测身份",
+    "unknown_one_sided_mode": "不推断权限改变",
+    "instructions": "独立权限清单记录完整mode；伴随内容/改名的权限仍沿用可执行位提示，不保证生成全部mode操作",
+    "other_vcs": "不改变Git/SVN及其多版本的端点和导出判定"
+  },
+  "manual": {
+    "pages": 17,
+    "bookmarks": 17,
+    "toc_links": 11,
+    "missing_glyphs": [],
+    "embedded_fonts": {
+      "/AAAAAA+MicrosoftYaHei-0": true,
+      "/AAAAAB+MicrosoftYaHei-0": true,
+      "/AAAAAC+MicrosoftYaHei-0": true,
+      "/AAAAAA+MicrosoftYaHei-Bold-0": true,
+      "/AAAAAB+MicrosoftYaHei-Bold-0": true
+    },
+    "out_of_bounds_characters": 0,
+    "bytes": 488675,
+    "sha256": "2c34c64ef16d58dbbedde7d850408015f50fa03bdb4a0ae41a990f1c239ab699"
+  },
+  "knowledge_faces": {
+    "code": "changed-and-verified",
+    "runtime": "pending",
+    "docs": "changed-and-verified",
+    "rules": "changed-and-verified",
+    "memory": "out-of-scope",
+    "workspace": "pending"
+  },
+  "memory_policy": "generated-read-only；本次未写入或更新记忆",
+  "workspace_policy": "临时诊断和验证现场保留；未执行破坏性清场"
+}

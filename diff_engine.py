@@ -13,7 +13,7 @@ from path_safety import (
     windows_directories_replaced_by_files,
     windows_path_key,
 )
-from vcs.base import BaseVCS, ChangedFile, ChangeType, comparison_versions
+from vcs.base import BaseVCS, ChangedFile, ChangeType, FilePermissionChange, comparison_versions
 from html_details import HtmlFragment
 from archive_formats import is_archive_name
 from stable_diff import (make_table as make_stable_diff_table,
@@ -78,6 +78,7 @@ class DiffResult:
     archive_details_enabled: bool = False
     issues: List[dict] = field(default_factory=list)
     replacement_dependency_roots: List[str] = field(default_factory=list)
+    permission_changes: List[FilePermissionChange] = field(default_factory=list)
 
     def add_issue(self, stage, path, message, *, delivery=False, old_path=""):
         issue = dict(stage=stage, path=path, message=str(message), delivery=delivery)
@@ -342,6 +343,7 @@ class DiffEngine:
             replacement_dependency_roots=sorted(dependency_roots),
             comparison_note=getattr(self.vcs, "comparison_note", ""),
             issues=issues,
+            permission_changes=list(getattr(self.vcs, 'permission_changes', ())),
         )
 
         with stage("diff.render", "生成变更文件明细"):

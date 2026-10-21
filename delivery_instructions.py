@@ -46,12 +46,16 @@ def write_delivery_instructions(project_results: list, output_path: str):
     delete_entries = []
     rename_entries = []
     permission_entries = []
+    permission_only_entries = []
     directory_delete_entries = []
     deleted_count = 0
 
     for project in project_results:
         project_name = str(project.get("project_name", "") or "").strip()
         result = project["diff_result"]
+        permission_only_entries.extend(
+            (_delivery_path(project_name, change.path), change.old_mode, change.new_mode)
+            for change in result.permission_changes)
         directory_delete_entries.extend(
             _delivery_path(project_name, path)
             for path in result.required_directory_deletions
@@ -82,6 +86,7 @@ def write_delivery_instructions(project_results: list, output_path: str):
     delete_entries.sort(key=lambda item: item[0].casefold())
     rename_entries.sort(key=lambda item: (item[0].casefold(), item[1].casefold()))
     permission_entries.sort(key=lambda item: item[0].casefold())
+    permission_only_entries.sort(key=lambda item: item[0].casefold())
     directory_delete_entries = sorted(
         dict.fromkeys(directory_delete_entries), key=str.casefold
     )
@@ -109,6 +114,7 @@ def write_delivery_instructions(project_results: list, output_path: str):
         f"需要删除的旧路径合计：{len(delete_entries)} 个",
         f"写入同名文件前需删除的旧目录：{len(directory_delete_entries)} 个",
         f"需要确认的可执行权限：{len(permission_entries)} 个",
+        f"仅文件权限变化（内容相同）：{len(permission_only_entries)} 个",
         "",
         "一、需要从目标环境删除的旧路径",
         "================================",
@@ -153,6 +159,14 @@ def write_delivery_instructions(project_results: list, output_path: str):
         lines.extend(f"[{action}] {path}" for path, action in permission_entries)
     else:
         lines.append("本次无需要单独处理的可执行权限。")
+
+    if permission_only_entries:
+        lines.extend([
+            "", "五、仅文件权限变化（内容相同）", "==============================",
+            "以下文件无需复制内容，未放入 oldVersion/newVersion；请在目标环境按新权限核对。",
+        ])
+        lines.extend(f"[文件权限] {path}：{old_mode} → {new_mode}"
+                     for path, old_mode, new_mode in permission_only_entries)
 
     lines.extend([
         "",

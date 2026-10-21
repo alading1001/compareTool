@@ -79,6 +79,7 @@ class ReportGenerator:
             old_version=diff_result.old_version,
             new_version=diff_result.new_version,
             comparison_note=diff_result.comparison_note,
+            permission_changes=diff_result.permission_changes,
             issues=getattr(diff_result, 'issues', []),
             archive_details_enabled=diff_result.archive_details_enabled,
             summary=summary,
@@ -142,6 +143,11 @@ class ReportGenerator:
             for file in result.files:
                 yield '<li>' + escaped(f'{file.report_type} {file.old_path + " → " if file.old_path else ""}{file.file_path}') + '</li>'
             yield '</ul>'
+            if result.permission_changes:
+                yield '<h3>仅权限变化（内容相同）</h3><ul>'
+                for change in result.permission_changes:
+                    yield '<li>' + escaped(f'{change.path}：{change.old_mode} → {change.new_mode}') + '</li>'
+                yield '</ul>'
         yield '</body></html>'
 
     @classmethod

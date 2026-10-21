@@ -146,6 +146,10 @@ Windows 上 `core.autocrlf=true`（Git）或 `svn:eol-style=native`（SVN）会�
 
 ZIP/TAR 成员内容一致而发生改名时，合并后的权限说明须比较真实旧成员和新成员，保留同时发生的 mode 变化；纯改名不能制造权限变化。剥离单层比较根、逐侧排除与报告递归共用该规则，原包及实际导出字节不变。上述替换引用和归档权限回归见 `tests/test_review_replace_refs_and_archive_modes.py`。
 
+同路径 ZIP/TAR 成员仅权限不同且原始内容逐字节相同时，使用独立 `permission_changes` 记录，不能追加成 `MODIFIED`。该记录不进入内容统计、manifest、文件树或 oldVersion/newVersion；单/多项目报告、纯文本清单与上线说明分别列出旧、新 mode。递归明细同样独立展示权限，内部权限不生成服务器操作。两侧均提供已知 mode 才能判断权限变化，单侧缺失不等于权限改变。真实内容变化、格式变化和改名继续保留原有类型、导出及伴随权限说明；不使用导出转换后的字节过滤原始差异。回归见 `tests/test_archive_permission_classification.py`。
+
+组合变化沿用现有身份规则：同路径格式变化加权限变化为 `F`，原始字节完全相同且唯一配对的改名加权限变化为 `R`，两者均保留报告中的完整 mode 说明及原始内容导出。压缩包同时改名和改变编码/BOM/换行时，原始字节不再相同，仍按 `ADDED + DELETED` 处理；再叠加权限变化也不推测改名。上线说明对伴随内容或改名的权限变化继续提供原有可执行位提示，并非所有 mode 差异都会生成权限操作；完整旧、新 mode 独立清单仅适用于同路径内容相同的记录。合成 ZIP/TAR 的八种组合验证见 [权限分类凭证](../artifacts/archive-permission-classification-20261021.json)。
+
 ## 端点身份与展示标签
 
 文件夹和多版本快照用 `EndpointSide` 明确区分新旧读取端点；报告保留用户输入的版本／目录标签。DiffEngine、FileExporter 和直接借用文件夹快照的包内报告使用相同侧别解析，不能把 Git 标签 `new`、`文件级首尾端点` 或相对目录 `old` 当成另一侧。旧 API 的字符串侧别别名保留兼容。显式借用交付 stage 的递归分析不再查询 VCS，也不重新解析展示标签。

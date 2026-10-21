@@ -152,11 +152,9 @@ class ArchiveComparisonRootTests(unittest.TestCase):
                 vcs = ArchiveVCS(str(old), str(new), ignore_single_root=True)
                 self.addCleanup(vcs.cleanup)
                 result = DiffEngine(vcs).generate_diff("old", "new")
-                self.assertEqual(["run.sh"], [f.file_path for f in result.files])
-                self.assertEqual("0644", result.files[0].old_mode)
-                self.assertEqual("0755", result.files[0].new_mode)
-                self.assertTrue(result.files[0].new_executable)
-                self.assertIn("0644 → 0755", result.files[0].metadata_changes[0])
+                self.assertEqual([], result.files)
+                self.assertEqual([("run.sh", "0644", "0755")],
+                    [(f.path, f.old_mode, f.new_mode) for f in result.permission_changes])
 
     def test_empty_inner_directory_replaced_by_file_keeps_deletion_instruction(self):
         vcs = self.vcs({"v1/slot/": b""}, {"v2/slot": b"file"}, ignore_single_root=True)
