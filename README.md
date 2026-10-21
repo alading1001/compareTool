@@ -165,7 +165,7 @@ Windows 文件夹扫描的重复元数据查询和比较根路径解析也已优
 
 GitHub 最新发行版已更新为 [v2026.10.22.1](https://github.com/alading1001/compareTool/releases/tag/v2026.10.22.1)，发布配套 EXE、构建信息、中文 PDF 和 SHA-256 清单；发布后实际下载的四份附件均与本地字节一致，标签指向上述构建提交。历史分类修复及发布见 [前次验证](artifacts/archive-permission-classification-20261021.json) 和 [前次发布](artifacts/release-permission-closeout-20261021.json)。
 
-常用安装目录未替换。2026-10-22 收尾盘点观察到其中 EXE 与旧的 `2026.10.21.4` dirty 构建相同，但构建信息仍为 `2026.10.21.1`，说明书也较旧，三件套不配套；请使用本次 `dist` 三件套或 GitHub 新发行附件。原包、配置及安装目录的 8 个保护对象均未变化。历史已批准清理见 [前次清场凭证](artifacts/cleanup-permission-closeout-20261021.json)；本轮 13 项临时复核现场仍保留，候选范围和快照见 [本轮证据包](artifacts/release-permission-closeout-evidence-20261022.zip)，须在完整汇报后确认才清场。Windows ACL 比较未增加，生成记忆只读。
+常用安装目录未替换。2026-10-22 收尾盘点观察到其中 EXE 与旧的 `2026.10.21.4` dirty 构建相同，但构建信息仍为 `2026.10.21.1`，说明书也较旧，三件套不配套；请使用本次 `dist` 三件套或 GitHub 新发行附件。原包、配置及安装目录的 8 个保护对象均未变化。历史已批准清理见 [前次清场凭证](artifacts/cleanup-permission-closeout-20261021.json)；经用户在完整汇报后明确批准，已清理本轮 13 项临时目录，移除约 542 MiB 临时文件；330 个保留文件摘要与清单外临时对象均核验未变。正式三件套、旧构建、原包、配置和验证凭证保留，见 [清理核验](artifacts/cleanup-permission-closeout-20261022.json) 及 [补存证据](artifacts/cleanup-permission-evidence-20261022.zip)。Windows ACL 比较未增加，生成记忆只读。
 
 使用 `dist/CompareTool.exe`；标题中的版本和构建号用于区分不同构建，底部“版本信息”可查看构建时间、源码指纹和实际运行路径。`build.bat` 通过 `tools/build_release.py` 生成并嵌入构建信息，附带 `CompareTool_build.json`；请使用此入口打包，而非旧的手工 spec。
 
