@@ -161,9 +161,11 @@ Windows 文件夹扫描的重复元数据查询和比较根路径解析也已优
 
 ## 正式入口、版本与任务进度
 
-本轮 P 文件树、筛选兼容和 Windows 文件夹比较边界已完成源码验收，正在从本次提交重新构建正式 EXE。现有 `dist` 是 `2026.10.21.4 [987f85d28c]` 的 dirty 构建，尚未作为本轮正式交付验收；正式版本将在构建、包内资源核对和真实窗口冒烟后更新到这里。
+当前项目交付入口为 **`2026.10.22.1 [987f85d28c]`**，从干净源码提交 `2668087` 构建。P 仅权限变化已纳入统计、文件树、详情及“全部＋各类型”筛选；默认显示全部，移除额外快捷入口。原始双 TAR 的源码桌面工作线程验收仍为 4 个内容修改、2872 个仅权限（默认排除并开启递归），8 份导出与原成员字节一致；正式 EXE 的 29 个应用模块、23 项模板和资源与验收源码一致，真实窗口版本、响应、正常退出及配置字节保留已核对。本次未在正式 EXE 界面重跑业务样包。17 页说明书两份字节一致，结构与渲染检查通过。见 [本次发布凭证](artifacts/release-permission-closeout-20261022.json)。
 
-常用安装目录不在本次发布替换范围。2026-10-22 收尾盘点观察到安装 EXE 字节与上述 dirty 构建相同，但构建信息仍为 `2026.10.21.1`，说明书也较旧，三件套不配套。交付请使用重新构建并验收后的 `dist` 三件套。历史分类修复和发布见 [分类验证](artifacts/archive-permission-classification-20261021.json)、[前次发布](artifacts/release-permission-closeout-20261021.json)；已批准的历史清理见 [清场凭证](artifacts/cleanup-permission-closeout-20261021.json)。本轮复核现场保留，清理须另行确认。
+GitHub 最新发行版已更新为 [v2026.10.22.1](https://github.com/alading1001/compareTool/releases/tag/v2026.10.22.1)，发布配套 EXE、构建信息、中文 PDF 和 SHA-256 清单；发布后实际下载的四份附件均与本地字节一致，标签指向上述构建提交。历史分类修复及发布见 [前次验证](artifacts/archive-permission-classification-20261021.json) 和 [前次发布](artifacts/release-permission-closeout-20261021.json)。
+
+常用安装目录未替换。2026-10-22 收尾盘点观察到其中 EXE 与旧的 `2026.10.21.4` dirty 构建相同，但构建信息仍为 `2026.10.21.1`，说明书也较旧，三件套不配套；请使用本次 `dist` 三件套或 GitHub 新发行附件。原包、配置及安装目录的 8 个保护对象均未变化。历史已批准清理见 [前次清场凭证](artifacts/cleanup-permission-closeout-20261021.json)；本轮 13 项临时复核现场仍保留，候选范围和快照见 [本轮证据包](artifacts/release-permission-closeout-evidence-20261022.zip)，须在完整汇报后确认才清场。Windows ACL 比较未增加，生成记忆只读。
 
 使用 `dist/CompareTool.exe`；标题中的版本和构建号用于区分不同构建，底部“版本信息”可查看构建时间、源码指纹和实际运行路径。`build.bat` 通过 `tools/build_release.py` 生成并嵌入构建信息，附带 `CompareTool_build.json`；请使用此入口打包，而非旧的手工 spec。
 

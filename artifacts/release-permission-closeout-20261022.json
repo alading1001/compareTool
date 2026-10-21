@@ -1,0 +1,223 @@
+{
+  "schema_version": 1,
+  "status": "RELEASE_PUBLISHED_AND_VERIFIED_CLEANUP_PENDING",
+  "verified_at": "2026-10-22T00:30:22.405439+08:00",
+  "purpose": "权限展示及筛选兼容收尾、中文提交推送、干净构建与 GitHub Release 更新；不增加 Windows ACL 比较",
+  "build": {
+    "version": "2026.10.22.1",
+    "build_id": "987f85d28c",
+    "built_at": "2026-10-22T00:19:21+08:00",
+    "commit": "26680875a826130463b0fa8d342ac94c2bf482b3",
+    "dirty": false,
+    "source_sha256": "987f85d28c132008373aee62c4df4fc59941bee3007caea4f4cb9837285b83d9",
+    "exe_sha256": "3fa415633740737683e6ca1d58003c79c6e62277253b09949dcd6fdbc2a43aa7"
+  },
+  "behavior": {
+    "default_all": true,
+    "filter_types": [
+      "A",
+      "M",
+      "F",
+      "D",
+      "R",
+      "P"
+    ],
+    "extra_shortcut": false,
+    "windows_folder_acl_comparison": false,
+    "permission_only_records_excluded_from_delivery": true
+  },
+  "sample": {
+    "source_desktop_worker": true,
+    "defaults_and_recursive": true,
+    "content_modifications": 4,
+    "permission_only": 2872,
+    "display_total": 2876,
+    "exported_files": 8,
+    "exported_bytes_match_original_members": true,
+    "receipt": "permission-report-filter-compatibility-20261021.json"
+  },
+  "source_validation": {
+    "previous_full_regression": {
+      "tests": 810,
+      "passed": 809,
+      "skipped": 1,
+      "skip_reason": "Windows 创建测试符号链接缺少特权 WinError 1314",
+      "receipt": "permission-report-ui-20261021.json"
+    },
+    "final_filter_regression": {
+      "tests": 50,
+      "failures": 0,
+      "errors": 0,
+      "browser_reports": 7,
+      "filter_combinations_each": 64,
+      "runtime_source_sha256": "987f85d28c132008373aee62c4df4fc59941bee3007caea4f4cb9837285b83d9"
+    },
+    "verification_scope": "完整回归属于权限展示阶段；筛选恢复后的最终运行源码与 50 项定向、实际样包和浏览器验收指纹一致。"
+  },
+  "package_validation": {
+    "embedded_metadata_identical": true,
+    "application_modules": 29,
+    "resources": 23,
+    "all_application_code_and_resources_identical": true,
+    "real_formal_exe_window_responsive": true,
+    "window_title": "代码比对报告工具 v2026.10.22.1 [987f85d28c]",
+    "normal_exit": true,
+    "exit_code": 0,
+    "source_and_dist_config_preserved": true,
+    "formal_exe_business_sample_repeated": false
+  },
+  "manual": {
+    "pages": 17,
+    "sha256": "09e739fe32aa067df1c9a7571f0aadcc08b585f7ef874c0234bfd945b2b88eb0",
+    "rendered_pages_reviewed": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17
+    ],
+    "detail_pages": [
+      3,
+      14
+    ]
+  },
+  "github": {
+    "url": "https://github.com/alading1001/compareTool/releases/tag/v2026.10.22.1",
+    "latest": true,
+    "published_at": "2026-10-21T16:27:11Z",
+    "tag": "v2026.10.22.1",
+    "target_commit": "26680875a826130463b0fa8d342ac94c2bf482b3",
+    "downloaded_assets": [
+      {
+        "name": "CompareTool.exe",
+        "sha256": "3fa415633740737683e6ca1d58003c79c6e62277253b09949dcd6fdbc2a43aa7",
+        "bytes": 21492354
+      },
+      {
+        "name": "CompareTool_build.json",
+        "sha256": "e099c76d26816139fb39b757cc69905f7697b449975e3944e011c483f7428e75",
+        "bytes": 355
+      },
+      {
+        "name": "CompareTool_User_Manual.pdf",
+        "sha256": "09e739fe32aa067df1c9a7571f0aadcc08b585f7ef874c0234bfd945b2b88eb0",
+        "bytes": 488752
+      },
+      {
+        "name": "SHA256SUMS.txt",
+        "sha256": "866d4e528318301a57780410d33e5fc4241586399912fdda1ceab4532f6bf575",
+        "bytes": 268
+      }
+    ],
+    "all_downloaded_bytes_verified": true
+  },
+  "protected": [
+    {
+      "category": "user_config",
+      "name": "compareTool_config.json",
+      "sha256": "f4e9d4718f047cf67be117d86348b785dd33c1f1db4ae3df219366619f517815",
+      "unchanged": true
+    },
+    {
+      "category": "user_config",
+      "name": "compareTool_config.json",
+      "sha256": "3495d48f01b94430140cc97e87588138d3aa8e3cb8c93a2cbc243ef692819e3e",
+      "unchanged": true
+    },
+    {
+      "category": "installed_bundle",
+      "name": "CompareTool.exe",
+      "sha256": "a5afb35f2a39b936e90b9a66f1e6927cea2d51d0a01bad13e31ea1102e9461f3",
+      "unchanged": true
+    },
+    {
+      "category": "installed_bundle",
+      "name": "CompareTool_build.json",
+      "sha256": "70038f77a2da407db1f30684aee7a577b5f2d09406d838e0ebc6858b5ddece16",
+      "unchanged": true
+    },
+    {
+      "category": "installed_bundle",
+      "name": "CompareTool_使用说明书.pdf",
+      "sha256": "8b943dd6c6dcbdf93785344de947c06683c0306e876cacbdc0043c2f71587aae",
+      "unchanged": true
+    },
+    {
+      "category": "installed_bundle",
+      "name": "compareTool_config.json",
+      "sha256": "ef2ef71cd29c37617050b1b3ad7e00d6d55072bb266ab741fb9f6aa59c166077",
+      "unchanged": true
+    },
+    {
+      "category": "original_input",
+      "name": "110.tar",
+      "sha256": "b4ededbc0e5515c06db305ec237e0e080f7018ea0aad35436c413c2408030ef5",
+      "unchanged": true
+    },
+    {
+      "category": "original_input",
+      "name": "111.tar",
+      "sha256": "ce157db288d6fe304440d7cea57634d79b4a65c02677694322e4e67eedf2e37f",
+      "unchanged": true
+    }
+  ],
+  "knowledge_surfaces": {
+    "code": "verified-current",
+    "runtime": "changed-and-verified",
+    "docs": "changed-and-verified",
+    "rules": "changed-and-verified",
+    "memory": "out-of-scope: generated-read-only",
+    "workspace": "verified-current: cleanup preview retained"
+  },
+  "pending": [
+    "用户完整汇报后的清场确认；本轮未执行删除"
+  ],
+  "out_of_scope": [
+    "Windows ACL 比较",
+    "替换常用安装目录",
+    "手工更新生成记忆"
+  ],
+  "warnings": [
+    "前轮回归有 1 项 Windows 符号链接特权跳过",
+    "常用安装目录 EXE、构建信息和说明书仍不配套；本次使用 dist 正式三件套"
+  ],
+  "cleanup": {
+    "objects": 13,
+    "bytes_at_preview": 546770248,
+    "deleted": 0,
+    "process_reference_scan": {
+      "deleted": 0,
+      "method": "executable-path-and-command-line",
+      "matches": [],
+      "open_handles": "not-scanned; recheck before any future deletion"
+    },
+    "candidates": [
+      ".tmp/permission_report_ui_20261021",
+      ".tmp/report_filter_restore_20261021",
+      ".tmp/folder_permission_audit_20261021",
+      ".tmp/release_closeout_20261022",
+      ".tmp/release_build_l1tv9yde",
+      ".tmp/archive_workflow_0sskmr47",
+      ".tmp/archive_workflow_33vnl9xo",
+      ".tmp/archive_workflow_6a95xpjc",
+      ".tmp/archive_workflow_8psindlu",
+      ".tmp/archive_workflow_e7pmdas3",
+      ".tmp/archive_workflow_jvxrjaq0",
+      ".tmp/archive_workflow_r36p4hpl",
+      ".tmp/archive_workflow_rstd6gvv"
+    ],
+    "full_preview": "release-permission-closeout-evidence-20261022.zip:cleanup-preview.json"
+  }
+}
