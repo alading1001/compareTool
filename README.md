@@ -161,7 +161,7 @@ Windows 文件夹扫描的重复元数据查询和比较根路径解析也已优
 
 当前项目交付入口为 **`2026.10.21.2 [4fd6968881]`**，从干净源码提交 `9eef75a` 构建。压缩包仅权限变化独立列出，不再误计内容修改；实际两包在不排除文件、默认排除并开启递归两种配置下均只有 4 个内容修改，8 份新旧导出与原始成员逐字节一致。完整源码回归最初发现 4 个模板兼容错误，修复后 4 项及 156 项相关回归通过；1 项因 Windows 符号链接权限跳过。新包的 29 个应用模块、21 项模板/资源与源码一致，21 项包内代码回归通过；真实 EXE 的窗口版本、路径、响应和正常退出已验证，原配置字节保留。真实样包验收使用源码桌面工作线程，新 EXE 本次完成启动冒烟，未在界面重跑业务样包。说明书两份字节一致，结构及修改页检查通过。见 [权限分类验收](artifacts/archive-permission-classification-20261021.json) 和 [本次发布凭证](artifacts/release-permission-closeout-20261021.json)。
 
-常用安装目录仍为 **`2026.10.21.1 [e9dd517f30]`**，本次未替换安装版；请从 `dist/CompareTool.exe` 使用新版本。此前 `2026.10.21.1` 的发布、安装及清场属于历史记录，见 [前次发布凭证](artifacts/release-closeout-20261021.json)、[归档识别验证](artifacts/archive-content-verification-20261021.json) 和 [前次清场凭证](artifacts/cleanup-closeout-20261021.json)。本次诊断、回归和构建现场仍保留，等待完整汇报后的确认再清场。
+常用安装目录在清理核验后出现范围外变化：EXE 字节已与 `2026.10.21.2 [4fd6968881]` 相同，但 `CompareTool_build.json` 仍为 `2026.10.21.1`，说明书仍旧，三件套尚未同步。本次未写入安装目录；请使用 `dist` 中配套的 EXE、构建信息和说明书。此前 `2026.10.21.1` 的发布、安装及清场属于历史记录，见 [前次发布凭证](artifacts/release-closeout-20261021.json)、[归档识别验证](artifacts/archive-content-verification-20261021.json) 和 [前次清场凭证](artifacts/cleanup-closeout-20261021.json)。经用户在完整汇报后确认，已清理本次 24 项临时诊断、回归和构建对象；正式产物、原始输入、配置、旧构建及清单外历史目录保持原样，必要日志与核验记录已归档。范围与核验见 [本次清场凭证](artifacts/cleanup-permission-closeout-20261021.json)。
 
 使用 `dist/CompareTool.exe`；标题中的版本和构建号用于区分不同构建，底部“版本信息”可查看构建时间、源码指纹和实际运行路径。`build.bat` 通过 `tools/build_release.py` 生成并嵌入构建信息，附带 `CompareTool_build.json`；请使用此入口打包，而非旧的手工 spec。
 

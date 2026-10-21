@@ -1,0 +1,3735 @@
+{
+  "schema": "comparetool.cleanup.v2",
+  "status": "passed",
+  "cleanup_performed": true,
+  "authorization": {
+    "user_text": "清理",
+    "post_report": true,
+    "scope": "前一最终报告的24项临时对象，仅此清单",
+    "prior_final_commit": "bf7cde6d172ab708b36d1309e92b079148568d00"
+  },
+  "prepared_at_beijing": "2026-10-21T20:04:27+08:00",
+  "targets": [
+    {
+      "path": ".tmp/accept_permission_fix_real_archives_20261021.py",
+      "is_directory": false,
+      "files": 1,
+      "directories": 0,
+      "bytes": 4941,
+      "tree_sha256": "b8e0f18a64164c8078388bc8d7acc69e64b1b09a6cfb32e4c589cbfcc6452a2c",
+      "identity": {
+        "device": 18360183284781620953,
+        "inode": 7318349395404527,
+        "creation_ns": 1792573019562295000
+      },
+      "preview_files": 1,
+      "preview_bytes": 4941
+    },
+    {
+      "path": ".tmp/archive-combinations-20261021-8ec1e427",
+      "is_directory": true,
+      "files": 41,
+      "directories": 26,
+      "bytes": 86652,
+      "tree_sha256": "355857a64577fb48171d22621db53cbbe8395caaba35b7c2ada798543b762438",
+      "identity": {
+        "device": 18360183284781620953,
+        "inode": 5348024558433514,
+        "creation_ns": 1792577513121320500
+      },
+      "preview_files": 41,
+      "preview_bytes": 86652
+    },
+    {
+      "path": ".tmp/check_permission_summary_20261021.cjs",
+      "is_directory": false,
+      "files": 1,
+      "directories": 0,
+      "bytes": 1603,
+      "tree_sha256": "0905b2a8bd974b1f3ca32134dbae5e7f00b0ab42b1bd55631708b8a81cdf0116",
+      "identity": {
+        "device": 18360183284781620953,
+        "inode": 26740122788439772,
+        "creation_ns": 1792573687933891200
+      },
+      "preview_files": 1,
+      "preview_bytes": 1603
+    },
+    {
+      "path": ".tmp/closeout_permission_release.py",
+      "is_directory": false,
+      "files": 1,
+      "directories": 0,
+      "bytes": 7900,
+      "tree_sha256": "685f097d62bc6746da96c80a7a5c1915aee50f1a623c0a52a64258c39e1f5a46",
+      "identity": {
+        "device": 18360183284781620953,
+        "inode": 3659174698164865,
+        "creation_ns": 1792583354137174700
+      },
+      "preview_files": 1,
+      "preview_bytes": 7900
+    },
+    {
+      "path": ".tmp/export-byte-analysis-20261021-2c2yyjwl",
+      "is_directory": true,
+      "files": 93,
+      "directories": 91,
+      "bytes": 207785,
+      "tree_sha256": "a03e0c8459c1edeea8875bd84b77ba234f3a0f264d66bc9a70876f0c4c0fcd05",
+      "identity": {
+        "device": 18360183284781620953,
+        "inode": 3659174698165389,
+        "creation_ns": 1792570820934007700
+      },
+      "preview_files": 93,
+      "preview_bytes": 207785
+    },
+    {
+      "path": ".tmp/export_byte_analysis_20261021.py",
+      "is_directory": false,
+      "files": 1,
+      "directories": 0,
+      "bytes": 5802,
+      "tree_sha256": "a3ab43a75672ed13a151bbe333248e393b352dc4805803513cfa418e44b2cbc7",
+      "identity": {
+        "device": 18360183284781620953,
+        "inode": 4222124651586699,
+        "creation_ns": 1792570804582265700
+      },
+      "preview_files": 1,
+      "preview_bytes": 5802
+    },
+    {
+      "path": ".tmp/inspect_supplied_archives_20261021.py",
+      "is_directory": false,
+      "files": 1,
+      "directories": 0,
+      "bytes": 5974,
+      "tree_sha256": "49dc4b253f1c72185f78ecea39b994bcb1ee5dc4dc729afb9ba125e0e79ea91b",
+      "identity": {
+        "device": 18360183284781620953,
+        "inode": 6755399441982874,
+        "creation_ns": 1792571986678621900
+      },
+      "preview_files": 1,
+      "preview_bytes": 5974
+    },
+    {
+      "path": ".tmp/permission-diagnosis-20261021-d9poxket",
+      "is_directory": true,
+      "files": 16,
+      "directories": 20,
+      "bytes": 1799,
+      "tree_sha256": "2248b86b5781be9a9504bd106fb7a559a5cd5420b18f5b94f0bf1008c1b408b7",
+      "identity": {
+        "device": 18360183284781620953,
+        "inode": 4503599628297079,
+        "creation_ns": 1792568961308901500
+      },
+      "preview_files": 16,
+      "preview_bytes": 1799
+    },
+    {
+      "path": ".tmp/permission-diagnosis-20261021-oaz6xu6u",
+      "is_directory": true,
+      "files": 123,
+      "directories": 60,
+      "bytes": 515108,
+      "tree_sha256": "245b0bbecb3a72a3f7967bed5cf25fd16b9429d1f429bea445312da367cd431b",
+      "identity": {
+        "device": 18360183284781620953,
+        "inode": 5629499535139745,
+        "creation_ns": 1792568990663413500
+      },
+      "preview_files": 123,
+      "preview_bytes": 515108
+    },
+    {
+      "path": ".tmp/permission-diagnosis-20261021-udqcce6o",
+      "is_directory": true,
+      "files": 0,
+      "directories": 1,
+      "bytes": 0,
+      "tree_sha256": "1adce99e70456d566c069c906dfc739a790e07c6ea10c47dc87897ecf8c2928b",
+      "identity": {
+        "device": 18360183284781620953,
+        "inode": 3377699721454454,
+        "creation_ns": 1792568931111251200
+      },
+      "preview_files": 0,
+      "preview_bytes": 0
+    },
+    {
+      "path": ".tmp/permission-fix-real-acceptance-20261021",
+      "is_directory": true,
+      "files": 32,
+      "directories": 49,
+      "bytes": 3266059,
+      "tree_sha256": "01df6d8bd7c80a47632b2fee868f226f11e797ce3da4e5f70b639f455f33d749",
+      "identity": {
+        "device": 18360183284781620953,
+        "inode": 5910974511851310,
+        "creation_ns": 1792573028627688800
+      },
+      "preview_files": 32,
+      "preview_bytes": 3266059
+    },
+    {
+      "path": ".tmp/permission-fix-real-acceptance-20261021-final",
+      "is_directory": true,
+      "files": 33,
+      "directories": 49,
+      "bytes": 3274812,
+      "tree_sha256": "1b000d15651b0699464fc21350ab55705e2bde9197df96f6dddf47c535c433c7",
+      "identity": {
+        "device": 18360183284781620953,
+        "inode": 19140298417252455,
+        "creation_ns": 1792576134316788200
+      },
+      "preview_files": 33,
+      "preview_bytes": 3274812
+    },
+    {
+      "path": ".tmp/permission-fix-validation-20261021-0de76d68",
+      "is_directory": true,
+      "files": 206,
+      "directories": 14,
+      "bytes": 11336313,
+      "tree_sha256": "a1fa509fa2c1905709ddf621579b0c0ac570276bed84aee2810fbad4918faf86",
+      "identity": {
+        "device": 18360183284781620953,
+        "inode": 47569271065023075,
+        "creation_ns": 1792576121359771100
+      },
+      "preview_files": 206,
+      "preview_bytes": 11336313
+    },
+    {
+      "path": ".tmp/permission-fix-validation-20261021-8980c182",
+      "is_directory": true,
+      "files": 206,
+      "directories": 14,
+      "bytes": 11337224,
+      "tree_sha256": "b8d5d154d2fa2879a2590cd74ebecd98aef2aee1a8e800c98876a0327dee0ea9",
+      "identity": {
+        "device": 18360183284781620953,
+        "inode": 3940649674876341,
+        "creation_ns": 1792572925128064600
+      },
+      "preview_files": 206,
+      "preview_bytes": 11337224
+    },
+    {
+      "path": ".tmp/permission-fix-validation-20261021-e0bc1a89",
+      "is_directory": true,
+      "files": 207,
+      "directories": 15,
+      "bytes": 11364075,
+      "tree_sha256": "1a2ce74e5119e69fa28b055a36307c93ef2c8032e4da559072da6ff2ba1161fa",
+      "identity": {
+        "device": 18360183284781620953,
+        "inode": 4503599629023199,
+        "creation_ns": 1792573182191053100
+      },
+      "preview_files": 207,
+      "preview_bytes": 11364075
+    },
+    {
+      "path": ".tmp/permission-release-closeout-20261021",
+      "is_directory": true,
+      "files": 21,
+      "directories": 4,
+      "bytes": 400843,
+      "tree_sha256": "62fe7bab4bd7de8cd36df674b2df67980aa950a61a9794027d1562687e3119e5",
+      "identity": {
+        "device": 18360183284781620953,
+        "inode": 5348024558433747,
+        "creation_ns": 1792583355409380100
+      },
+      "preview_files": 14,
+      "preview_bytes": 379358
+    },
+    {
+      "path": ".tmp/permission_diagnosis_20261021.py",
+      "is_directory": false,
+      "files": 1,
+      "directories": 0,
+      "bytes": 6637,
+      "tree_sha256": "4e6198aca00f12b9039f172443f4b69e872a3bee8e44980190acf739ce0887e0",
+      "identity": {
+        "device": 18360183284781620953,
+        "inode": 11258999068443708,
+        "creation_ns": 1792568924114208700
+      },
+      "preview_files": 1,
+      "preview_bytes": 6637
+    },
+    {
+      "path": ".tmp/plan-review-byte-semantics-20261021-imod1vat",
+      "is_directory": true,
+      "files": 17,
+      "directories": 4,
+      "bytes": 40522,
+      "tree_sha256": "19ec8e3d7e7895d4e52eb15e95032d7e8c15b13c9023ff2db32c9594ab90d34d",
+      "identity": {
+        "device": 18360183284781620953,
+        "inode": 7036874418693477,
+        "creation_ns": 1792571377261240800
+      },
+      "preview_files": 17,
+      "preview_bytes": 40522
+    },
+    {
+      "path": ".tmp/plan-review-byte-semantics-20261021-x6d53gjb",
+      "is_directory": true,
+      "files": 7,
+      "directories": 4,
+      "bytes": 37556,
+      "tree_sha256": "aa77c818b0d6c2f84ed9aa76f857b5e9996f9aafc4bfe24f0da6181ff056cb9c",
+      "identity": {
+        "device": 18360183284781620953,
+        "inode": 5066549581718875,
+        "creation_ns": 1792571242682888100
+      },
+      "preview_files": 7,
+      "preview_bytes": 37556
+    },
+    {
+      "path": ".tmp/plan_review_byte_semantics_20261021.py",
+      "is_directory": false,
+      "files": 1,
+      "directories": 0,
+      "bytes": 6581,
+      "tree_sha256": "be181952ebdfddb300a4e9769df54d312039244a8d12051852effb5ce0d765ab",
+      "identity": {
+        "device": 18360183284781620953,
+        "inode": 6755399441982807,
+        "creation_ns": 1792571230414412700
+      },
+      "preview_files": 1,
+      "preview_bytes": 6581
+    },
+    {
+      "path": ".tmp/release_build_s0g3yksc",
+      "is_directory": true,
+      "files": 17,
+      "directories": 5,
+      "bytes": 48025650,
+      "tree_sha256": "205239db9687694911d0df9fb2878a32b02703ef87b3b547e91d6612ade207bd",
+      "identity": {
+        "device": 18360183284781620953,
+        "inode": 5910974511855089,
+        "creation_ns": 1792583509145401300
+      },
+      "preview_files": 17,
+      "preview_bytes": 48025650
+    },
+    {
+      "path": ".tmp/reproduce_supplied_archives_20261021.py",
+      "is_directory": false,
+      "files": 1,
+      "directories": 0,
+      "bytes": 4358,
+      "tree_sha256": "5d00f29066c93685c28c7ad6c377ac89921ac880edd41931b7c96aadd49cd189",
+      "identity": {
+        "device": 18360183284781620953,
+        "inode": 4503599628297633,
+        "creation_ns": 1792572078013009000
+      },
+      "preview_files": 1,
+      "preview_bytes": 4358
+    },
+    {
+      "path": ".tmp/supplied-archive-analysis-20261021",
+      "is_directory": true,
+      "files": 4,
+      "directories": 3,
+      "bytes": 66587206,
+      "tree_sha256": "58aec1e7ef39c05d5b42578ba80ee93f0f9ed9e000146e7bd15a77407803caa8",
+      "identity": {
+        "device": 18360183284781620953,
+        "inode": 3659174698165663,
+        "creation_ns": 1792571991908244800
+      },
+      "preview_files": 4,
+      "preview_bytes": 66587206
+    },
+    {
+      "path": ".tmp/validate_permission_fix_20261021.py",
+      "is_directory": false,
+      "files": 1,
+      "directories": 0,
+      "bytes": 2587,
+      "tree_sha256": "0172d6ac2846f5b566e6cf6e3f31a25276418849826bb99d85665a0a08fffc75",
+      "identity": {
+        "device": 18360183284781620953,
+        "inode": 4503599628297651,
+        "creation_ns": 1792572917471989600
+      },
+      "preview_files": 1,
+      "preview_bytes": 2587
+    }
+  ],
+  "protected_before": {
+    "dist/CompareTool.exe": {
+      "sha256": "245dfa0fa8a5301487278c79d1da2afaec4316da5c449dca45b2d28682728646",
+      "bytes": 21490448
+    },
+    "dist/CompareTool_build.json": {
+      "sha256": "88740a1d021a986379ac1263b110e577c13ee66942c27f11ef89ba612aaa524e",
+      "bytes": 355
+    },
+    "dist/CompareTool_使用说明书.pdf": {
+      "sha256": "2c34c64ef16d58dbbedde7d850408015f50fa03bdb4a0ae41a990f1c239ab699",
+      "bytes": 488675
+    },
+    "dist/archive/20260926_014138_before_release/CompareTool.exe": {
+      "sha256": "12852a214460eee3b7aacea1e7006a65cf681928b1cb4408d73c623e50efcda4",
+      "bytes": 20345125
+    },
+    "dist/archive/20260926_014138_before_release/CompareTool_scan_optimized.exe": {
+      "sha256": "0e809d860205c8550bcee0bd98bbd7dd0a48a3e4c3a28119ba640f4549831721",
+      "bytes": 20344385
+    },
+    "dist/archive/20260926_014138_before_release/CompareTool_使用说明书.pdf": {
+      "sha256": "25f5bfaf70cd85ca41be41363cf36a435468792eba1fb1bf72c069f5b7dd1f2e",
+      "bytes": 425066
+    },
+    "dist/archive/20260926_014138_before_release/archive-manifest.json": {
+      "sha256": "257ac796246a6ba071fcace30aa7c61c700b9a2481bac0211af0aee2d38b4146",
+      "bytes": 198
+    },
+    "dist/archive/20260926_014138_before_release/compareTool.log": {
+      "sha256": "c985e3ec99a24255de42a17713b29bd73f4a66e76bb3976a05e6c227c02247e7",
+      "bytes": 1186
+    },
+    "dist/archive/20260926_014138_before_release/compareTool_config.json": {
+      "sha256": "033a3400dae5333e1a99dd5e045c02d6ea76334d6c88c7f4d2c55af908f19a1a",
+      "bytes": 520
+    },
+    "dist/archive/20260926_103516_release_build_9pj14mkq/CompareTool.exe": {
+      "sha256": "b274207ec53ba05575aee1f72039b075629d4a5f33cf928b3e1b592aa139b719",
+      "bytes": 20361884
+    },
+    "dist/archive/20260926_103516_release_build_9pj14mkq/CompareTool_build.json": {
+      "sha256": "7824078680b94d327cfe610c77e6f6edbeee6cdd2f03d9c4cfd0c4b50782cefe",
+      "bytes": 352
+    },
+    "dist/archive/20260926_115737_before_archive_report/CompareTool.exe": {
+      "sha256": "403dc8f9750f571e1eab2869ca22155391d76bf4ff69075d5b94a0efd223a7ab",
+      "bytes": 20360473
+    },
+    "dist/archive/20260926_115737_before_archive_report/CompareTool_build.json": {
+      "sha256": "b45576eae8caa489f46fd08aaf4ab21e12e326edf541d6ade29cbd34e4b018b9",
+      "bytes": 352
+    },
+    "dist/archive/20260926_175756_release_build_mynfhef6/CompareTool.exe": {
+      "sha256": "d5b9e8986a5603035d8068b92d277551de5ffba400ae4498074083efc18204ad",
+      "bytes": 20369551
+    },
+    "dist/archive/20260926_175756_release_build_mynfhef6/CompareTool_build.json": {
+      "sha256": "170d7f059bbae4aa90fe2456d0aca3bfb5f67ef9fcfcebcb57cf9a872c5d2999",
+      "bytes": 354
+    },
+    "dist/archive/20260926_181906_release_build_1mdxk_8u/CompareTool.exe": {
+      "sha256": "71ee88fd2d429ab45f1bb88a19aba23582b0199e483daa876d69233d4494d912",
+      "bytes": 20379142
+    },
+    "dist/archive/20260926_181906_release_build_1mdxk_8u/CompareTool_build.json": {
+      "sha256": "f13a1635bb5f9071f574279b3146d13082b00d2714def0ddcdf19458f455c9b2",
+      "bytes": 355
+    },
+    "dist/archive/20260927_094739_release_build_01j9_j47/CompareTool.exe": {
+      "sha256": "fb59a3170423aaecef254d1ca9b8373d9e91e13148477284be844c6336460d6f",
+      "bytes": 20378220
+    },
+    "dist/archive/20260927_094739_release_build_01j9_j47/CompareTool_build.json": {
+      "sha256": "b283423efb6bb01197528757e837144abcc589d92dd8ffcb59f37811fe12fe8c",
+      "bytes": 354
+    },
+    "dist/archive/20260927_143814_release_build_bsn99pw0/CompareTool.exe": {
+      "sha256": "ef5bcc8ed89755cd06be79a6bf118cdd8d3f64f704089b99b2a518b597070fbc",
+      "bytes": 20412852
+    },
+    "dist/archive/20260927_143814_release_build_bsn99pw0/CompareTool_build.json": {
+      "sha256": "864da71e4f59ffc248055df3985c8b840624072c578c371c6f6d4d308dc61199",
+      "bytes": 355
+    },
+    "dist/archive/20260927_155726_release_build_mjxauc8c/CompareTool.exe": {
+      "sha256": "8450075d306a33cb32706c60fd505efbe9cab8d658e1e98c051386ca09fe8d12",
+      "bytes": 20389598
+    },
+    "dist/archive/20260927_155726_release_build_mjxauc8c/CompareTool_build.json": {
+      "sha256": "2c7173057a858ab2720cdd7fc646661afe1e327198962bef39fa8100a89e592c",
+      "bytes": 354
+    },
+    "dist/archive/20260927_235343_release_build_u101o0z3/CompareTool.exe": {
+      "sha256": "cb067783ea4b57d12256f75ba37e785b8be80d07533778dced84a6b54c7a650f",
+      "bytes": 21421454
+    },
+    "dist/archive/20260927_235343_release_build_u101o0z3/CompareTool_build.json": {
+      "sha256": "61928996ac0610517042b65bdc7dd12b88d566a3d0c9a60156e8af6a7d4057bc",
+      "bytes": 354
+    },
+    "dist/archive/20260928_085648_release_build_smi_893s/CompareTool.exe": {
+      "sha256": "b729414100a3d4318a65cea56399316eb70e2e877d3a6f8856a12eed641a3448",
+      "bytes": 20387248
+    },
+    "dist/archive/20260928_085648_release_build_smi_893s/CompareTool_build.json": {
+      "sha256": "0a0eff8fdb1d0e71816d7933ddd76ddafaed3bf9547c40573dc468d7d6f8caf4",
+      "bytes": 355
+    },
+    "dist/archive/20260928_092119_release_build_90mvxaad/CompareTool.exe": {
+      "sha256": "1af7b48fc6891a5e8157f2d09e0cc5fcd0667bde344a786014928cc8067135ad",
+      "bytes": 21425403
+    },
+    "dist/archive/20260928_092119_release_build_90mvxaad/CompareTool_build.json": {
+      "sha256": "0d3938542ee0672c2b4cc3a185d4cf4f2bde6b70a4eaca6d1d4c1823bdc8f1a9",
+      "bytes": 354
+    },
+    "dist/archive/20261009_164113_release_build_2u8yd4y_/CompareTool.exe": {
+      "sha256": "5ff21c0026c5951a44125b62cb99d43993d0266aff1d9f155c392ca3c0653a51",
+      "bytes": 20392493
+    },
+    "dist/archive/20261009_164113_release_build_2u8yd4y_/CompareTool_build.json": {
+      "sha256": "e94fdb85b51592630bd0c2950682af03c5b1be17708452764ebaa50d047be279",
+      "bytes": 355
+    },
+    "dist/archive/20261009_164608_release_build_v3k49hcv/CompareTool.exe": {
+      "sha256": "83c92dca25183adfc8f2659bac37aa5ea5214c1674ecb391007e50580aa7b23b",
+      "bytes": 21424469
+    },
+    "dist/archive/20261009_164608_release_build_v3k49hcv/CompareTool_build.json": {
+      "sha256": "0f95926de2705ffe804cd70e0afaa7dcc000925591fed797811d26ba3a09d2b1",
+      "bytes": 354
+    },
+    "dist/archive/20261011_225554_release_build_8gk8belo/CompareTool.exe": {
+      "sha256": "adab634b1b69f8110d850c9ed53c8423b2b05f8eeeb121c9c39f1dae15a91b4c",
+      "bytes": 20392944
+    },
+    "dist/archive/20261011_225554_release_build_8gk8belo/CompareTool_build.json": {
+      "sha256": "dd5a842a87aaf6b4cfe2c792c187c1984e1d2886e5498b65e58b657492e55a65",
+      "bytes": 355
+    },
+    "dist/archive/20261012_162506_release_build_rfn1yk4v/CompareTool.exe": {
+      "sha256": "dee9c3c1665ad3bc874d5026dbfc25068bdbba7520eb253951ffb2a7c9b2d513",
+      "bytes": 21426479
+    },
+    "dist/archive/20261012_162506_release_build_rfn1yk4v/CompareTool_build.json": {
+      "sha256": "ec5eb9fb9ddaecbf88e1771fcd8915c625e88df10d80686d81f9030d527b3abe",
+      "bytes": 354
+    },
+    "dist/archive/20261013_003006_release_build_s4s_66wp/CompareTool.exe": {
+      "sha256": "a92eff1f8e5d82734beca9161b4d30d03749ecc2cf7f920836643e41f7666ad3",
+      "bytes": 21426107
+    },
+    "dist/archive/20261013_003006_release_build_s4s_66wp/CompareTool_build.json": {
+      "sha256": "b7032126aecc1a9beeb49378484393ae0e79dac5542de88a9ba7c97198c4d0c7",
+      "bytes": 354
+    },
+    "dist/archive/20261013_003411_release_build_q5mgpsr9/CompareTool.exe": {
+      "sha256": "58b0fd85c005e4c83956cc0e1b3e4bd142770b31d69bcf2b9369331fad41f1d8",
+      "bytes": 21444268
+    },
+    "dist/archive/20261013_003411_release_build_q5mgpsr9/CompareTool_build.json": {
+      "sha256": "d9a599d66f23d5b09c7cbd9a0005df10b1c5e5fa985e06fdaaed9b0d9dd4a6a2",
+      "bytes": 354
+    },
+    "dist/archive/20261013_081650_release_build_ziheuor2/CompareTool.exe": {
+      "sha256": "ffdbc5891af2476fc5ac90623bed3a1147b404e4da59350077e886e9604ba7e4",
+      "bytes": 21443106
+    },
+    "dist/archive/20261013_081650_release_build_ziheuor2/CompareTool_build.json": {
+      "sha256": "b9c3b20d12d8b91cf51a875bebf3771813e0183d57f6e2e1e4deb61f77f28d65",
+      "bytes": 354
+    },
+    "dist/archive/20261013_112652_release_build_93a4nmc1/CompareTool.exe": {
+      "sha256": "0ecfe151cad85ce34fcefaf90be9a3b522d8ca3d61fff4a22b2ca9be6c692796",
+      "bytes": 20410815
+    },
+    "dist/archive/20261013_112652_release_build_93a4nmc1/CompareTool_build.json": {
+      "sha256": "004b6781935642bdbd3d247b718a2895256528e80ff689372c7df0f70416a848",
+      "bytes": 355
+    },
+    "dist/archive/20261013_115401_release_build_4y8nszf9/CompareTool.exe": {
+      "sha256": "d16b101d2951247da505c06a7685cc3f90252d910c7fc5037cd71e8e4a4b8b74",
+      "bytes": 21444232
+    },
+    "dist/archive/20261013_115401_release_build_4y8nszf9/CompareTool_build.json": {
+      "sha256": "c993dcbc778937c2cc3e952989f5ff166922d6dddbfc0168a0b806262000de88",
+      "bytes": 355
+    },
+    "dist/archive/20261013_115634_release_build_im0kppaz/CompareTool.exe": {
+      "sha256": "d16b101d2951247da505c06a7685cc3f90252d910c7fc5037cd71e8e4a4b8b74",
+      "bytes": 21444232
+    },
+    "dist/archive/20261013_115634_release_build_im0kppaz/CompareTool_build.json": {
+      "sha256": "c993dcbc778937c2cc3e952989f5ff166922d6dddbfc0168a0b806262000de88",
+      "bytes": 355
+    },
+    "dist/archive/20261013_145558_release_build_mn3ncbrp/CompareTool.exe": {
+      "sha256": "8700fa57c2790fc470662f4780ce9c3786af08b6b50214537462c98c73e38d2f",
+      "bytes": 21445707
+    },
+    "dist/archive/20261013_145558_release_build_mn3ncbrp/CompareTool_build.json": {
+      "sha256": "712a5180687b7f6eab176d68492572be435c2b975a20440050d3b230d2232487",
+      "bytes": 355
+    },
+    "dist/archive/20261016_164815_release_build_5tznf_2g/CompareTool.exe": {
+      "sha256": "fb82bf3e4703ef758501b1a07b36821f00519e893dd1278c71cf7cc6d64e7c9e",
+      "bytes": 20413993
+    },
+    "dist/archive/20261016_164815_release_build_5tznf_2g/CompareTool_build.json": {
+      "sha256": "761ba882e3eab260fb1eb46f03c417ca7edf5aed0ccf0a549655fdfee926cff2",
+      "bytes": 355
+    },
+    "dist/archive/20261016_224302_release_build_uxlk144y/CompareTool.exe": {
+      "sha256": "a189c45ff1765d3aca86f7e413ca79e8c49ed11fb94179a8949d07c392d5f8f0",
+      "bytes": 21450274
+    },
+    "dist/archive/20261016_224302_release_build_uxlk144y/CompareTool_build.json": {
+      "sha256": "230b1d7b6c96ef04559fb90c6e9dde51c0ce4ff3de0eeb7efad5b233a3a2a13e",
+      "bytes": 354
+    },
+    "dist/archive/20261017_013230_release_build_ecggilwu/CompareTool.exe": {
+      "sha256": "17966128b692addfc0163feb47b574ec7a456d7355297f5143239cbeb49623c7",
+      "bytes": 21456543
+    },
+    "dist/archive/20261017_013230_release_build_ecggilwu/CompareTool_build.json": {
+      "sha256": "75b1bfbb88209508261964b2f984c512790b8712e37c7fd5134c880ce0bbaf1f",
+      "bytes": 354
+    },
+    "dist/archive/20261017_193929_release_build_e3v3usol/CompareTool.exe": {
+      "sha256": "ab84dc3f2812d204e09c11b70198aebf3a66fe85bf5cd32af010b699ff7dd0d7",
+      "bytes": 21460753
+    },
+    "dist/archive/20261017_193929_release_build_e3v3usol/CompareTool_build.json": {
+      "sha256": "dbdd7b96a45833cddeb6ff66326a6afcecc470814d2ff8fe3f5da1767013a45d",
+      "bytes": 354
+    },
+    "dist/archive/20261020_090305_release_build_jos5fjbq/CompareTool.exe": {
+      "sha256": "7a7c6b93c5396a9f50e1e8fe21fb1a5908f04597da40f0edb0ead639645b83e3",
+      "bytes": 21466565
+    },
+    "dist/archive/20261020_090305_release_build_jos5fjbq/CompareTool_build.json": {
+      "sha256": "bec558e2c5261acd24ae8f1c0217c0ec9083035b59334a2efe9d61c74d92d49e",
+      "bytes": 354
+    },
+    "dist/archive/20261020_171126_release_build_9ee67ezi/CompareTool.exe": {
+      "sha256": "3dc30edb711c9023e07573cf7e91ebf1800a4c0fb7347dba7b364e68700230a7",
+      "bytes": 21477608
+    },
+    "dist/archive/20261020_171126_release_build_9ee67ezi/CompareTool_build.json": {
+      "sha256": "2e9feb37e3ee326c02b111d9f7e41712a21367c4df2826546ce6d4aac58c640a",
+      "bytes": 355
+    },
+    "dist/archive/20261021_103203_release_build_1cbjpni0/CompareTool.exe": {
+      "sha256": "f21d5d5ff3625fd716c1c5a929f7ed862cadac293069f51f53fb9aa46b8abb89",
+      "bytes": 21482260
+    },
+    "dist/archive/20261021_103203_release_build_1cbjpni0/CompareTool_build.json": {
+      "sha256": "73aa26025312fb6d5e93ebba4c422fb86f3f117c71ecb2ead018b51209f9193f",
+      "bytes": 355
+    },
+    "dist/archive/20261021_195149_release_build_s0g3yksc/CompareTool.exe": {
+      "sha256": "695f52c11051aba6926f92002b37b95e52bd9e5167a27352906c6c3d19af67d7",
+      "bytes": 21487590
+    },
+    "dist/archive/20261021_195149_release_build_s0g3yksc/CompareTool_build.json": {
+      "sha256": "70038f77a2da407db1f30684aee7a577b5f2d09406d838e0ebc6858b5ddece16",
+      "bytes": 355
+    },
+    "dist/compareTool_config.json": {
+      "sha256": "3495d48f01b94430140cc97e87588138d3aa8e3cb8c93a2cbc243ef692819e3e",
+      "bytes": 1109
+    },
+    "installation/CompareTool.exe": {
+      "sha256": "695f52c11051aba6926f92002b37b95e52bd9e5167a27352906c6c3d19af67d7",
+      "bytes": 21487590
+    },
+    "installation/CompareTool_build.json": {
+      "sha256": "70038f77a2da407db1f30684aee7a577b5f2d09406d838e0ebc6858b5ddece16",
+      "bytes": 355
+    },
+    "installation/CompareTool_使用说明书.pdf": {
+      "sha256": "8b943dd6c6dcbdf93785344de947c06683c0306e876cacbdc0043c2f71587aae",
+      "bytes": 488409
+    },
+    "installation/compareTool_config.json": {
+      "sha256": "6eca044a4112551db6715fef485696156d1b4ab7310a661a931d866ad368d7b7",
+      "bytes": 6179
+    },
+    "project-local/compareTool_config.json": {
+      "sha256": "f4e9d4718f047cf67be117d86348b785dd33c1f1db4ae3df219366619f517815",
+      "bytes": 5569
+    },
+    "source-input/110.tar": {
+      "sha256": "b4ededbc0e5515c06db305ec237e0e080f7018ea0aad35436c413c2408030ef5",
+      "bytes": 236656640
+    },
+    "source-input/111.tar": {
+      "sha256": "ce157db288d6fe304440d7cea57634d79b4a65c02677694322e4e67eedf2e37f",
+      "bytes": 236656640
+    },
+    "tracked/.gitattributes": {
+      "sha256": "65b1023623fb87849b0d7e7a39141bd9d2662d98dcd55fefc9e8bf1683d2d934",
+      "bytes": 20
+    },
+    "tracked/.gitignore": {
+      "sha256": "13e72c9a2d48403923fce4c1e150aa6f5b26f0862b4cd43ace7b41b27fc2a829",
+      "bytes": 191
+    },
+    "tracked/AGENTS.md": {
+      "sha256": "132c5803c4e5831aa15eaa2200c866618a7d87e02ce2341d0d7153d3eecc67da",
+      "bytes": 27494
+    },
+    "tracked/CLAUDE.md": {
+      "sha256": "573138e19d3359c451b7898112a03167e4e7bf356ecd698dc87d933d37de0b96",
+      "bytes": 24
+    },
+    "tracked/README.md": {
+      "sha256": "c15cfc3d28624f90c1b307e4d0697c73db2ce744cda3fd1e0b3a821effd23614",
+      "bytes": 36081
+    },
+    "tracked/app_version.py": {
+      "sha256": "8d22d58304f5e100a96f16f129cd32bfb67915f056ad4bd0696707dbc6a07d44",
+      "bytes": 1534
+    },
+    "tracked/archive_endpoints.py": {
+      "sha256": "7b0739ad4ab6ffa34b516b07e4011e17678b449335998d25c70f14e4dd291058",
+      "bytes": 4043
+    },
+    "tracked/archive_formats.py": {
+      "sha256": "11576ddc71c4f19baf08d1b85d38843881271540842108ea2412cbe6253c5739",
+      "bytes": 1982
+    },
+    "tracked/archive_report.py": {
+      "sha256": "a31474d204193300760d47b8ed3eecfffd842c3ea7b1263db590dae2c20f3e6b",
+      "bytes": 15474
+    },
+    "tracked/artifacts/archive-content-verification-20261021.json": {
+      "sha256": "bb080794e964c75cfd51a79ee79a1a238387574e835bc5f716d60fada13debaa",
+      "bytes": 17980
+    },
+    "tracked/artifacts/archive-permission-classification-20261021.json": {
+      "sha256": "ca7f5e118ac5d3af3c114bbe342ba784fe05dc038820b70d09b47a2973497998",
+      "bytes": 9781
+    },
+    "tracked/artifacts/cleanup-closeout-20261020-2.json": {
+      "sha256": "fe60a6f89097ddc4519f037248cc79bf477d50340b0158d429726712f5ef3a97",
+      "bytes": 20043
+    },
+    "tracked/artifacts/cleanup-closeout-20261020.json": {
+      "sha256": "c45df007db2f1708f6a368f3d8c6ab72e25e24e9839df0170a78da943cf47551",
+      "bytes": 10651
+    },
+    "tracked/artifacts/cleanup-closeout-20261021.json": {
+      "sha256": "7b58e4d53bf581c8498771bf78855f43061eecd11487961f9860e1fdf336bc19",
+      "bytes": 47399
+    },
+    "tracked/artifacts/endpoint-exclusions-20261016.json": {
+      "sha256": "a8ff4e9ea40641aa43f9537eb0a51aabfa9afb97ba188d20a69588fccbcdf95c",
+      "bytes": 33271
+    },
+    "tracked/artifacts/export-best-effort-cleanup-20261013.json": {
+      "sha256": "27863f3ebd8229cf42c36919d08f43aca1267c4a2dac23a4055fb6886c2ee45a",
+      "bytes": 5961
+    },
+    "tracked/artifacts/export-best-effort-release-20261013.json": {
+      "sha256": "f162b87dd7b45f6d8058c7e416c0cfc8165d7451ffae37ef52d89d61211d5f4e",
+      "bytes": 9564
+    },
+    "tracked/artifacts/export-best-effort-verification-20261013.json": {
+      "sha256": "531139954b89755901f56618f0c2203ddfd01682c8d703e1e3a35e6c8eff55ce",
+      "bytes": 7481
+    },
+    "tracked/artifacts/export-blockers-20261012.html": {
+      "sha256": "05eea1394efa7920cb555b5a8cbc10e7e587302084071ccc66f021d014972fdc",
+      "bytes": 150828
+    },
+    "tracked/artifacts/precommit-review-20261019.json": {
+      "sha256": "f6c17afd909ad69f4d67f25ae3cc4d3081ec4fa064778d411cd6b465e8939c14",
+      "bytes": 5463
+    },
+    "tracked/artifacts/release-closeout-20261020-2.json": {
+      "sha256": "7caa330e0877e63929a568974479daa408a5a32c1bd8b598aeef496f4ad44789",
+      "bytes": 25450
+    },
+    "tracked/artifacts/release-closeout-20261020.json": {
+      "sha256": "d70d4ea86a92df912099a69a0552e456c6c00b2dc9a232f1940f5f85339a9ba5",
+      "bytes": 25744
+    },
+    "tracked/artifacts/release-closeout-20261021.json": {
+      "sha256": "031272cf5a3070f436efc33c8aef1c8ccde754b824c4c372c9d8d0659832225d",
+      "bytes": 14249
+    },
+    "tracked/artifacts/release-evidence-20261021.zip": {
+      "sha256": "3b27cf7c79ef9a2cf0726fe2089bdffdb44f8274b9b19e0011151cf909073910",
+      "bytes": 371445
+    },
+    "tracked/artifacts/release-exclusions-20261016.json": {
+      "sha256": "6706fb5e1c8648183f3eb0509bf65590629f3859eff1452d7bbbc9ba5036b196",
+      "bytes": 3107
+    },
+    "tracked/artifacts/release-five-integrity-20261017.json": {
+      "sha256": "d267d1dbf086c88072beac8cf3d4b07ba22d8afd01f325b6829287391b61e3bd",
+      "bytes": 16355
+    },
+    "tracked/artifacts/release-permission-closeout-20261021.json": {
+      "sha256": "b5f48d2d4d42f298015f18548caa8087a43d08019b90db16ec3bfd5e32cec8c2",
+      "bytes": 7244
+    },
+    "tracked/artifacts/release-permission-evidence-20261021.zip": {
+      "sha256": "99157ecbad090ecdf203183d9c45e916f788dd8f592675647a1139042f0e7308",
+      "bytes": 294629
+    },
+    "tracked/artifacts/release-review-20261017.json": {
+      "sha256": "10b69e169636b8cf3c00152e39975a6403b22f4cb80012708ee091d02f136c76",
+      "bytes": 25407
+    },
+    "tracked/artifacts/release-svn-lineage-20261016.json": {
+      "sha256": "a7950f04f88366901d6ce1a58b74e5f386f670e0a8b1f733d40930c473b5fd0b",
+      "bytes": 10689
+    },
+    "tracked/artifacts/release-version-paths-20261013.json": {
+      "sha256": "cd8ef6a56b5fac715b5e603c2a206731019cb0ccf138e0d58dd1014547708471",
+      "bytes": 6511
+    },
+    "tracked/artifacts/release-version-paths-cleanup-20261013.json": {
+      "sha256": "4310f2047b4a0baed5ddc59de1bba5cbfe384b5a871c9713c75280f72647f761",
+      "bytes": 2626
+    },
+    "tracked/artifacts/review-five-integrity-fixes-20261017.json": {
+      "sha256": "cca8cd4569f774343fd23aff570dc39df16c5b1983a3a924ad375e6e78eb950a",
+      "bytes": 40855
+    },
+    "tracked/artifacts/review-git-repository-path-fixes-20261020.json": {
+      "sha256": "756cb9e0a64b8aa32cbeaccbc0c37cf0c284f7609ebf84f92a060b0e00e17d5d",
+      "bytes": 17218
+    },
+    "tracked/artifacts/review-input-paths-stage-cleanup-20261020.json": {
+      "sha256": "ed2aa7aad5a0ea9570b95a43ad1d508555fefd65081124e832cf187abfc0c258",
+      "bytes": 7141
+    },
+    "tracked/artifacts/review-replace-refs-archive-modes-20261019.json": {
+      "sha256": "caa1ef581a835bddac5ee90eb454078ae4cffb48408bb0336e07507b8e98b755",
+      "bytes": 5394
+    },
+    "tracked/artifacts/review-root-restore-task-edit-20261019.json": {
+      "sha256": "c2177fa4d79c1ab89471518d150b3fa7217f9dfae64b9844db6a1f8613489309",
+      "bytes": 2781
+    },
+    "tracked/artifacts/review-three-fixes-20261020.json": {
+      "sha256": "268225b427aa5e2ba4d8b015aede8377d0fa36dbce5fe91dbb73f214f1c17b65",
+      "bytes": 11461
+    },
+    "tracked/artifacts/review-two-fixes-20261019.json": {
+      "sha256": "ea21639985cacca8bb9435f4782a14b0568219f5fb6a5161a934448d0ae9cfdc",
+      "bytes": 3191
+    },
+    "tracked/artifacts/source-review-fixes-20261017.json": {
+      "sha256": "d2de13a6857a79850a949af1421245b248939171b4e6b1bd2ef55edf84f0a2e1",
+      "bytes": 25095
+    },
+    "tracked/artifacts/svn-copy-lineage-fixes-20261016.json": {
+      "sha256": "d99bdfacbdb647c5d2f2f806fe97fec7e57ecaee2d020dcfe772aa2689121eb2",
+      "bytes": 26767
+    },
+    "tracked/artifacts/svn-review-fixes-20261018.json": {
+      "sha256": "41e5e631bc4341381e8af3f769d9d5572f324928158819f60935bd3d697620f1",
+      "bytes": 3108
+    },
+    "tracked/assets/icons/app.ico": {
+      "sha256": "f30acea2523e3d4bb64e1a8ab9426b97abe85fbf610a8a713d0438dfa7b00930",
+      "bytes": 109336
+    },
+    "tracked/assets/icons/compass.ico": {
+      "sha256": "d355e75e2286ce4af39fff0c6244178b8faf97f4b7e03bb93ecf3c9f1bc4b8ae",
+      "bytes": 113617
+    },
+    "tracked/assets/icons/ct.ico": {
+      "sha256": "ec7b7123b15c6ceaf7b3a8cfd7f1ee537aa1f1c4fa34604187017ba4b7280001",
+      "bytes": 85945
+    },
+    "tracked/assets/icons/diff.ico": {
+      "sha256": "5cee23d1da438dab49104b6b4bd1efa5caf6a12c476a3e489441984667465d9e",
+      "bytes": 85447
+    },
+    "tracked/assets/icons/prism.ico": {
+      "sha256": "40a47f1278d91dfb88c09694900671916e1dccde3ee386658ad3f8af09a542a9",
+      "bytes": 88471
+    },
+    "tracked/assets/icons/prism2.ico": {
+      "sha256": "f30acea2523e3d4bb64e1a8ab9426b97abe85fbf610a8a713d0438dfa7b00930",
+      "bytes": 109336
+    },
+    "tracked/assets/icons/source/compass.png": {
+      "sha256": "100960005009715d4805d3061eaaa16cf4a06f4e7c650c3e6655b56cd890fc1a",
+      "bytes": 1318546
+    },
+    "tracked/assets/icons/source/ct.png": {
+      "sha256": "80357b2a24aa28cce6f608dd989299573a8e67e07aa36b90acb253338174e88a",
+      "bytes": 1467448
+    },
+    "tracked/assets/icons/source/diff.png": {
+      "sha256": "5a1e81f54b2aa25c28fe669c193982b0081697d19d2b4c3991befed523e3da91",
+      "bytes": 873936
+    },
+    "tracked/assets/icons/source/prism.png": {
+      "sha256": "550d59539b931174d472333ce72cfdbba336859b3f3c231c8e5e3c0cb50a1592",
+      "bytes": 1898214
+    },
+    "tracked/assets/icons/source/prism2.png": {
+      "sha256": "ce939c2cd98462112d498203fe057633f33daa4c9ca80fb112b2cd99d0bd8d30",
+      "bytes": 1432205
+    },
+    "tracked/build.bat": {
+      "sha256": "54fc83c37aac66a7f8ca8fd99599a20c968a1ad3168207770f80b4f1a96daeb1",
+      "bytes": 2880
+    },
+    "tracked/delivery_instructions.py": {
+      "sha256": "c36c0fbe79cea10c4bb2fe7bfe23ff83c31fd7f0656a759c61390e903053a977",
+      "bytes": 8139
+    },
+    "tracked/diff_engine.py": {
+      "sha256": "9aed6ba73d47ae20ede85ee639869c2d621bdf98e28716eb0f77be5b4a316904",
+      "bytes": 62040
+    },
+    "tracked/docs/CompareTool_使用说明书.pdf": {
+      "sha256": "2c34c64ef16d58dbbedde7d850408015f50fa03bdb4a0ae41a990f1c239ab699",
+      "bytes": 488675
+    },
+    "tracked/docs/archive-duplicate-members.md": {
+      "sha256": "dcac2f32079af3c3e8fdd8e8af1d9638e3e5c00e1a9b5a0581ae557ab10ff82f",
+      "bytes": 8709
+    },
+    "tracked/docs/diagnostic-gui-timing.md": {
+      "sha256": "58f99311ca7def8e7b5a75261cb09f45f4c865d70b3db55a962915ff35845bf6",
+      "bytes": 2453
+    },
+    "tracked/docs/endpoint-exclusions-20261016.md": {
+      "sha256": "b748d7f2c6ab8be5477fb393bdfd884dca343418d9e5e826528e85b26a9f7760",
+      "bytes": 4520
+    },
+    "tracked/docs/export-best-effort-verification.md": {
+      "sha256": "81c54baec8b41ffa02ea2e319f50184a876ba0ed538eda106278df6b6e0b9aac",
+      "bytes": 6298
+    },
+    "tracked/docs/manual/README.md": {
+      "sha256": "3a504f5e30eae2a6c454c1e1d70a292f1d065fc8044c0bd81a53ce2b522c03af",
+      "bytes": 1819
+    },
+    "tracked/docs/manual/build_manual.py": {
+      "sha256": "db5dbcda71aeab523ccb86af2a14f36841929d08cf8f25e7711fc0239ede73ec",
+      "bytes": 49008
+    },
+    "tracked/docs/manual/verify_pdf.py": {
+      "sha256": "9c98a594bce1734bfb37dcc6c001decb8e95636e77b396a7473ab4b13c215522",
+      "bytes": 2458
+    },
+    "tracked/docs/multi-version-file-endpoints.md": {
+      "sha256": "cc550c16566205de63569d282c8445c0cf12f14679b4a66bad937edae1148c70",
+      "bytes": 18798
+    },
+    "tracked/docs/nested-archive-report.md": {
+      "sha256": "77378fa47ea32ca485cc627a7ff79466fd24ea0f6fc97a5994b5fdcf08581e16",
+      "bytes": 14855
+    },
+    "tracked/docs/output-regeneration.md": {
+      "sha256": "d502713c9f933b2a4dcf701d42d1cd59e6ae76e7f1e0a4dbfba98c2580998f7d",
+      "bytes": 11285
+    },
+    "tracked/docs/performance-c1-verification.md": {
+      "sha256": "223d1270b5975015f5cf7b1862803a5d6794ece1489310a63b32b99ac851a2e3",
+      "bytes": 6429
+    },
+    "tracked/docs/performance-first-batch.md": {
+      "sha256": "b2b343fd8cf230305bac2c0f2998fafed303ff020bbad596bfeaf05ab3b52663",
+      "bytes": 9549
+    },
+    "tracked/docs/performance-folder-followup.md": {
+      "sha256": "aa6f89bd81bdb812fb11fcf9a950bbeb122357f08cd088b51b4e292945689162",
+      "bytes": 7291
+    },
+    "tracked/docs/performance-folder-scan.md": {
+      "sha256": "7549493c23ede8c726122ab6e94bf744150344bf93e4ab410c54920a08c1b42c",
+      "bytes": 2936
+    },
+    "tracked/docs/performance-next-batch-review.md": {
+      "sha256": "d548e2d324d9bb93a2f13e555471abfc3aa076bf4ac9eced7d6f6afca70b8f37",
+      "bytes": 21283
+    },
+    "tracked/docs/performance-next-batch-verification.md": {
+      "sha256": "5306d0481f5ce9ef1932ea5a72a8c4b431967df75221e45ae7928681d8f6872f",
+      "bytes": 16064
+    },
+    "tracked/docs/performance-optimization-implementation-plan.md": {
+      "sha256": "7c617b47a265d29141950f15a699ce19c4bb7049f8458cc774f10b752eaafa2f",
+      "bytes": 103871
+    },
+    "tracked/docs/recursive-archives-all-vcs-plan.md": {
+      "sha256": "bb395e2d38dde47fe950021ca6b4a638a15da6babb978702e749a25457d9f3e4",
+      "bytes": 38159
+    },
+    "tracked/docs/recursive-archives-all-vcs-verification.md": {
+      "sha256": "d4ee830d90ac2457c4dc13c86d6011ccfe3eeedf8d2f220ea717eb33aa0f4aec",
+      "bytes": 9050
+    },
+    "tracked/docs/release-20260927-verification.md": {
+      "sha256": "6a1e5b504206fd5c31edf8292bea615dafb7d6677ff3b076d25a7fb0c5e814b6",
+      "bytes": 11058
+    },
+    "tracked/docs/release-20261013-version-paths.md": {
+      "sha256": "79c1de3dbe7199e0b22188a15166d2bc8f14a4b4329720175d7464fb590bc755",
+      "bytes": 5547
+    },
+    "tracked/docs/release-20261016-exclusions.md": {
+      "sha256": "9fa202e13670ec961fac93045f03b69b9126573b3c11f5d155c58153958c93c6",
+      "bytes": 3645
+    },
+    "tracked/docs/release-20261016-svn-lineage.md": {
+      "sha256": "7660a3583e482a48d56f657e0bb1c8e44864586ccff03ce704d8f3a9ea4d2410",
+      "bytes": 4640
+    },
+    "tracked/docs/release-20261017-five-integrity.md": {
+      "sha256": "cf7dd02aaf489727b8f2fabe53ebf1fb3596784062ab4eb4297f8f2c1e99ad29",
+      "bytes": 3986
+    },
+    "tracked/docs/release-20261017-review.md": {
+      "sha256": "ce9244e0b6018c7f3b3b773fd3458a035d89fc2527afccc48d181161fe8bd7ef",
+      "bytes": 5742
+    },
+    "tracked/docs/release-polish.md": {
+      "sha256": "8782f4030cbe9c91e11ef601962a6d3f9f32d93a7be76c25adbae6869a5a1bc8",
+      "bytes": 4880
+    },
+    "tracked/docs/report-and-export-contract.md": {
+      "sha256": "8f5cd89861cfe3723e2b8b3f2c6756924bd09b0abd428b6c741081a274360a63",
+      "bytes": 46060
+    },
+    "tracked/docs/review-five-integrity-fixes-20261017.md": {
+      "sha256": "b4589d15da9761a159358e7312c5755c1d6ccde827c8f7734586fe625cdf0370",
+      "bytes": 4146
+    },
+    "tracked/docs/source-review-fixes-20261017.md": {
+      "sha256": "ecaa6dede5dc0f01ea7305dcb159ad1328e4ac351fe0b7bc70724d4821490389",
+      "bytes": 6005
+    },
+    "tracked/docs/svn-copy-lineage-fixes-20261016.md": {
+      "sha256": "8c463131638c77d45f0e7e2343e6139bc424bfa4e67471aac07202877a6e3fb4",
+      "bytes": 4514
+    },
+    "tracked/docs/tar-directory-compatibility.md": {
+      "sha256": "8978a452eaf8fb0304067c6ddefc6a5604375cb7a653a40d67d285dcbc69bdc0",
+      "bytes": 5241
+    },
+    "tracked/docs/zip-directory-compatibility.md": {
+      "sha256": "bc73e23ab1c74d84f04862575531d8143a42462878e4488cc058b2b38a85b433",
+      "bytes": 3756
+    },
+    "tracked/file_exporter.py": {
+      "sha256": "3a3d9b8c4a3eded5e53cd0b3e79e7f67fddc997175c5e968ede042832142d621",
+      "bytes": 42008
+    },
+    "tracked/html_details.py": {
+      "sha256": "1b0c13e07fa7e7188dc6bbf972708cdebfd9bd3cbcce335c50a6487ccac7e325",
+      "bytes": 4664
+    },
+    "tracked/logger.py": {
+      "sha256": "8e683db696c101111d917914dc1526305a6d29b03e7a1745e9f5e9ce95c91926",
+      "bytes": 2346
+    },
+    "tracked/main.py": {
+      "sha256": "935287dbdf3f6376483feb23c343fb0f9a3e07061cdc3812be5777cac920b5fe",
+      "bytes": 138507
+    },
+    "tracked/path_safety.py": {
+      "sha256": "9238eaa36815186d858f68425fc3b70123130b7fec5336f30a446d46416a7249",
+      "bytes": 17335
+    },
+    "tracked/report_generator.py": {
+      "sha256": "1862573ac771f083a5cae137ae8b85f4d82fd5871379898483e9a42c58cdd981",
+      "bytes": 11726
+    },
+    "tracked/requirements.txt": {
+      "sha256": "70111789d6caeb50ea82ccf8a528bcec92fa2ad5e0d45ef7bc38661849cf6712",
+      "bytes": 31
+    },
+    "tracked/stable_diff.py": {
+      "sha256": "86802ac128926313105b909a22acb8050eca41c84eafa5fc4577abdf67ca2d43",
+      "bytes": 9257
+    },
+    "tracked/stage_ownership.py": {
+      "sha256": "98efcf4aaf90c92483ec076eedb547dc6ec2b9d7abfc4721a7d0d3ed198029e4",
+      "bytes": 7267
+    },
+    "tracked/task_progress.py": {
+      "sha256": "6fec0ef94cdfa865475a5877338129574206f24232032647b3cb050b8ec753ae",
+      "bytes": 13415
+    },
+    "tracked/templates/archive_details.html": {
+      "sha256": "fc3f0498649738ec7c8381a52c0f1a7101c9b2a66c046cbf87f0d85a57a69e55",
+      "bytes": 2988
+    },
+    "tracked/templates/archive_script.html": {
+      "sha256": "ecd2ae5d8bd844294d636282fa0a70f3bbb85006a1d0f070d68a2364db8cd1ef",
+      "bytes": 2698
+    },
+    "tracked/templates/archive_style.html": {
+      "sha256": "785b7a3e8a15f66979bc60792918017bad7ed4246ae695da09ad015a8650c8a4",
+      "bytes": 1374
+    },
+    "tracked/templates/file_detail.html": {
+      "sha256": "71997345869e21bcc964dca2d0a0b9584972ec208178db86a36cef3d4108adad",
+      "bytes": 224
+    },
+    "tracked/templates/multi_report.html": {
+      "sha256": "46fd4589766441b37a70720ce13f850f53cb191f00bd429fc807ef4c9527797b",
+      "bytes": 32308
+    },
+    "tracked/templates/permission_changes.html": {
+      "sha256": "40c62dac1d66bfe825c469a84440ee4e1b37fecc62557444343fc47506b4164a",
+      "bytes": 578
+    },
+    "tracked/templates/report.html": {
+      "sha256": "0f3574a225e8ea33dca6380a15066d34553bd551c4bc10a50f67426ba14851a0",
+      "bytes": 33173
+    },
+    "tracked/templates/result_issues.html": {
+      "sha256": "d4e314652464edcbfcb27ce27e98aa796172fa93fb890ca896dead87195a18ef",
+      "bytes": 796
+    },
+    "tracked/templates/summary_issues.html": {
+      "sha256": "a52c784c4b4257f09bf93657806000c355dc1b06c93259f8be347f387ea89c0f",
+      "bytes": 289
+    },
+    "tracked/templates/summary_permissions.html": {
+      "sha256": "255a78538d780812dc0173fc4045b0e6c624cbacb625718d28c3ce114ca5d98b",
+      "bytes": 346
+    },
+    "tracked/tests/archive_workflow_fixtures.py": {
+      "sha256": "0d5af95f1dac13f6dc6a54af74248004db49d67c5f9127be43c26312a76b4262",
+      "bytes": 6807
+    },
+    "tracked/tests/test_adversarial_regressions.py": {
+      "sha256": "feb25a98df53faab71245a3a727d804274ddd55723cd69fead24e7398546f6bb",
+      "bytes": 29415
+    },
+    "tracked/tests/test_archive_comparison_root.py": {
+      "sha256": "1d35d7e5cb40eb2e33fdce6e114869b8cb05ac1d6ce262fd18966372b0117c89",
+      "bytes": 11897
+    },
+    "tracked/tests/test_archive_compatibility_after_aug27.py": {
+      "sha256": "35b37f9570609efbb60ad596d0fbc00ac53b0c09b5a497743592365d95024c31",
+      "bytes": 13402
+    },
+    "tracked/tests/test_archive_content_detection.py": {
+      "sha256": "a758a4bdb59fe61fba909f8f4742c2f7ad3a415b63f97efcedc460885fb38183",
+      "bytes": 10381
+    },
+    "tracked/tests/test_archive_duplicate_members.py": {
+      "sha256": "e84d9602ee0227ea170286c27546d418e1dd3bcc8a44ec922d3a933ceaf63f87",
+      "bytes": 12883
+    },
+    "tracked/tests/test_archive_excluded_trailing_names.py": {
+      "sha256": "cfa3b538c0ea912da404d5dce25796b8f2228cc738ff9462e3676efb3447028e",
+      "bytes": 10906
+    },
+    "tracked/tests/test_archive_exclusion_review.py": {
+      "sha256": "f1278a7cbe95acbd1914ea1c1f32ecfd5b65e958044edbf3f3ff2bd68dcbbc75",
+      "bytes": 10540
+    },
+    "tracked/tests/test_archive_keyboard_navigation.py": {
+      "sha256": "bf3ca283a02c3a615ae1938701970722dcb398dcd6d38fbc2394bc421b6873cf",
+      "bytes": 5626
+    },
+    "tracked/tests/test_archive_permission_classification.py": {
+      "sha256": "1e56cde41d92a5d7d29bfbf59cca937fe659b0a36e2474dc5634829fc3cb207c",
+      "bytes": 8215
+    },
+    "tracked/tests/test_archive_report.py": {
+      "sha256": "5de2b0d3ce6a0f63c7613dfb291dab8ec26245edb20a416cb4bcf62dc08bbb8e",
+      "bytes": 11604
+    },
+    "tracked/tests/test_archive_report_all_vcs.py": {
+      "sha256": "8e5ed05c1c374a998982e817435a3f8468b5d72de2167a4b1d3e615f487563b3",
+      "bytes": 20910
+    },
+    "tracked/tests/test_archive_report_configuration.py": {
+      "sha256": "14c20d0105c5a15c37f0789bea50cbc20abc151dad72c5a402355a16ef865c7f",
+      "bytes": 11260
+    },
+    "tracked/tests/test_archive_report_integration.py": {
+      "sha256": "94f918943a942d5993a091f00ccea2ca777b4d6d51db62045df410f6655783ec",
+      "bytes": 9126
+    },
+    "tracked/tests/test_archive_report_staging.py": {
+      "sha256": "ecdc2ddab8ea78f103dc7c96ab6b1d748ff15130c70d2fc181b633fe149d71ae",
+      "bytes": 11642
+    },
+    "tracked/tests/test_archive_streaming.py": {
+      "sha256": "80f2ab4ba53e04f439ff1778b25834b5a19ef9d3a01624d0412616ef8ae2e71f",
+      "bytes": 14417
+    },
+    "tracked/tests/test_archive_unlimited_defaults.py": {
+      "sha256": "2934e8c260304560d07ca1fd64e2bd27077ab19cf64634c10d75fea9af6dfdd2",
+      "bytes": 6094
+    },
+    "tracked/tests/test_best_effort_export.py": {
+      "sha256": "071fe658b0289c952c6c339388f39ba388eafb9bcfcf03074c68b32b68d40cdf",
+      "bytes": 31079
+    },
+    "tracked/tests/test_complete_export_review_fixes.py": {
+      "sha256": "72d8db2a1b354616b6c860962d6494257f5312678a327db02980453f190ebd4f",
+      "bytes": 10937
+    },
+    "tracked/tests/test_endpoint_reuse.py": {
+      "sha256": "9fb544b6357bb0988e6801dc432f385130dd1b25012fc3f8d4e68c2b5f087a90",
+      "bytes": 5455
+    },
+    "tracked/tests/test_eol_stage_retry.py": {
+      "sha256": "6bc3ffe633e175ee9521d23d95d833461ceb64f5dc4dda1e34ffcd007b79aa31",
+      "bytes": 3100
+    },
+    "tracked/tests/test_exclusion_path_flow.py": {
+      "sha256": "33e01ff7f6f34ed5cf2dc6619e5d1f4bb1997cbf5a8bc5e66d811f46fac83d63",
+      "bytes": 12186
+    },
+    "tracked/tests/test_fifth_round_adversarial_regressions.py": {
+      "sha256": "bad96e26dee24d45e1e4fe852c555044420e8b939d7009bf3cd6abdbec07adaa",
+      "bytes": 15013
+    },
+    "tracked/tests/test_folder_compatibility_after_aug27.py": {
+      "sha256": "e2d233e0fe3f49110d3bb5ad8356d6f1ca92a6f576addce27d01ceb344835370",
+      "bytes": 14054
+    },
+    "tracked/tests/test_folder_scan_edge_cases.py": {
+      "sha256": "3540c806a7e0d1a2478eafce18a88b667dbecebfacf3e992d034e3cce602d058",
+      "bytes": 3324
+    },
+    "tracked/tests/test_folder_scan_followup.py": {
+      "sha256": "a2823f2a4750a33abdd99196852cc701b1303c9edcd6946d31f269e01ddd4089",
+      "bytes": 7018
+    },
+    "tracked/tests/test_folder_scan_optimization.py": {
+      "sha256": "315a4aef2721b262e343f767995b7b13398e98fde48de42e31b69a9b32b0a766",
+      "bytes": 4835
+    },
+    "tracked/tests/test_format_changes.py": {
+      "sha256": "170e268c50665daae2ba1cfa42a31df597e401c3fc32c27dcb492c7fed130e0b",
+      "bytes": 9533
+    },
+    "tracked/tests/test_git_checkout_scope_and_svn_externals.py": {
+      "sha256": "0490fc22b9e7464e174306410cf6a297b29485568b45f9939e57f1153ea679ba",
+      "bytes": 18139
+    },
+    "tracked/tests/test_git_probe_batch.py": {
+      "sha256": "da55a24e29eec933619346602dc736eb73ac7fb948cf11860f30a9e2801b6515",
+      "bytes": 7282
+    },
+    "tracked/tests/test_gnu_sparse_extensions.py": {
+      "sha256": "c77b9e03a310c507026daa5d2cadbb6fb9fafa5a917ed75a6efc2390b0ec2a2a",
+      "bytes": 5883
+    },
+    "tracked/tests/test_history_endpoint_projection.py": {
+      "sha256": "6907a501ca0b97a97aaea47899ea261e85d51d021fd4a56c7103793e44de904c",
+      "bytes": 14827
+    },
+    "tracked/tests/test_html_detail_store.py": {
+      "sha256": "8ba26e4c686f9f217092a8f1a9d7e118b4ad953b811a527ddf4cd11d98a625c7",
+      "bytes": 13531
+    },
+    "tracked/tests/test_log_retention.py": {
+      "sha256": "041db3becf7843a16a6846166a252fe20f861a389989a015deba32daea78b226",
+      "bytes": 5538
+    },
+    "tracked/tests/test_matcher_hotspots.py": {
+      "sha256": "c8aece188d76918ff419f1117e477e5a97a200f7f476e53bf17dee1f3e9d3214",
+      "bytes": 5827
+    },
+    "tracked/tests/test_multi_version_file_endpoints.py": {
+      "sha256": "b272a30128ed41eef17730ca812d1fca0cdb36241e3e16cb4c6d2f6c4cd0985b",
+      "bytes": 78507
+    },
+    "tracked/tests/test_output_compatibility_after_aug27.py": {
+      "sha256": "d874fcbeb641c8368427779034ddd8b799c9bee85f825ce0bca33e2cba7b4e41",
+      "bytes": 15272
+    },
+    "tracked/tests/test_output_publish_retry.py": {
+      "sha256": "46e788f38b743cf12ac0f05391accb7c986900d1e5d3fe3917ef12c2608bf906",
+      "bytes": 12930
+    },
+    "tracked/tests/test_output_regeneration.py": {
+      "sha256": "3331d00a3b6d8a13535c446efea9c21506d8babaec878dae8aed2f756401aa5b",
+      "bytes": 9614
+    },
+    "tracked/tests/test_passthrough_and_separator_regressions.py": {
+      "sha256": "12c7fa2fdbc8e9ff34c71ec5dbc355c924b25fbbdec8502bdb837c6f72731d4f",
+      "bytes": 11689
+    },
+    "tracked/tests/test_performance_first_batch.py": {
+      "sha256": "ce73a1b114848dac1191808232040a26b9bb1ed66fbea27992ef5ca1d19d89f1",
+      "bytes": 10595
+    },
+    "tracked/tests/test_performance_next_batch.py": {
+      "sha256": "8ac84404fa3148cb7f3ea8335357b341047148c9086dea870e48bbdfa67a32fd",
+      "bytes": 4707
+    },
+    "tracked/tests/test_recent_project_name_persistence.py": {
+      "sha256": "9e0419f3147f13fc53d63a35dddb2825bcf2ea2ca4c8d19e81fb1ef6f963b8a5",
+      "bytes": 5081
+    },
+    "tracked/tests/test_release_identity.py": {
+      "sha256": "41b47a996e4bd52b0f8842c65d3bbed4d4c32ef19edb85edad1a534c0b1b5814",
+      "bytes": 5278
+    },
+    "tracked/tests/test_rendering_performance_regressions.py": {
+      "sha256": "5e125fbe1748ddf9ea2c3963ee0a55a474f92b4345bbb6ec97cf31fec66e4943",
+      "bytes": 4307
+    },
+    "tracked/tests/test_report_compatibility_after_aug27.py": {
+      "sha256": "85c32eedfd7e4f87324b68e5edcb11a21476973e4f0cd76c6e37edf6159ed79c",
+      "bytes": 13226
+    },
+    "tracked/tests/test_review_configuration_and_report_semantics.py": {
+      "sha256": "5bfcdbce1f1a7ede9a082f2a7c453d45ef73572981ad3c81c29cb68cdef5e955",
+      "bytes": 12785
+    },
+    "tracked/tests/test_review_delivery_regressions.py": {
+      "sha256": "668383c12588ff5e31f4d30337112250c30a5815d3924133b7e3299b6533d5ad",
+      "bytes": 16169
+    },
+    "tracked/tests/test_review_endpoint_labels_and_text.py": {
+      "sha256": "977448b56bfebb9534c7c30a3ee27eda4abff7de2cee0c38f99f5b8fb5648cbd",
+      "bytes": 16487
+    },
+    "tracked/tests/test_review_externals_config_cleanup.py": {
+      "sha256": "aec753938b0ce5a3af337b117bb704982c2d8eae2b13b798d35a1fbe7b0cb30a",
+      "bytes": 15467
+    },
+    "tracked/tests/test_review_five_integrity_fixes.py": {
+      "sha256": "cce7638eb4475059532f208934153218198c132e3db7e4a7210c3bcc5445b4c0",
+      "bytes": 16469
+    },
+    "tracked/tests/test_review_git_repository_paths.py": {
+      "sha256": "087a1ca71eda063b37cb2d74ac04817011ba79f6d95ddd5a790acf2176354d2f",
+      "bytes": 8902
+    },
+    "tracked/tests/test_review_input_paths_and_stage_cleanup.py": {
+      "sha256": "91163ec3f68dbb4411a5e8969dac133af232c4ed84239960e97f6d8bab72345b",
+      "bytes": 12642
+    },
+    "tracked/tests/test_review_metadata_depth_and_diagnostics.py": {
+      "sha256": "1d0b01a1c3c5b2e489fd3ea134f7f430e3aff7df9f2fbc8051828e9dc1c82508",
+      "bytes": 14300
+    },
+    "tracked/tests/test_review_path_dependencies.py": {
+      "sha256": "8823b86b2cabffac1a25e7eb80d3dbff9cfd69adb231d025cef280a36213ad71",
+      "bytes": 15366
+    },
+    "tracked/tests/test_review_regressions.py": {
+      "sha256": "2bc783ac3dc424574ff7ec3b0f2e10f53a4b858b469f50489dd9b97ca21a9728",
+      "bytes": 18717
+    },
+    "tracked/tests/test_review_replace_refs_and_archive_modes.py": {
+      "sha256": "deb986d5842b10c780957b48be4d6286e557ca45d67446e60fdbd48fe6815c7b",
+      "bytes": 13186
+    },
+    "tracked/tests/test_review_root_restore_and_task_edit.py": {
+      "sha256": "04ca9b2faba6bedc0e0f2db7ee3ffdb4eb758edb008ac5e0e427ffe78d833f52",
+      "bytes": 12727
+    },
+    "tracked/tests/test_review_submodules_and_svn_restore.py": {
+      "sha256": "af4869f9340515585913a55fee9c843a74bef92edff75da157c99a9a06be71e7",
+      "bytes": 11161
+    },
+    "tracked/tests/test_review_svn_paths_and_report_opening.py": {
+      "sha256": "b9309010ec167a82c1395569757b99f7250d49359238b631cd8f49f2491f74f1",
+      "bytes": 14686
+    },
+    "tracked/tests/test_review_svn_replacement_and_rename_metadata.py": {
+      "sha256": "bc6e55a6d37f3418991ddc69bf69fa1743b86be9a52ea3e2ea728b9288930902",
+      "bytes": 8883
+    },
+    "tracked/tests/test_review_svn_restore_and_git_rename_limits.py": {
+      "sha256": "7adee947cc5dee35ec0acafd38b3b70029ca7691792995872a4bac63dcadb1a5",
+      "bytes": 9625
+    },
+    "tracked/tests/test_review_svn_root_prefix_mapping.py": {
+      "sha256": "7f59f21b44614f4f69ec46660f6010a5a4f9e3cc19994bb960ab8acbfa502090",
+      "bytes": 11262
+    },
+    "tracked/tests/test_second_round_adversarial_regressions.py": {
+      "sha256": "fce7469d9c3e0553eea8ad1f635dc5a8408d72e0fe2eb61ee5834298da8df23a",
+      "bytes": 43765
+    },
+    "tracked/tests/test_svn_copy_lineage_review.py": {
+      "sha256": "d141b188276bc865ec48f59c3e6d9caab9d637a89c05294ba10072e2d2c7011f",
+      "bytes": 4913
+    },
+    "tracked/tests/test_svn_exclusion_move_boundaries.py": {
+      "sha256": "e90a0a357517c399dceb410c2e6357d681e80aca15ff52d1e9716ef17381085a",
+      "bytes": 6984
+    },
+    "tracked/tests/test_svn_review_omissions.py": {
+      "sha256": "b5f12ee9df71a04d06e882c4667cb41e8c639918e5bd8a0dca29f4710b3f2b7a",
+      "bytes": 7715
+    },
+    "tracked/tests/test_task_progress.py": {
+      "sha256": "45e490788a59e5eb0a681032a42d18301dec81987dc3461a6bacf0a0459a7bd3",
+      "bytes": 7162
+    },
+    "tracked/tests/test_temp_storage.py": {
+      "sha256": "d2692b01737137fb5ac25b0e3084236751b1523af256145495717d54b6f340d9",
+      "bytes": 5817
+    },
+    "tracked/tests/test_terminal_round_adversarial_regressions.py": {
+      "sha256": "949deb5d334ba3059bde780f53bf089e2c5999efcee00160cc450a735e55cda7",
+      "bytes": 11215
+    },
+    "tracked/tests/test_vcs_compatibility_after_aug27.py": {
+      "sha256": "f6a2e66e8bbec27b5dec059bb89f8716b90e0358cd8a0bdc69cd93e5b4a67d82",
+      "bytes": 22185
+    },
+    "tracked/tests/test_zip_directory_attributes.py": {
+      "sha256": "e5f727d7746ff7643db2c534feca1f68093b0f58730e1f32fa22dac6fc0c6336",
+      "bytes": 5414
+    },
+    "tracked/tools/benchmark_archive_all_vcs.py": {
+      "sha256": "32c38b681fb3c80e72aac0bf33ed222419a82f5e4c569c4e69e39d70f499a7c8",
+      "bytes": 3967
+    },
+    "tracked/tools/benchmark_folder_scan.py": {
+      "sha256": "257a56e890a4564da02c3d230a867b1ddc644236e37a10a9ed7754b2b7e1b1d9",
+      "bytes": 3339
+    },
+    "tracked/tools/benchmark_folder_worker.py": {
+      "sha256": "cedf4df4755e76d89134304f216f21947da256a666c482dcbdf5438e04abb2e8",
+      "bytes": 7326
+    },
+    "tracked/tools/benchmark_html_details.py": {
+      "sha256": "7e9a2179068be6a95d69c4704699c3ff4d40f3a2648284c00491a93256695d83",
+      "bytes": 4232
+    },
+    "tracked/tools/benchmark_performance.py": {
+      "sha256": "5a6ac07efa482d5d44c86c27e187b3c34d95aa636638890d10cffd8855149db3",
+      "bytes": 9168
+    },
+    "tracked/tools/benchmark_render_hotspots.py": {
+      "sha256": "838ddb7e7010a53cca5bc69a72526a43f5f2adb22a3888c143244a97078ed4ba",
+      "bytes": 3716
+    },
+    "tracked/tools/browser_report_check.mjs": {
+      "sha256": "8e8381c6c544ebba584359e1aec53061e7cc6f9586b24c4cb970426630550fba",
+      "bytes": 9900
+    },
+    "tracked/tools/build_release.py": {
+      "sha256": "b86669c23aa95dcb0e4a776cbd497080c40c760414ef69028fb94b1e2e9a04f5",
+      "bytes": 4547
+    },
+    "tracked/tools/diagnose_folder_gui.py": {
+      "sha256": "f2d2a31ca8d98858d2b96d6ebabbb7f2776c5a165a65fe5180e5869829212f2b",
+      "bytes": 6871
+    },
+    "tracked/tools/make_browser_fixture.py": {
+      "sha256": "b3644b9cc4b56a35ed00442bee14b50477b65899fbeb0cd42d3be499c584bce9",
+      "bytes": 2614
+    },
+    "tracked/ui_progress.py": {
+      "sha256": "743f4917a187f00145c94d78640daaca21577c13a368923f486d59c2bf8a865a",
+      "bytes": 3806
+    },
+    "tracked/vcs/__init__.py": {
+      "sha256": "8fb86391432641e7b720313b271eecf44f5f994a4491288fd2b9c78ccb754f86",
+      "bytes": 235
+    },
+    "tracked/vcs/archive_vcs.py": {
+      "sha256": "83ef9c987bfc1b43345bc44427a7e616b85b2a173131c10542be11900d2c7a16",
+      "bytes": 85225
+    },
+    "tracked/vcs/base.py": {
+      "sha256": "302e8a2f9c454665e01c0ca8cebf7b3724215735d9cecf20c85203326c61b98f",
+      "bytes": 15935
+    },
+    "tracked/vcs/folder_vcs.py": {
+      "sha256": "f17a8babc72513ac551a624cbbf9d8481160f7889442dc1b2e4979edd74760d4",
+      "bytes": 29491
+    },
+    "tracked/vcs/git_batch.py": {
+      "sha256": "8f0cc51747b93daae3671137404d98771665f2091047ce00c40dfc898678d5d6",
+      "bytes": 4500
+    },
+    "tracked/vcs/git_checkout.py": {
+      "sha256": "add70f9b4f280e24ba2b642856d26152e5fcd82f4f48930a278f5111b11a9e68",
+      "bytes": 13200
+    },
+    "tracked/vcs/git_paths.py": {
+      "sha256": "baaec7a1a93ae03b2165a5bb5ad046041c0c939908d1f0c9cdbcaaf9e1a52756",
+      "bytes": 835
+    },
+    "tracked/vcs/git_probe_batch.py": {
+      "sha256": "ebd05e0cef9a02ba6abeb2f4611acdfd39ffa32e36b912b2417cb1197756ddd4",
+      "bytes": 4621
+    },
+    "tracked/vcs/git_vcs.py": {
+      "sha256": "7dfa549c9a6d9d8e3f00ea89bcfe092f10d8a0e7bba52c824b4ee25e6aeb92a5",
+      "bytes": 39878
+    },
+    "tracked/vcs/multi_version_vcs.py": {
+      "sha256": "3b562c509671f5d9252cc8916e6e4a5adda692435f7ce684beed102194594589",
+      "bytes": 162808
+    },
+    "tracked/vcs/raw_cache.py": {
+      "sha256": "b6333fa9fde388c503ff17a35130a1532a3354f94227db05c989e95db3efe8c3",
+      "bytes": 3983
+    },
+    "tracked/vcs/svn_vcs.py": {
+      "sha256": "1af906ce3660a1033e54c29d4ee5e8033b737ce50d820254bc3788a9fa2604dd",
+      "bytes": 50255
+    },
+    "tracked/vcs/temp_storage.py": {
+      "sha256": "977c714d50029822f030c1acf703f0b633cfae5239ec99c620ee816286250ab3",
+      "bytes": 9995
+    }
+  },
+  "other_tmp_before": {
+    "all_vcs_eexjr2lu": {
+      "device": 18360183284781620953,
+      "inode": 4503599628835868,
+      "creation_ns": 1790406763782265200,
+      "is_directory": true,
+      "sha256": null
+    },
+    "archive-root-build.log": {
+      "device": 18360183284781620953,
+      "inode": 1688849861531714,
+      "creation_ns": 1789096218098817100,
+      "is_directory": false,
+      "sha256": "dd11ddd0905bcf9e0f95ad10fa7ce9400b51da19cc6a6ecd62cf1151c2f2e01f"
+    },
+    "archive-root-full-tests.log": {
+      "device": 18360183284781620953,
+      "inode": 7881299349166027,
+      "creation_ns": 1789095960389460700,
+      "is_directory": false,
+      "sha256": "98baeb3f9234c253478ee0009e974239229de3901cdea08111cabc84f8feb097"
+    },
+    "archive_duplicates_20260928_004229": {
+      "device": 18360183284781620953,
+      "inode": 5348024557502839,
+      "creation_ns": 1790527349620355800,
+      "is_directory": true,
+      "sha256": null
+    },
+    "archive_duplicate_20260928": {
+      "device": 18360183284781620953,
+      "inode": 24206847997116638,
+      "creation_ns": 1790526436651894300,
+      "is_directory": true,
+      "sha256": null
+    },
+    "archive_independent_review_3dde2efbe8a148ab9dc2c440e7498a45": {
+      "device": 18360183284781620953,
+      "inode": 5629499534250006,
+      "creation_ns": 1792138062017680300,
+      "is_directory": true,
+      "sha256": null
+    },
+    "archive_keyboard_check": {
+      "device": 18360183284781620953,
+      "inode": 70368744179131274,
+      "creation_ns": 1790417195569579400,
+      "is_directory": true,
+      "sha256": null
+    },
+    "archive_root_acceptance.py": {
+      "device": 18360183284781620953,
+      "inode": 23080948091541456,
+      "creation_ns": 1789096154049745800,
+      "is_directory": false,
+      "sha256": "f4932c456724ab59fca906670846ef1601af89bf946de1eb59f17f6de4ca9921"
+    },
+    "archive_root_acceptance_20260911": {
+      "device": 18360183284781620953,
+      "inode": 18295873487460309,
+      "creation_ns": 1789096161880444300,
+      "is_directory": true,
+      "sha256": null
+    },
+    "archive_root_exe_smoke_20260911": {
+      "device": 18360183284781620953,
+      "inode": 3377699721795642,
+      "creation_ns": 1789096311365014000,
+      "is_directory": true,
+      "sha256": null
+    },
+    "audit_20260907": {
+      "device": 18360183284781620953,
+      "inode": 35184372089215400,
+      "creation_ns": 1788748707132726600,
+      "is_directory": true,
+      "sha256": null
+    },
+    "before_folder_scan_optimization.patch": {
+      "device": 18360183284781620953,
+      "inode": 35465847066141971,
+      "creation_ns": 1790266961735199700,
+      "is_directory": false,
+      "sha256": "bf3f36f55250eb7faabba9f28724f9cd804fa48be2a08e9e51122392baf3f184"
+    },
+    "benchmark_output_regeneration.py": {
+      "device": 18360183284781620953,
+      "inode": 92605267339282652,
+      "creation_ns": 1790489922170487900,
+      "is_directory": false,
+      "sha256": "75bdbc2e5a7dd3116816d8b31ce9d891b603c9e3bf4d857e4ae8f03a90683662"
+    },
+    "best_effort_atmv.py": {
+      "device": 18360183284781620953,
+      "inode": 24769797952091046,
+      "creation_ns": 1791818926627356500,
+      "is_directory": false,
+      "sha256": "0cf9a696ffac8e68673125a6a8b476c9ce79d839e32c873496626c2445c04dcf"
+    },
+    "best_effort_atmv_20261012": {
+      "device": 18360183284781620953,
+      "inode": 12947848930243631,
+      "creation_ns": 1791818937384642000,
+      "is_directory": true,
+      "sha256": null
+    },
+    "best_effort_atmv_20261012.log": {
+      "device": 18360183284781620953,
+      "inode": 34902897113674638,
+      "creation_ns": 1791818936995463100,
+      "is_directory": false,
+      "sha256": "8ff293979db5bf51ed60979ec052e8a48f59081c558711a68cc5b8e07fb065a8"
+    },
+    "best_effort_atmv_20261012_final.log": {
+      "device": 18360183284781620953,
+      "inode": 58828270134080305,
+      "creation_ns": 1791819493964328800,
+      "is_directory": false,
+      "sha256": "50e8d50bd432e90a2b107f828f4adbe65c2157a6a9ed883c37e102c418542262"
+    },
+    "best_effort_endpoints.log": {
+      "device": 18360183284781620953,
+      "inode": 562949954947961,
+      "creation_ns": 1791817958888652100,
+      "is_directory": false,
+      "sha256": "65564090f21af196249d7a830a33efe91ef8c98c6eba1758a95b7c2b2a80f46a"
+    },
+    "best_effort_full_20261012": {
+      "device": 18360183284781620953,
+      "inode": 56857945297105495,
+      "creation_ns": 1791818314812704000,
+      "is_directory": true,
+      "sha256": null
+    },
+    "best_effort_preview_20261013": {
+      "device": 18360183284781620953,
+      "inode": 5629499535739632,
+      "creation_ns": 1791821191356200500,
+      "is_directory": true,
+      "sha256": null
+    },
+    "best_effort_verify_20261012": {
+      "device": 18360183284781620953,
+      "inode": 113715890592631733,
+      "creation_ns": 1791820062661678100,
+      "is_directory": true,
+      "sha256": null
+    },
+    "best_effort_workflows.log": {
+      "device": 18360183284781620953,
+      "inode": 18295873487745677,
+      "creation_ns": 1791818050216093300,
+      "is_directory": false,
+      "sha256": "712a43eb5854a82ebd80070bf75545861e9fdd6d62a0ef6e2ad7f0e0701509b4"
+    },
+    "best_effort_workflows_final.log": {
+      "device": 18360183284781620953,
+      "inode": 117375065289896576,
+      "creation_ns": 1791819472114340700,
+      "is_directory": false,
+      "sha256": "9eff2b60db31b66ebc59a4659fb3deffe175f8047c17a1b54dbc0259be30e5b3"
+    },
+    "cleanup-version-paths-20261013": {
+      "device": 18360183284781620953,
+      "inode": 2533274791955168,
+      "creation_ns": 1791873511440871100,
+      "is_directory": true,
+      "sha256": null
+    },
+    "cleanup_20261010_4d6e90c1": {
+      "device": 18360183284781620953,
+      "inode": 1688849861772302,
+      "creation_ns": 1791644234265239700,
+      "is_directory": true,
+      "sha256": null
+    },
+    "cleanup_20261013_best_effort": {
+      "device": 18360183284781620953,
+      "inode": 5348024559058722,
+      "creation_ns": 1791823578662397300,
+      "is_directory": true,
+      "sha256": null
+    },
+    "cleanup_closeout_20261020.py": {
+      "device": 18360183284781620953,
+      "inode": 19421773394679537,
+      "creation_ns": 1792458945914946200,
+      "is_directory": false,
+      "sha256": "b6c44bdc5047fedc6de26510083a4979bc48be90d957b19a4dd439cc034f0004"
+    },
+    "cleanup_closeout_20261020_2.py": {
+      "device": 18360183284781620953,
+      "inode": 33495522230218758,
+      "creation_ns": 1792488367185333200,
+      "is_directory": false,
+      "sha256": "b5f5777085cbc6c46f73dd21b4eef4630ad5ba56eca099b3cee4346fc64c499b"
+    },
+    "cleanup_closeout_20261020_2_commit.txt": {
+      "device": 18360183284781620953,
+      "inode": 30962247439818100,
+      "creation_ns": 1792488506004676300,
+      "is_directory": false,
+      "sha256": "76b2dca3fe5b803a145e66a9c9ab1361df03be6480e7f8e505e415f81659aae0"
+    },
+    "cleanup_closeout_20261020_2_final.json": {
+      "device": 18360183284781620953,
+      "inode": 26177172835736960,
+      "creation_ns": 1792488541949872500,
+      "is_directory": false,
+      "sha256": "6bc561e4c7b836c6051a5ed64befe2a271c42a5a0b06d9c2775d12251ac2110c"
+    },
+    "cleanup_closeout_20261020_2_finalize.py": {
+      "device": 18360183284781620953,
+      "inode": 2533274791831985,
+      "creation_ns": 1792488480049603800,
+      "is_directory": false,
+      "sha256": "4074393a683c61ced6b551d8a9e3e5402a6291a8b11c99aaec19383cab0ca8a9"
+    },
+    "cleanup_closeout_20261020_2_preflight.json": {
+      "device": 18360183284781620953,
+      "inode": 29273397579558922,
+      "creation_ns": 1792488388121792800,
+      "is_directory": false,
+      "sha256": "dc270586ba7dd6c87089c469e480f18f90c43a840c430f3b268847c006efec64"
+    },
+    "cleanup_closeout_20261020_2_remote_head.txt": {
+      "device": 18360183284781620953,
+      "inode": 23925373022051711,
+      "creation_ns": 1792488514811817200,
+      "is_directory": false,
+      "sha256": "400424eec477e5f8c7e217dae0c6d8a5640e9dc829a2b3ee3f9f0a1b6946a822"
+    },
+    "cleanup_closeout_20261020_commit.txt": {
+      "device": 18360183284781620953,
+      "inode": 18295873487174860,
+      "creation_ns": 1792459014815565200,
+      "is_directory": false,
+      "sha256": "87d0edc74889036e300f03b428402fcccc91fd36fb5ed3d838a7da6ca1bad429"
+    },
+    "cleanup_closeout_20261020_finalize.py": {
+      "device": 18360183284781620953,
+      "inode": 9007199255025407,
+      "creation_ns": 1792459014019738000,
+      "is_directory": false,
+      "sha256": "9308fb87c76bd2ad9fc9969d2e0c66f94ac393c338fe34c5381e3cdd5fabf5b8"
+    },
+    "cleanup_closeout_20261020_preflight.json": {
+      "device": 18360183284781620953,
+      "inode": 10414574139938546,
+      "creation_ns": 1792458951056332100,
+      "is_directory": false,
+      "sha256": "ebee4f48973522041adbaa6a5ddcec4111f6a1c92315c5ededb24f2463e4c86d"
+    },
+    "cleanup_inventory_20261013.py": {
+      "device": 18360183284781620953,
+      "inode": 6192449489190688,
+      "creation_ns": 1791823573045201000,
+      "is_directory": false,
+      "sha256": "9c5a405898a263e93132a266c343225c61ea2858fe0fa5d4546cbfc395f17b8e"
+    },
+    "closeout-build.log": {
+      "device": 18360183284781620953,
+      "inode": 562949954694086,
+      "creation_ns": 1789099093298377600,
+      "is_directory": false,
+      "sha256": "cf13b5b33578c9cede7101d79ca87857ff6ba9d43c2729fcc59ef5dd4587047f"
+    },
+    "closeout-version-paths-20261013": {
+      "device": 18360183284781620953,
+      "inode": 2251799815243635,
+      "creation_ns": 1791864800776813400,
+      "is_directory": true,
+      "sha256": null
+    },
+    "closeout_20260927": {
+      "device": 18360183284781620953,
+      "inode": 7318349395957194,
+      "creation_ns": 1790498712118488300,
+      "is_directory": true,
+      "sha256": null
+    },
+    "closeout_20260928_jar": {
+      "device": 18360183284781620953,
+      "inode": 61361544922923660,
+      "creation_ns": 1790556996169385100,
+      "is_directory": true,
+      "sha256": null
+    },
+    "code_review_20261019_40c824d4": {
+      "device": 18360183284781620953,
+      "inode": 61924494877979009,
+      "creation_ns": 1792397649734223100,
+      "is_directory": true,
+      "sha256": null
+    },
+    "code_review_20261019_4635edcc": {
+      "device": 18360183284781620953,
+      "inode": 844424931767803,
+      "creation_ns": 1792397723475324800,
+      "is_directory": true,
+      "sha256": null
+    },
+    "commit-message-review-20261019.txt": {
+      "device": 18360183284781620953,
+      "inode": 281474978334305,
+      "creation_ns": 1792376926308034200,
+      "is_directory": false,
+      "sha256": "7b160db4af11ca9b5eaf64ff43b7e531bf07534a06b638472354f4a3206716bc"
+    },
+    "comparetool_runtime": {
+      "device": 18360183284781620953,
+      "inode": 48695170972320780,
+      "creation_ns": 1787907506551130800,
+      "is_directory": true,
+      "sha256": null
+    },
+    "current_all_vcs_review_path.txt": {
+      "device": 18360183284781620953,
+      "inode": 19140298417791710,
+      "creation_ns": 1790410892110728400,
+      "is_directory": false,
+      "sha256": "c6bf61af346b716c7fdedb9a066432a4b31dacfd4edef379efd428a743b8aaee"
+    },
+    "delivery_acceptance_241b9c3f97": {
+      "device": 18360183284781620953,
+      "inode": 5910974512502408,
+      "creation_ns": 1792148691139373300,
+      "is_directory": true,
+      "sha256": null
+    },
+    "delivery_acceptance_5424d3eadc": {
+      "device": 18360183284781620953,
+      "inode": 18295873486530315,
+      "creation_ns": 1792146280131254400,
+      "is_directory": true,
+      "sha256": null
+    },
+    "delivery_acceptance_6b9085289e": {
+      "device": 18360183284781620953,
+      "inode": 16325548650201965,
+      "creation_ns": 1792146611238889300,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint-exclusions-commit.txt": {
+      "device": 18360183284781620953,
+      "inode": 7599824371223316,
+      "creation_ns": 1792153497554699600,
+      "is_directory": false,
+      "sha256": "aeb9a8c6edfe8fd1399e198ec0a6581809bfa07913c7cd91b2c908a42d5e261d"
+    },
+    "endpoint-manual-06.png": {
+      "device": 18360183284781620953,
+      "inode": 5910974511249829,
+      "creation_ns": 1792145783133575800,
+      "is_directory": false,
+      "sha256": "5974aaa36c95f1014c57ea061a0a22cd692f1e12208ddb91daec5a7be1edff1a"
+    },
+    "endpoint-manual-13.png": {
+      "device": 18360183284781620953,
+      "inode": 6192449487960454,
+      "creation_ns": 1792145783403033700,
+      "is_directory": false,
+      "sha256": "5ca7dcfb50c8562223dd9b6bd38ae4c4118dc2fee1e47ccebfffd8bed6887dc9"
+    },
+    "endpoint-manual-final-13.png": {
+      "device": 18360183284781620953,
+      "inode": 6755399442038392,
+      "creation_ns": 1792146534015933000,
+      "is_directory": false,
+      "sha256": "ac372134dfec18d9bedef806ab04bc7b8edf16fe2ffaad668357c841b4d98797"
+    },
+    "endpoint_validation_04b0cfc3f4": {
+      "device": 18360183284781620953,
+      "inode": 305963299684811421,
+      "creation_ns": 1792456099702874200,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_0512a3c21d": {
+      "device": 18360183284781620953,
+      "inode": 2251799815262656,
+      "creation_ns": 1792147628385362100,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_0c01f480e9": {
+      "device": 18360183284781620953,
+      "inode": 562949955061285,
+      "creation_ns": 1792401313330801100,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_0fd1583bf1": {
+      "device": 18360183284781620953,
+      "inode": 5910974511261456,
+      "creation_ns": 1792146047511650700,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_17473174cd": {
+      "device": 18360183284781620953,
+      "inode": 41658296554807342,
+      "creation_ns": 1792391954682001400,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_20175559cd": {
+      "device": 18360183284781620953,
+      "inode": 1688849860299551,
+      "creation_ns": 1792153647045735900,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_29e6d5f240": {
+      "device": 18360183284781620953,
+      "inode": 24769797952118938,
+      "creation_ns": 1792155907231397600,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_2d2c2b2050": {
+      "device": 18360183284781620953,
+      "inode": 16044073674085472,
+      "creation_ns": 1792148444563460500,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_311636ea7c": {
+      "device": 18360183284781620953,
+      "inode": 5066549582373583,
+      "creation_ns": 1792156159108957500,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_3becce10a2": {
+      "device": 18360183284781620953,
+      "inode": 12384898976846659,
+      "creation_ns": 1792148316707551600,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_40bc54b4da": {
+      "device": 18360183284781620953,
+      "inode": 8162774326188599,
+      "creation_ns": 1792153679845318000,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_41586df233": {
+      "device": 18360183284781620953,
+      "inode": 11258999068466734,
+      "creation_ns": 1792145602021543800,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_443ed5783f": {
+      "device": 18360183284781620953,
+      "inode": 57139420273814797,
+      "creation_ns": 1792147228635431800,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_46e69d11e7": {
+      "device": 18360183284781620953,
+      "inode": 50384020832844051,
+      "creation_ns": 1792398984036015400,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_4f3eb9a30d": {
+      "device": 18360183284781620953,
+      "inode": 14073748836517315,
+      "creation_ns": 1792147053978654900,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_54bd1c429a": {
+      "device": 18360183284781620953,
+      "inode": 12384898976825766,
+      "creation_ns": 1792147596842831700,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_5d3562d5d2": {
+      "device": 18360183284781620953,
+      "inode": 6192449489274151,
+      "creation_ns": 1792401311465840800,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_5feab1680f": {
+      "device": 18360183284781620953,
+      "inode": 6473924465926699,
+      "creation_ns": 1792156158637101700,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_67cd55dae2": {
+      "device": 18360183284781620953,
+      "inode": 844424931710615,
+      "creation_ns": 1792148608090841100,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_6a9fb4b7c1": {
+      "device": 18360183284781620953,
+      "inode": 1970324838556004,
+      "creation_ns": 1792155991557397000,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_6dff13dce1": {
+      "device": 18360183284781620953,
+      "inode": 24769797950875404,
+      "creation_ns": 1792146436934167700,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_8019ea6649": {
+      "device": 18360183284781620953,
+      "inode": 34339947159684080,
+      "creation_ns": 1792147133660178500,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_804e1d9d66": {
+      "device": 18360183284781620953,
+      "inode": 844424931714178,
+      "creation_ns": 1792156161722796000,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_80866ff9cd": {
+      "device": 18360183284781620953,
+      "inode": 24769797952176869,
+      "creation_ns": 1792401150505927800,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_92ddd5bfe5": {
+      "device": 18360183284781620953,
+      "inode": 7036874418750937,
+      "creation_ns": 1792147223873413600,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_97680d1692": {
+      "device": 18360183284781620953,
+      "inode": 9007199255066430,
+      "creation_ns": 1792145635805427800,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_a6f4401261": {
+      "device": 18360183284781620953,
+      "inode": 281474978289609,
+      "creation_ns": 1792148609029362700,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_a76b7568fc": {
+      "device": 18360183284781620953,
+      "inode": 281474978292640,
+      "creation_ns": 1792156160039603300,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_a9bd9f1a2f": {
+      "device": 18360183284781620953,
+      "inode": 1407374885134285,
+      "creation_ns": 1792154088898227600,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_ad1617f27d": {
+      "device": 18360183284781620953,
+      "inode": 36310271997312630,
+      "creation_ns": 1792399713573812400,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_b2349aa13e": {
+      "device": 18360183284781620953,
+      "inode": 281474978289481,
+      "creation_ns": 1792148608736208800,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_b235a6fd18": {
+      "device": 18360183284781620953,
+      "inode": 10977524091755880,
+      "creation_ns": 1792145490666058100,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_b45aaf64ab": {
+      "device": 18360183284781620953,
+      "inode": 30399297485076839,
+      "creation_ns": 1792145973008068200,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_b8f270aed6": {
+      "device": 18360183284781620953,
+      "inode": 281474978289787,
+      "creation_ns": 1792148609319423800,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_ba834866b8": {
+      "device": 18360183284781620953,
+      "inode": 1407374885104129,
+      "creation_ns": 1792401081031560200,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_c7fdc2fc1f": {
+      "device": 18360183284781620953,
+      "inode": 1407374885129522,
+      "creation_ns": 1792147598722543700,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_ce1835ad21": {
+      "device": 18360183284781620953,
+      "inode": 562949955061539,
+      "creation_ns": 1792401313572511600,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_d367b71794": {
+      "device": 18360183284781620953,
+      "inode": 8725724279012931,
+      "creation_ns": 1792146556100160000,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_db6d6f3000": {
+      "device": 18360183284781620953,
+      "inode": 13229323905726202,
+      "creation_ns": 1792145771662022800,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_dba3dd334c": {
+      "device": 18360183284781620953,
+      "inode": 21955048185009185,
+      "creation_ns": 1792148583482803000,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_de529d7b78": {
+      "device": 18360183284781620953,
+      "inode": 43347146415071029,
+      "creation_ns": 1792391867713952600,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_e2fdfcb780": {
+      "device": 18360183284781620953,
+      "inode": 61080069946252235,
+      "creation_ns": 1792145357880882300,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_e8919080ef": {
+      "device": 18360183284781620953,
+      "inode": 5629499535791239,
+      "creation_ns": 1792148400607640300,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_eb97889958": {
+      "device": 18360183284781620953,
+      "inode": 562949955061257,
+      "creation_ns": 1792401313218521000,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_f46002206d": {
+      "device": 18360183284781620953,
+      "inode": 54887620460155305,
+      "creation_ns": 1792148294610759900,
+      "is_directory": true,
+      "sha256": null
+    },
+    "endpoint_validation_febbec867c": {
+      "device": 18360183284781620953,
+      "inode": 9570149209804345,
+      "creation_ns": 1792456247728474300,
+      "is_directory": true,
+      "sha256": null
+    },
+    "excluded_logs_20261016_f511b6b8": {
+      "device": 18360183284781620953,
+      "inode": 9288674231487300,
+      "creation_ns": 1792134449232111000,
+      "is_directory": true,
+      "sha256": null
+    },
+    "exclusion_audit_20261016_634e5edc": {
+      "device": 18360183284781620953,
+      "inode": 81627743246126268,
+      "creation_ns": 1792136300640427600,
+      "is_directory": true,
+      "sha256": null
+    },
+    "exclusion_audit_20261016_78c2f131": {
+      "device": 18360183284781620953,
+      "inode": 61080069946249097,
+      "creation_ns": 1792138517396833700,
+      "is_directory": true,
+      "sha256": null
+    },
+    "exclusion_release_20261016_959c02dc": {
+      "device": 18360183284781620953,
+      "inode": 69242844270858374,
+      "creation_ns": 1792140465929662500,
+      "is_directory": true,
+      "sha256": null
+    },
+    "exe_acceptance_20260927": {
+      "device": 18360183284781620953,
+      "inode": 58546795157295341,
+      "creation_ns": 1790495846190031900,
+      "is_directory": true,
+      "sha256": null
+    },
+    "exe_output_comparison_20260927": {
+      "device": 18360183284781620953,
+      "inode": 5629499535688518,
+      "creation_ns": 1790486865419464600,
+      "is_directory": true,
+      "sha256": null
+    },
+    "export_blocker_audit_20261012": {
+      "device": 18360183284781620953,
+      "inode": 3659174698789814,
+      "creation_ns": 1791794408261892500,
+      "is_directory": true,
+      "sha256": null
+    },
+    "finalize_code_review_20261019.py": {
+      "device": 18360183284781620953,
+      "inode": 44473046321920292,
+      "creation_ns": 1792398365827123200,
+      "is_directory": false,
+      "sha256": "45ce1f66b951c2224e452257116e6ef3ded9d7557737f14f1ed3a204721199b7"
+    },
+    "finalize_endpoint_audit.py": {
+      "device": 18360183284781620953,
+      "inode": 34339947159682270,
+      "creation_ns": 1792146758863265100,
+      "is_directory": false,
+      "sha256": "81d870830d316c8ff9130db69498cb87dcc1c84ce844fb34ef3986f5cd3aefb6"
+    },
+    "finalize_replace_refs_archive_modes_20261019.py": {
+      "device": 18360183284781620953,
+      "inode": 7599824372825545,
+      "creation_ns": 1792399318110349300,
+      "is_directory": false,
+      "sha256": "a4d009869367be411a99b838c0ddd7a1a456bab4c3ddcffab7120c1ebbf1f51f"
+    },
+    "finalize_svn_root_fix_20261019.py": {
+      "device": 18360183284781620953,
+      "inode": 13229323907032517,
+      "creation_ns": 1792392445897113200,
+      "is_directory": false,
+      "sha256": "6e297094ab6241d2578a07963228b27cff0ab3e12e8b48d9a3f7f84a3e0ebaaa"
+    },
+    "finish_exclusion_review_20261016.py": {
+      "device": 18360183284781620953,
+      "inode": 8444249301356751,
+      "creation_ns": 1792138622792728300,
+      "is_directory": false,
+      "sha256": "9f34ac58a150dfd35252fd620c8f963d2e5212b27233b8571926a0caac69bef0"
+    },
+    "five_fixes_20261017_e84d": {
+      "device": 18360183284781620953,
+      "inode": 80783318317554562,
+      "creation_ns": 1792230980964850400,
+      "is_directory": true,
+      "sha256": null
+    },
+    "fix-last3-8a288d29": {
+      "device": 18360183284781620953,
+      "inode": 103019841477654849,
+      "creation_ns": 1791855731468497100,
+      "is_directory": true,
+      "sha256": null
+    },
+    "fix-review-20260907": {
+      "device": 18360183284781620953,
+      "inode": 3659174698051744,
+      "creation_ns": 1788764388084360400,
+      "is_directory": true,
+      "sha256": null
+    },
+    "fix_0926_7trc0ccb": {
+      "device": 18360183284781620953,
+      "inode": 31525197393057531,
+      "creation_ns": 1790404010447318100,
+      "is_directory": true,
+      "sha256": null
+    },
+    "fix_20260907": {
+      "device": 18360183284781620953,
+      "inode": 2533274791199522,
+      "creation_ns": 1788750113648978200,
+      "is_directory": true,
+      "sha256": null
+    },
+    "fix_four_20261019_9e4fa1c2": {
+      "device": 18360183284781620953,
+      "inode": 71776119062842666,
+      "creation_ns": 1792379078537310800,
+      "is_directory": true,
+      "sha256": null
+    },
+    "fix_git_paths_20261020_01a15818": {
+      "device": 18360183284781620953,
+      "inode": 42784196461456228,
+      "creation_ns": 1792480740372044800,
+      "is_directory": true,
+      "sha256": null
+    },
+    "fix_replace_refs_archive_modes_20261019_2dadbf6b": {
+      "device": 18360183284781620953,
+      "inode": 37717646880864808,
+      "creation_ns": 1792399131879538200,
+      "is_directory": true,
+      "sha256": null
+    },
+    "fix_replace_refs_archive_modes_20261019_65373df2": {
+      "device": 18360183284781620953,
+      "inode": 44473046321921436,
+      "creation_ns": 1792399738090317100,
+      "is_directory": true,
+      "sha256": null
+    },
+    "fix_review_20261017_c92a": {
+      "device": 18360183284781620953,
+      "inode": 85849867898343092,
+      "creation_ns": 1792208395843528000,
+      "is_directory": true,
+      "sha256": null
+    },
+    "fix_review_20261019": {
+      "device": 18360183284781620953,
+      "inode": 98797716827060611,
+      "creation_ns": 1792385840538359100,
+      "is_directory": true,
+      "sha256": null
+    },
+    "fix_review_20261019_5330066d": {
+      "device": 18360183284781620953,
+      "inode": 18577348464536376,
+      "creation_ns": 1792396343893387500,
+      "is_directory": true,
+      "sha256": null
+    },
+    "fix_root_restore_20261019_1c887d87": {
+      "device": 18360183284781620953,
+      "inode": 7036874419379673,
+      "creation_ns": 1792374494691820400,
+      "is_directory": true,
+      "sha256": null
+    },
+    "fix_root_restore_20261019_76c3b9ad": {
+      "device": 18360183284781620953,
+      "inode": 5348024559115352,
+      "creation_ns": 1792374270299946500,
+      "is_directory": true,
+      "sha256": null
+    },
+    "fix_root_restore_20261019_9d613b42": {
+      "device": 18360183284781620953,
+      "inode": 9007199256353682,
+      "creation_ns": 1792374188197332100,
+      "is_directory": true,
+      "sha256": null
+    },
+    "fix_root_restore_20261019_d87bf9d9": {
+      "device": 18360183284781620953,
+      "inode": 8444249302932988,
+      "creation_ns": 1792374419624206600,
+      "is_directory": true,
+      "sha256": null
+    },
+    "fix_root_restore_20261019_fe61cc6c": {
+      "device": 18360183284781620953,
+      "inode": 36591746973997021,
+      "creation_ns": 1792374117775163000,
+      "is_directory": true,
+      "sha256": null
+    },
+    "fix_root_restore_20261019_ff0a6f93": {
+      "device": 18360183284781620953,
+      "inode": 6192449489247512,
+      "creation_ns": 1792374320404221200,
+      "is_directory": true,
+      "sha256": null
+    },
+    "fix_three_20261017_7ac2": {
+      "device": 18360183284781620953,
+      "inode": 134263563892578364,
+      "creation_ns": 1792223224820617300,
+      "is_directory": true,
+      "sha256": null
+    },
+    "folder_scan_benchmark.py": {
+      "device": 18360183284781620953,
+      "inode": 59109745109837027,
+      "creation_ns": 1790266854962919900,
+      "is_directory": false,
+      "sha256": "e44bbfe7afc6858032193898702187a05c0daf4da2cc276aee82c890cb4e1b84"
+    },
+    "folder_vcs_before_folder_opt.py": {
+      "device": 18360183284781620953,
+      "inode": 42784196460619057,
+      "creation_ns": 1790266961831937400,
+      "is_directory": false,
+      "sha256": "9cf787694f1e1f35ba843a3fdfa9c3e5ef34facab83ea4d759ac34526f9010a7"
+    },
+    "folder_verify_foiucu0p": {
+      "device": 18360183284781620953,
+      "inode": 103019841476699756,
+      "creation_ns": 1790268866789260500,
+      "is_directory": true,
+      "sha256": null
+    },
+    "folder_version_diagnosis_20260927": {
+      "device": 18360183284781620953,
+      "inode": 56857945297027342,
+      "creation_ns": 1790484738663268700,
+      "is_directory": true,
+      "sha256": null
+    },
+    "full_audit_20261017_5e91": {
+      "device": 18360183284781620953,
+      "inode": 42502721484900769,
+      "creation_ns": 1792214226377057300,
+      "is_directory": true,
+      "sha256": null
+    },
+    "full_audit_20261017_6c91": {
+      "device": 18360183284781620953,
+      "inode": 51791395716355930,
+      "creation_ns": 1792225946367325800,
+      "is_directory": true,
+      "sha256": null
+    },
+    "full_review_20261017_72da242c": {
+      "device": 18360183284781620953,
+      "inode": 21110623254900362,
+      "creation_ns": 1792241493790888800,
+      "is_directory": true,
+      "sha256": null
+    },
+    "full_review_20261017_b7f4": {
+      "device": 18360183284781620953,
+      "inode": 50384020832799683,
+      "creation_ns": 1792203362910209600,
+      "is_directory": true,
+      "sha256": null
+    },
+    "full_review_20261018_611bb679": {
+      "device": 18360183284781620953,
+      "inode": 562949955027237,
+      "creation_ns": 1792338327435976600,
+      "is_directory": true,
+      "sha256": null
+    },
+    "full_review_20261018_controls.py": {
+      "device": 18360183284781620953,
+      "inode": 21110623254906153,
+      "creation_ns": 1792338635259362300,
+      "is_directory": false,
+      "sha256": "87c213c86a79f833ad2c8a7f5b34c5eaa288dfae54aef91611a8a065be27541b"
+    },
+    "full_review_20261018_e720788f": {
+      "device": 18360183284781620953,
+      "inode": 47287796088994860,
+      "creation_ns": 1792338269214358400,
+      "is_directory": true,
+      "sha256": null
+    },
+    "full_review_20261018_probes.py": {
+      "device": 18360183284781620953,
+      "inode": 8725724279637490,
+      "creation_ns": 1792338513792273900,
+      "is_directory": false,
+      "sha256": "ab9872ab14106aaf2179cc8cde7b51473897a3c88acaa1dd234903bcc8c4e56b"
+    },
+    "full_review_20261018_runner.py": {
+      "device": 18360183284781620953,
+      "inode": 46161896182152235,
+      "creation_ns": 1792338268042835900,
+      "is_directory": false,
+      "sha256": "471c33984fca5d93016cadb405fd9f6474ca9f955c5fd4363e6e28f22d716f0a"
+    },
+    "full_review_20261018_summarize.py": {
+      "device": 18360183284781620953,
+      "inode": 28428972649383199,
+      "creation_ns": 1792338776175311500,
+      "is_directory": false,
+      "sha256": "ec62b5dc55541a7087ef49515b7f97ba41f47b62be1a6057afd5636b915cce91"
+    },
+    "full_review_20261018_svn_probe.py": {
+      "device": 18360183284781620953,
+      "inode": 1970324838581872,
+      "creation_ns": 1792338422662888400,
+      "is_directory": false,
+      "sha256": "adcec4aa265199427e6b16a5899c0c2e36c73448c6c8cea6d43b8186eeed2282"
+    },
+    "full_review_20261019.py": {
+      "device": 18360183284781620953,
+      "inode": 66991044458744938,
+      "creation_ns": 1792372967105870000,
+      "is_directory": false,
+      "sha256": "1a33237b173422763a59e274c8c0ecb7b16506d548e4191cc1ea594a2466f3e2"
+    },
+    "full_review_20261019_01a1536c.json": {
+      "device": 18360183284781620953,
+      "inode": 45035996275345630,
+      "creation_ns": 1792402471797029800,
+      "is_directory": false,
+      "sha256": "3680a25185f73040ae5f519324f0b0cf7b7785e1512ebab13be374f95b9a4a08"
+    },
+    "full_review_20261019_06346324": {
+      "device": 18360183284781620953,
+      "inode": 36873221950724108,
+      "creation_ns": 1792390743717988200,
+      "is_directory": true,
+      "sha256": null
+    },
+    "full_review_20261019_59d213ed": {
+      "device": 18360183284781620953,
+      "inode": 34339947160331365,
+      "creation_ns": 1792394475501809100,
+      "is_directory": true,
+      "sha256": null
+    },
+    "full_review_20261019_7da06dc8": {
+      "device": 18360183284781620953,
+      "inode": 1125899908466282,
+      "creation_ns": 1792377022874299000,
+      "is_directory": true,
+      "sha256": null
+    },
+    "full_review_20261019_941bc039": {
+      "device": 18360183284781620953,
+      "inode": 64739244645059691,
+      "creation_ns": 1792372969120111800,
+      "is_directory": true,
+      "sha256": null
+    },
+    "full_review_20261019_dcc56dec": {
+      "device": 18360183284781620953,
+      "inode": 12947848930320680,
+      "creation_ns": 1792392030572652700,
+      "is_directory": true,
+      "sha256": null
+    },
+    "full_review_20261019_ea639581": {
+      "device": 18360183284781620953,
+      "inode": 3940649675578392,
+      "creation_ns": 1792390851857654200,
+      "is_directory": true,
+      "sha256": null
+    },
+    "full_review_20261019_fb04769f": {
+      "device": 18360183284781620953,
+      "inode": 1970324838585469,
+      "creation_ns": 1792373103502082200,
+      "is_directory": true,
+      "sha256": null
+    },
+    "full_review_20261020_01a15818": {
+      "device": 18360183284781620953,
+      "inode": 12947848929118182,
+      "creation_ns": 1792479456881470500,
+      "is_directory": true,
+      "sha256": null
+    },
+    "full_review_20261020_current": {
+      "device": 18360183284781620953,
+      "inode": 11258999070072452,
+      "creation_ns": 1792507771247459100,
+      "is_directory": true,
+      "sha256": null
+    },
+    "github_release_20260929": {
+      "device": 18360183284781620953,
+      "inode": 3659174698717586,
+      "creation_ns": 1790612266255249500,
+      "is_directory": true,
+      "sha256": null
+    },
+    "git_multi_contiguous_20261012": {
+      "device": 18360183284781620953,
+      "inode": 3096224745344320,
+      "creation_ns": 1791735889354846400,
+      "is_directory": true,
+      "sha256": null
+    },
+    "gui_timing_e7a05t4u": {
+      "device": 18360183284781620953,
+      "inode": 3659174698126626,
+      "creation_ns": 1790352590420666600,
+      "is_directory": true,
+      "sha256": null
+    },
+    "manual": {
+      "device": 18360183284781620953,
+      "inode": 844424931403981,
+      "creation_ns": 1789099039052697900,
+      "is_directory": true,
+      "sha256": null
+    },
+    "manual-build-closeout.log": {
+      "device": 18360183284781620953,
+      "inode": 2814749768378566,
+      "creation_ns": 1789099038420242900,
+      "is_directory": false,
+      "sha256": "e8c5972cc588cff37f182a7f1cead592f4bfe366a7604cba52fecad78ae9dd7b"
+    },
+    "member-budget-20261012": {
+      "device": 18360183284781620953,
+      "inode": 844424931682828,
+      "creation_ns": 1791791382714307500,
+      "is_directory": true,
+      "sha256": null
+    },
+    "migrate_output_tests.py": {
+      "device": 18360183284781620953,
+      "inode": 53761720553112552,
+      "creation_ns": 1790489270005683800,
+      "is_directory": false,
+      "sha256": "4568ca00b1d1d06b6afd70407f90fb99f1d7863c963e9e7c912fcab35badd9f7"
+    },
+    "native_sparse_5a86ad690f": {
+      "device": 18360183284781620953,
+      "inode": 24769797950866032,
+      "creation_ns": 1792146140130906100,
+      "is_directory": true,
+      "sha256": null
+    },
+    "neat_closeout_20261017.py": {
+      "device": 18360183284781620953,
+      "inode": 74027918876456952,
+      "creation_ns": 1792213069852937900,
+      "is_directory": false,
+      "sha256": "6b82ac50db3aa18d5c9c8abb0baa2b4f6666def5c891ba312864f16ea8d7fd2d"
+    },
+    "neat_closeout_20261017_inventory.json": {
+      "device": 18360183284781620953,
+      "inode": 25051272928843603,
+      "creation_ns": 1792213088198760000,
+      "is_directory": false,
+      "sha256": "2c863e4ae329e2332e5e52b9759e5d22dfd515b3a3501d7281ef39ce803cc2b2"
+    },
+    "nested_archives_izv5vtt6": {
+      "device": 18360183284781620953,
+      "inode": 3096224743857913,
+      "creation_ns": 1790392717704603900,
+      "is_directory": true,
+      "sha256": null
+    },
+    "output_regeneration_20260927_140840": {
+      "device": 18360183284781620953,
+      "inode": 14073748837008254,
+      "creation_ns": 1790489320288022500,
+      "is_directory": true,
+      "sha256": null
+    },
+    "output_regeneration_20260927_141938": {
+      "device": 18360183284781620953,
+      "inode": 90071992548886751,
+      "creation_ns": 1790489978682381700,
+      "is_directory": true,
+      "sha256": null
+    },
+    "output_regeneration_20260927_142117": {
+      "device": 18360183284781620953,
+      "inode": 7881299349375487,
+      "creation_ns": 1790490077912337400,
+      "is_directory": true,
+      "sha256": null
+    },
+    "output_regeneration_benchmark_20260927_143010": {
+      "device": 18360183284781620953,
+      "inode": 844424931416556,
+      "creation_ns": 1790490610812007800,
+      "is_directory": true,
+      "sha256": null
+    },
+    "patch_recheck_20261017_44d1": {
+      "device": 18360183284781620953,
+      "inode": 137922738589811730,
+      "creation_ns": 1792212439759845700,
+      "is_directory": true,
+      "sha256": null
+    },
+    "path_safety_before_folder_opt.py": {
+      "device": 18360183284781620953,
+      "inode": 34058472182588720,
+      "creation_ns": 1790266961830426400,
+      "is_directory": false,
+      "sha256": "9aa3e4d3cff6f3ca3f291633e9a2be12cbde8c69dafcfda8b6f4cda8cfb1201d"
+    },
+    "performance_review_20260926_13578d0_b2f7": {
+      "device": 18360183284781620953,
+      "inode": 9007199256208432,
+      "creation_ns": 1790424101967456500,
+      "is_directory": true,
+      "sha256": null
+    },
+    "perf_c1_hv3uhvgx": {
+      "device": 18360183284781620953,
+      "inode": 27303072742406376,
+      "creation_ns": 1790447899468734300,
+      "is_directory": true,
+      "sha256": null
+    },
+    "perf_continue_rsarmvdt": {
+      "device": 18360183284781620953,
+      "inode": 6755399441939482,
+      "creation_ns": 1790441795312757900,
+      "is_directory": true,
+      "sha256": null
+    },
+    "perf_finish_7nawfgju": {
+      "device": 18360183284781620953,
+      "inode": 2251799815157428,
+      "creation_ns": 1790444594646401900,
+      "is_directory": true,
+      "sha256": null
+    },
+    "perf_improve_20260924_ohsxlidu": {
+      "device": 18360183284781620953,
+      "inode": 6473924464649239,
+      "creation_ns": 1790262622763403900,
+      "is_directory": true,
+      "sha256": null
+    },
+    "perf_next_tb7cabn5": {
+      "device": 18360183284781620953,
+      "inode": 3940649675416912,
+      "creation_ns": 1790428010447001600,
+      "is_directory": true,
+      "sha256": null
+    },
+    "perf_reconnect_pyferd0b": {
+      "device": 18360183284781620953,
+      "inode": 73183493946243023,
+      "creation_ns": 1790447290435610700,
+      "is_directory": true,
+      "sha256": null
+    },
+    "precommit_review_20261019.py": {
+      "device": 18360183284781620953,
+      "inode": 281474978333982,
+      "creation_ns": 1792376874020723400,
+      "is_directory": false,
+      "sha256": "0ff1a4b8a5e591d4be4c6fb8c00e6ed8d272a7b3ec932c762252c6c593d23f1e"
+    },
+    "publish_retry_20260928_001911": {
+      "device": 18360183284781620953,
+      "inode": 2814749767106631,
+      "creation_ns": 1790525951402814300,
+      "is_directory": true,
+      "sha256": null
+    },
+    "real_folder_profile_cr6d4zss": {
+      "device": 18360183284781620953,
+      "inode": 1970324837862687,
+      "creation_ns": 1790351527886600100,
+      "is_directory": true,
+      "sha256": null
+    },
+    "recent_name_fix_20261021": {
+      "device": 18360183284781620953,
+      "inode": 3659174698150494,
+      "creation_ns": 1792515756920761700,
+      "is_directory": true,
+      "sha256": null
+    },
+    "recheck_svn_copy_fixes.py": {
+      "device": 18360183284781620953,
+      "inode": 844424931714858,
+      "creation_ns": 1792156268971395100,
+      "is_directory": false,
+      "sha256": "97f2f3a0919dfd323464f01dd3f76c1bce30a766d62d8eebe5cbb675c5488b37"
+    },
+    "recovery_archive_acceptance.log": {
+      "device": 18360183284781620953,
+      "inode": 38562071810644602,
+      "creation_ns": 1789117204354440200,
+      "is_directory": false,
+      "sha256": "2c021544a02340f732c8a653af629fe09652cfca1d172558dc09386f0e280625"
+    },
+    "recovery_archive_acceptance.py": {
+      "device": 18360183284781620953,
+      "inode": 59109745110522349,
+      "creation_ns": 1789117193421177500,
+      "is_directory": false,
+      "sha256": "4230ef976176787100273ca40d5b3b8adf046039bc61b4385c875e940e4d150d"
+    },
+    "recovery_archive_acceptance_20260911": {
+      "device": 18360183284781620953,
+      "inode": 36310271996959376,
+      "creation_ns": 1789117204641842800,
+      "is_directory": true,
+      "sha256": null
+    },
+    "recovery_build_20260911.log": {
+      "device": 18360183284781620953,
+      "inode": 562949954707998,
+      "creation_ns": 1789116853451978900,
+      "is_directory": false,
+      "sha256": "df65a6767d2813c9ae7a9e989dd6730b2a2822a96693720e5ad8e2739482ef7e"
+    },
+    "recovery_full_tests_20260911.log": {
+      "device": 18360183284781620953,
+      "inode": 844424931416554,
+      "creation_ns": 1789116607155070400,
+      "is_directory": false,
+      "sha256": "c1d65a6aa946ee5257ff6fb3db748a57a09f531e6eeab85b360d4b26a726e389"
+    },
+    "recovery_installation_20260911.json": {
+      "device": 18360183284781620953,
+      "inode": 6473924465631988,
+      "creation_ns": 1789117360092463800,
+      "is_directory": false,
+      "sha256": "b58bedc13a63ba68eafbf5584c171e6f3d3eaae42735dde14881099b27ffa5a1"
+    },
+    "recovery_retry_after.log": {
+      "device": 18360183284781620953,
+      "inode": 562949954705219,
+      "creation_ns": 1789116523518857100,
+      "is_directory": false,
+      "sha256": "623fc9c17531ebb3469070521d4ebce5b5c92bd24875d016417ce9bf27d7c6ac"
+    },
+    "recovery_retry_before.log": {
+      "device": 18360183284781620953,
+      "inode": 844424931414978,
+      "creation_ns": 1789116445023361600,
+      "is_directory": false,
+      "sha256": "6b84831a1e4c397f3f81d602429e4adf1149096851b66cf08f3f2c96bcdaac3a"
+    },
+    "recovery_tools": {
+      "device": 18360183284781620953,
+      "inode": 1407374884840225,
+      "creation_ns": 1789117023641872700,
+      "is_directory": true,
+      "sha256": null
+    },
+    "recovery_tools_install.log": {
+      "device": 18360183284781620953,
+      "inode": 32651097299722475,
+      "creation_ns": 1789117019243671000,
+      "is_directory": false,
+      "sha256": "7ce8419c467daf2de8e145614def0539745726ed2f96769a445e4d9a04bf44f9"
+    },
+    "release_20261016_svn_lineage_98e2b387": {
+      "device": 18360183284781620953,
+      "inode": 4222124652244977,
+      "creation_ns": 1792161782063249000,
+      "is_directory": true,
+      "sha256": null
+    },
+    "release_build_01j9_j47": {
+      "device": 18360183284781620953,
+      "inode": 47287796088864385,
+      "creation_ns": 1790473659013547700,
+      "is_directory": true,
+      "sha256": null
+    },
+    "release_build_1mdxk_8u": {
+      "device": 18360183284781620953,
+      "inode": 38280596834116457,
+      "creation_ns": 1790417946528930500,
+      "is_directory": true,
+      "sha256": null
+    },
+    "release_build_3_gi_s6z": {
+      "device": 18360183284781620953,
+      "inode": 75153818781786043,
+      "creation_ns": 1790394176641409000,
+      "is_directory": true,
+      "sha256": null
+    },
+    "release_build_5tznf_2g": {
+      "device": 18360183284781620953,
+      "inode": 67835469387305102,
+      "creation_ns": 1792140495519117900,
+      "is_directory": true,
+      "sha256": null
+    },
+    "release_build_8gk8belo": {
+      "device": 18360183284781620953,
+      "inode": 5066549582318598,
+      "creation_ns": 1791730554028409200,
+      "is_directory": true,
+      "sha256": null
+    },
+    "release_build_90mvxaad": {
+      "device": 18360183284781620953,
+      "inode": 3940649673949251,
+      "creation_ns": 1790558479686075200,
+      "is_directory": true,
+      "sha256": null
+    },
+    "release_build_9pj14mkq": {
+      "device": 18360183284781620953,
+      "inode": 3096224743857821,
+      "creation_ns": 1790390115474766000,
+      "is_directory": true,
+      "sha256": null
+    },
+    "release_build_bsn99pw0": {
+      "device": 18360183284781620953,
+      "inode": 7036874419241797,
+      "creation_ns": 1790491094145290100,
+      "is_directory": true,
+      "sha256": null
+    },
+    "release_build_d7e5nar6": {
+      "device": 18360183284781620953,
+      "inode": 88946092640604299,
+      "creation_ns": 1792140467709853400,
+      "is_directory": true,
+      "sha256": null
+    },
+    "release_build_e3v3usol": {
+      "device": 18360183284781620953,
+      "inode": 133137663985739005,
+      "creation_ns": 1792237169835615400,
+      "is_directory": true,
+      "sha256": null
+    },
+    "release_build_ecggilwu": {
+      "device": 18360183284781620953,
+      "inode": 111745565755719832,
+      "creation_ns": 1792171950255500700,
+      "is_directory": true,
+      "sha256": null
+    },
+    "release_build_frmez9be": {
+      "device": 18360183284781620953,
+      "inode": 4785074604671408,
+      "creation_ns": 1790473638162642700,
+      "is_directory": true,
+      "sha256": null
+    },
+    "release_build_k2_t_35w": {
+      "device": 18360183284781620953,
+      "inode": 1407374884446186,
+      "creation_ns": 1790394459812431800,
+      "is_directory": true,
+      "sha256": null
+    },
+    "release_build_mn3ncbrp": {
+      "device": 18360183284781620953,
+      "inode": 5066549582349433,
+      "creation_ns": 1791874558261765200,
+      "is_directory": true,
+      "sha256": null
+    },
+    "release_build_mynfhef6": {
+      "device": 18360183284781620953,
+      "inode": 63613344738075501,
+      "creation_ns": 1790416676607199800,
+      "is_directory": true,
+      "sha256": null
+    },
+    "release_build_n5hqm06c": {
+      "device": 18360183284781620953,
+      "inode": 18858823440503026,
+      "creation_ns": 1790356485427420000,
+      "is_directory": true,
+      "sha256": null
+    },
+    "release_build_rfn1yk4v": {
+      "device": 18360183284781620953,
+      "inode": 9288674233002799,
+      "creation_ns": 1791793506364672800,
+      "is_directory": true,
+      "sha256": null
+    },
+    "release_build_u101o0z3": {
+      "device": 18360183284781620953,
+      "inode": 32651097299035473,
+      "creation_ns": 1790524422785887600,
+      "is_directory": true,
+      "sha256": null
+    },
+    "release_build_uxlk144y": {
+      "device": 18360183284781620953,
+      "inode": 3377699722113035,
+      "creation_ns": 1792161782308134000,
+      "is_directory": true,
+      "sha256": null
+    },
+    "release_build_vxvasts1": {
+      "device": 18360183284781620953,
+      "inode": 31243722415773012,
+      "creation_ns": 1790357324136962600,
+      "is_directory": true,
+      "sha256": null
+    },
+    "release_build_y05a8elm": {
+      "device": 18360183284781620953,
+      "inode": 11821949023093243,
+      "creation_ns": 1791537900616057700,
+      "is_directory": true,
+      "sha256": null
+    },
+    "release_build_yhlb6m9_": {
+      "device": 18360183284781620953,
+      "inode": 1407374883593825,
+      "creation_ns": 1790388800630074700,
+      "is_directory": true,
+      "sha256": null
+    },
+    "release_build_ziheuor2": {
+      "device": 18360183284781620953,
+      "inode": 10696049116532043,
+      "creation_ns": 1791850610273148600,
+      "is_directory": true,
+      "sha256": null
+    },
+    "release_five_20261017_f2c8": {
+      "device": 18360183284781620953,
+      "inode": 69524319249128208,
+      "creation_ns": 1792237161305604500,
+      "is_directory": true,
+      "sha256": null
+    },
+    "release_polish_q1gcm5dh": {
+      "device": 18360183284781620953,
+      "inode": 23925373020727173,
+      "creation_ns": 1790355326635529300,
+      "is_directory": true,
+      "sha256": null
+    },
+    "release_review_20261017": {
+      "device": 18360183284781620953,
+      "inode": 49258120925954362,
+      "creation_ns": 1792171483024433600,
+      "is_directory": true,
+      "sha256": null
+    },
+    "repair_review_07d22c2d60": {
+      "device": 18360183284781620953,
+      "inode": 72057594039401405,
+      "creation_ns": 1790469710114149400,
+      "is_directory": true,
+      "sha256": null
+    },
+    "restore_output_and_install.py": {
+      "device": 18360183284781620953,
+      "inode": 13229323906687722,
+      "creation_ns": 1789117348290839300,
+      "is_directory": false,
+      "sha256": "28a1aaa6120ecde499a1a6b977ad430c74dc9c2bbe332c75d7db6b64631bb097"
+    },
+    "review-20260907": {
+      "device": 18360183284781620953,
+      "inode": 4503599628183363,
+      "creation_ns": 1788762883921303700,
+      "is_directory": true,
+      "sha256": null
+    },
+    "review-last3-20c14189": {
+      "device": 18360183284781620953,
+      "inode": 9851624186427399,
+      "creation_ns": 1791854525951092100,
+      "is_directory": true,
+      "sha256": null
+    },
+    "review-last3-current.json": {
+      "device": 18360183284781620953,
+      "inode": 3377699722082464,
+      "creation_ns": 1791854526183370600,
+      "is_directory": false,
+      "sha256": "6156ae8dec6def6fd55500001cdaf455e778f4614b778fd4dfeae509718b63b5"
+    },
+    "review_0926_native_3o6q1oy3": {
+      "device": 18360183284781620953,
+      "inode": 1407374885016780,
+      "creation_ns": 1790403077269122800,
+      "is_directory": true,
+      "sha256": null
+    },
+    "review_0926_y2zh3m9t": {
+      "device": 0,
+      "inode": 0,
+      "creation_ns": 1790403017683117400,
+      "is_directory": true,
+      "sha256": null
+    },
+    "review_20261016_d8867db5": {
+      "device": 18360183284781620953,
+      "inode": 41376821578048848,
+      "creation_ns": 1792164385506560400,
+      "is_directory": true,
+      "sha256": null
+    },
+    "review_20261017_full": {
+      "device": 18360183284781620953,
+      "inode": 46161896182135115,
+      "creation_ns": 1792167735943995500,
+      "is_directory": true,
+      "sha256": null
+    },
+    "review_20261019_full": {
+      "device": 18360183284781620953,
+      "inode": 28991922602816629,
+      "creation_ns": 1792383897474161300,
+      "is_directory": true,
+      "sha256": null
+    },
+    "review_20261019_verified": {
+      "device": 18360183284781620953,
+      "inode": 2251799815304552,
+      "creation_ns": 1792383949657543100,
+      "is_directory": true,
+      "sha256": null
+    },
+    "review_20261021": {
+      "device": 18360183284781620953,
+      "inode": 44754521298642801,
+      "creation_ns": 1792513973545713000,
+      "is_directory": true,
+      "sha256": null
+    },
+    "review_6pro_b3c668393f": {
+      "device": 18360183284781620953,
+      "inode": 10133099163056863,
+      "creation_ns": 1790467037163760100,
+      "is_directory": true,
+      "sha256": null
+    },
+    "review_all_20261019_current.py": {
+      "device": 18360183284781620953,
+      "inode": 45880421205471616,
+      "creation_ns": 1792397648451065500,
+      "is_directory": false,
+      "sha256": "0d3e4cd19dae1c75872bd91ba8108dd204614997bfb3fd7a5f0797b22af9db13"
+    },
+    "review_all_vcs_63e2f3a6dd": {
+      "device": 18360183284781620953,
+      "inode": 16325548650685149,
+      "creation_ns": 1790410892102405600,
+      "is_directory": true,
+      "sha256": null
+    },
+    "review_archive_rename_mode_probe.py": {
+      "device": 18360183284781620953,
+      "inode": 13510798883748465,
+      "creation_ns": 1792398150281701400,
+      "is_directory": false,
+      "sha256": "a62e8ba7e6c8c084e788b3bd6258036f9f2e44c83a718b2b9160cb82fdb6c293"
+    },
+    "review_codex_k5xcfjwx": {
+      "device": 18360183284781620953,
+      "inode": 9288674232916081,
+      "creation_ns": 1790405217316898200,
+      "is_directory": true,
+      "sha256": null
+    },
+    "review_delivery_integrity_20261013": {
+      "device": 18360183284781620953,
+      "inode": 4785074605608211,
+      "creation_ns": 1791821891040824000,
+      "is_directory": true,
+      "sha256": null
+    },
+    "review_depth400_probe_20261019": {
+      "device": 18360183284781620953,
+      "inode": 17732923534412928,
+      "creation_ns": 1792401872467420000,
+      "is_directory": true,
+      "sha256": null
+    },
+    "review_depth400_probe_20261019.py": {
+      "device": 18360183284781620953,
+      "inode": 12947848930331677,
+      "creation_ns": 1792401871766443400,
+      "is_directory": false,
+      "sha256": "7a57627e67ac3fc54e64cd81786e7441e2621134e2ee3851a14c24bbbe28b837"
+    },
+    "review_depth_probe_20261019": {
+      "device": 18360183284781620953,
+      "inode": 11258999070067261,
+      "creation_ns": 1792401610224701600,
+      "is_directory": true,
+      "sha256": null
+    },
+    "review_depth_probe_20261019.py": {
+      "device": 18360183284781620953,
+      "inode": 1407374885195350,
+      "creation_ns": 1792401604239984200,
+      "is_directory": false,
+      "sha256": "a90762c12600c1b3b3af6eeaab1ab28213abf2d4b41ff113dd70cd854bd05b21"
+    },
+    "review_eol_probe_20261019": {
+      "device": 18360183284781620953,
+      "inode": 17169973580989516,
+      "creation_ns": 1792401271802519400,
+      "is_directory": true,
+      "sha256": null
+    },
+    "review_eol_probe_20261019.py": {
+      "device": 18360183284781620953,
+      "inode": 10977524093355111,
+      "creation_ns": 1792401267278044800,
+      "is_directory": false,
+      "sha256": "474513ea9b53983f1fb28ea367b2770002eb0d8e1ae42a4a3a7aa41b7a7b3b49"
+    },
+    "review_excluded_replacement_20261016.py": {
+      "device": 18360183284781620953,
+      "inode": 8725724279611232,
+      "creation_ns": 1792154026689968400,
+      "is_directory": false,
+      "sha256": "c40935212de75280ce08e253593a28b280b22698aa90a0e7cd000c22dafa2a57"
+    },
+    "review_failed_rename_probe_20261019": {
+      "device": 18360183284781620953,
+      "inode": 8444249302961963,
+      "creation_ns": 1792401984666148300,
+      "is_directory": true,
+      "sha256": null
+    },
+    "review_failed_rename_probe_20261019.py": {
+      "device": 18360183284781620953,
+      "inode": 281474978353272,
+      "creation_ns": 1792401980979491400,
+      "is_directory": false,
+      "sha256": "978fe3d67f68184b6bdac8078d3ce29f14eaa187d2d8308b7e2f0c70390fb385"
+    },
+    "review_fixes_20261013": {
+      "device": 18360183284781620953,
+      "inode": 4222124652214589,
+      "creation_ns": 1791822261464499200,
+      "is_directory": true,
+      "sha256": null
+    },
+    "review_fixes_20261017": {
+      "device": 18360183284781620953,
+      "inode": 62487444831353143,
+      "creation_ns": 1792170296206726700,
+      "is_directory": true,
+      "sha256": null
+    },
+    "review_fix_20261016": {
+      "device": 18360183284781620953,
+      "inode": 24488322975413990,
+      "creation_ns": 1792166211471948900,
+      "is_directory": true,
+      "sha256": null
+    },
+    "review_fix_20261017": {
+      "device": 18360183284781620953,
+      "inode": 207165582860632903,
+      "creation_ns": 1792200734723867500,
+      "is_directory": true,
+      "sha256": null
+    },
+    "review_folder_boundaries_6facb408": {
+      "device": 18360183284781620953,
+      "inode": 23643898043731772,
+      "creation_ns": 1792138109513552200,
+      "is_directory": true,
+      "sha256": null
+    },
+    "review_gitdir_probe_20261019": {
+      "device": 18360183284781620953,
+      "inode": 20266198324809001,
+      "creation_ns": 1792401759474483600,
+      "is_directory": true,
+      "sha256": null
+    },
+    "review_gitdir_probe_20261019.py": {
+      "device": 18360183284781620953,
+      "inode": 6192449489276382,
+      "creation_ns": 1792401754842851900,
+      "is_directory": false,
+      "sha256": "5349fa4cf7030295649602f2ff0cc1c5cc7a1fe1ca8d838cd2c8ec53806817f3"
+    },
+    "review_git_attribute_probe_20261019": {
+      "device": 18360183284781620953,
+      "inode": 4503599629011322,
+      "creation_ns": 1792401396938171000,
+      "is_directory": true,
+      "sha256": null
+    },
+    "review_git_attribute_probe_20261019.py": {
+      "device": 18360183284781620953,
+      "inode": 4785074605722062,
+      "creation_ns": 1792401391895120400,
+      "is_directory": false,
+      "sha256": "aac733c7f7bd93a1ad6502911eef569c4aeb622111fcd55b0eade1848a7262a3"
+    },
+    "review_git_replace_probe.py": {
+      "device": 18360183284781620953,
+      "inode": 6473924465982243,
+      "creation_ns": 1792397979780866600,
+      "is_directory": false,
+      "sha256": "12a014b801a598d227e16b3ce11b5f9d44251b294b4341a07144ea7206fbe901"
+    },
+    "review_history_4d911442": {
+      "device": 18360183284781620953,
+      "inode": 97390341941923583,
+      "creation_ns": 1792138027316319900,
+      "is_directory": true,
+      "sha256": null
+    },
+    "review_latest_20261016.py": {
+      "device": 18360183284781620953,
+      "inode": 3940649675529507,
+      "creation_ns": 1792153785701130100,
+      "is_directory": false,
+      "sha256": "aa9870d701f75ac14caf862cdab8b79c07e6c0761794848bc33aa21ecd24baaf"
+    },
+    "review_latest_4b1ef54b88": {
+      "device": 18360183284781620953,
+      "inode": 3096224745397686,
+      "creation_ns": 1792153790214756700,
+      "is_directory": true,
+      "sha256": null
+    },
+    "review_nested_root_probe_20261019.py": {
+      "device": 18360183284781620953,
+      "inode": 9851624186503049,
+      "creation_ns": 1792391108305343600,
+      "is_directory": false,
+      "sha256": "a152afe66220ea82ff9244f57925d3c3c35f04e9b6c0a90241602daa6d71db14"
+    },
+    "review_repository_root_copy_probe_20261019.py": {
+      "device": 18360183284781620953,
+      "inode": 18014398511112351,
+      "creation_ns": 1792391223835388800,
+      "is_directory": false,
+      "sha256": "6a49e2e1f94ecbc39af1533f3f8c9f32b96ac1c740b55c24f558a87130881145"
+    },
+    "review_revision_compare.py": {
+      "device": 18360183284781620953,
+      "inode": 17169973579384032,
+      "creation_ns": 1792153908372924800,
+      "is_directory": false,
+      "sha256": "f749cd2cbdd76910fcc85339d37e97389dd16736fd5e2d2a93b745d31bdce832"
+    },
+    "review_svn_lineage_gaps.py": {
+      "device": 18360183284781620953,
+      "inode": 2251799815270289,
+      "creation_ns": 1792159080673620300,
+      "is_directory": false,
+      "sha256": "64df309b48bf3d3bd10a429676330c0ec8234887cb4f560e98e6283df46417f2"
+    },
+    "review_svn_lineage_matrix.py": {
+      "device": 18360183284781620953,
+      "inode": 36028797020546387,
+      "creation_ns": 1792158854792054300,
+      "is_directory": false,
+      "sha256": "c457e14071013e64f781e6e7b9290e25b8a901d031f5ea9a70e452d7420915d3"
+    },
+    "review_svn_oracle_20261019": {
+      "device": 18360183284781620953,
+      "inode": 17451448557701339,
+      "creation_ns": 1792401492442849700,
+      "is_directory": true,
+      "sha256": null
+    },
+    "review_svn_oracle_20261019.py": {
+      "device": 18360183284781620953,
+      "inode": 11258999070066934,
+      "creation_ns": 1792401488127495400,
+      "is_directory": false,
+      "sha256": "534b4140f0136d105a757b78f3c2b1a732e63ebc5994fd98245ed03da8ecd8a2"
+    },
+    "review_template_depth_probe_20261019": {
+      "device": 18360183284781620953,
+      "inode": 12384898976909926,
+      "creation_ns": 1792401809830781800,
+      "is_directory": true,
+      "sha256": null
+    },
+    "review_template_depth_probe_20261019.py": {
+      "device": 18360183284781620953,
+      "inode": 20547673301518824,
+      "creation_ns": 1792401808038806900,
+      "is_directory": false,
+      "sha256": "c36864930fb62933c2cd7203994ed80e40037c6cfdd742ac57aee000b3775c74"
+    },
+    "review_today_20261016_7794eb4d": {
+      "device": 18360183284781620953,
+      "inode": 43910096366899412,
+      "creation_ns": 1792141130157729900,
+      "is_directory": true,
+      "sha256": null
+    },
+    "review_today_20261016_f2231201": {
+      "device": 18360183284781620953,
+      "inode": 6473924464384786,
+      "creation_ns": 1792141273707031900,
+      "is_directory": true,
+      "sha256": null
+    },
+    "review_two_fixes_20261019_57582fd3": {
+      "device": 18360183284781620953,
+      "inode": 57139420273869999,
+      "creation_ns": 1792339372819531600,
+      "is_directory": true,
+      "sha256": null
+    },
+    "review_two_fixes_current.txt": {
+      "device": 18360183284781620953,
+      "inode": 52917295623210162,
+      "creation_ns": 1792339372826280000,
+      "is_directory": false,
+      "sha256": "7980ed95aa0764ab7e69caf02d174f42b8f27120c3838131d0319c2fdfc7cbb7"
+    },
+    "review_two_fixes_finalize.py": {
+      "device": 18360183284781620953,
+      "inode": 6755399442664888,
+      "creation_ns": 1792339838392718700,
+      "is_directory": false,
+      "sha256": "34a02d6c11b7701816339b1025109bc7929d87ed7f4cbe2ba3444529e317215b"
+    },
+    "review_two_fixes_runner.py": {
+      "device": 18360183284781620953,
+      "inode": 52635820646499509,
+      "creation_ns": 1792339509400451500,
+      "is_directory": false,
+      "sha256": "1a7cf2bc478dcb55e9d851e6b4707aa0571feaf40234d007431caeaf7337d4a2"
+    },
+    "rewrite_output_flow.py": {
+      "device": 18360183284781620953,
+      "inode": 7599824372663156,
+      "creation_ns": 1790488822163888200,
+      "is_directory": false,
+      "sha256": "1db8d57f2dd1cb30cf3db732598ecf1559125cbb7d2e8de56878727e2dc1a698"
+    },
+    "run_endpoint_validation.py": {
+      "device": 18360183284781620953,
+      "inode": 72057594037967818,
+      "creation_ns": 1792145348129480500,
+      "is_directory": false,
+      "sha256": "756d13d0cae9b9dce3c780886f2fc7ec187ff63dda8fd31e34a497a3067bf34a"
+    },
+    "run_output_regression.py": {
+      "device": 18360183284781620953,
+      "inode": 14355223813718909,
+      "creation_ns": 1790489312309926200,
+      "is_directory": false,
+      "sha256": "551d6e6a4a7d09d44bc6e530c2d6c30e3b9c6619bd90e38d4d7b4e703c231b75"
+    },
+    "scan_followup_20260927": {
+      "device": 18360183284781620953,
+      "inode": 6192449487675107,
+      "creation_ns": 1790493311266354200,
+      "is_directory": true,
+      "sha256": null
+    },
+    "smoke_archive_root.ps1": {
+      "device": 18360183284781620953,
+      "inode": 1407374884821121,
+      "creation_ns": 1789096296100473900,
+      "is_directory": false,
+      "sha256": "332f38c2530af5f2c432d7faa61a83922f7f27bf3152cd50fae365496a5eae4d"
+    },
+    "summarize_root_restore_fix_20261019.py": {
+      "device": 18360183284781620953,
+      "inode": 8444249302933997,
+      "creation_ns": 1792374635174235300,
+      "is_directory": false,
+      "sha256": "b6fb4d484f39a3a1b4aa9efd7484dccce8f2cad7b433d2050fed36511dfa30c5"
+    },
+    "summarize_svn_copy_fix_validation.py": {
+      "device": 18360183284781620953,
+      "inode": 36591746973967826,
+      "creation_ns": 1792156448885020000,
+      "is_directory": false,
+      "sha256": "4de8ee70632e0379970e94a3c00ac7ac6eaf7104a2589efc92d2cd3d5c395523"
+    },
+    "summarize_svn_lineage_recheck.py": {
+      "device": 18360183284781620953,
+      "inode": 3659174698823662,
+      "creation_ns": 1792159160466705300,
+      "is_directory": false,
+      "sha256": "8f43629a5bab80cf65f944cdcbf327dc2b125ca1daa0731d688c6f8ba17a5b6c"
+    },
+    "svn_copy_fix_recheck_3ee3994347": {
+      "device": 18360183284781620953,
+      "inode": 5066549582374588,
+      "creation_ns": 1792156275575651600,
+      "is_directory": true,
+      "sha256": null
+    },
+    "svn_lineage_matrix_a110884382": {
+      "device": 18360183284781620953,
+      "inode": 42784196461602132,
+      "creation_ns": 1792158861228617500,
+      "is_directory": true,
+      "sha256": null
+    },
+    "svn_review_fixes_20261018_7ff87c94": {
+      "device": 18360183284781620953,
+      "inode": 5348024559009858,
+      "creation_ns": 1792337211816581000,
+      "is_directory": true,
+      "sha256": null
+    },
+    "svn_root_fix_20261019_artifacts_before.json": {
+      "device": 18360183284781620953,
+      "inode": 562949955052856,
+      "creation_ns": 1792392041922562700,
+      "is_directory": false,
+      "sha256": "e9161e92e2dc16e3acebfb5814fc32f7ae71f71e82ebbca005353543ab35b2f2"
+    },
+    "tar_longdir_fix_20261009_2wylsuo4": {
+      "device": 18360183284781620953,
+      "inode": 9007199255986651,
+      "creation_ns": 1791535148849609700,
+      "is_directory": true,
+      "sha256": null
+    },
+    "tar_longdir_fix_latest.json": {
+      "device": 18360183284781620953,
+      "inode": 3096224745070943,
+      "creation_ns": 1791535150482140800,
+      "is_directory": false,
+      "sha256": "2ca8e9a58cdc4f15bb28d9257a5c0c58f4d7c540d867b1625cb875629209a5cf"
+    },
+    "tmpo_0lao1o": {
+      "device": 18360183284781620953,
+      "inode": 13792273860415022,
+      "creation_ns": 1792203389580269500,
+      "is_directory": true,
+      "sha256": null
+    },
+    "tmpq94ievsc": {
+      "device": 18360183284781620953,
+      "inode": 44473046321720155,
+      "creation_ns": 1792507880909655700,
+      "is_directory": true,
+      "sha256": null
+    },
+    "update_endpoint_contracts.py": {
+      "device": 18360183284781620953,
+      "inode": 14636698789279479,
+      "creation_ns": 1792145728568202500,
+      "is_directory": false,
+      "sha256": "b034f2b048a1d45dbe6104c349f1b40acfedf9a3e1f589eda0a849018ac5d935"
+    },
+    "update_failure_expectations.py": {
+      "device": 18360183284781620953,
+      "inode": 6192449489111435,
+      "creation_ns": 1790489439753456200,
+      "is_directory": false,
+      "sha256": "c1e2ffb95642718e2119e66aa0ac5c972089bd2cace8ac494be6d4f52c1cd59c"
+    },
+    "update_output_docs.py": {
+      "device": 18360183284781620953,
+      "inode": 2814749768583977,
+      "creation_ns": 1790489604717995200,
+      "is_directory": false,
+      "sha256": "f9f0beeb47657b96351ad375e909b4e3c6bdee4a15e22122569d2b2296ccae5c"
+    },
+    "validate_regeneration_final.py": {
+      "device": 18360183284781620953,
+      "inode": 9570149209639422,
+      "creation_ns": 1790490070404532200,
+      "is_directory": false,
+      "sha256": "979ccac9d80bd771baa0585d3e6a8778058ba4a98084c552e40c70124620a957"
+    },
+    "validate_replace_refs_archive_modes_20261019.py": {
+      "device": 18360183284781620953,
+      "inode": 39687971717839399,
+      "creation_ns": 1792399127664863600,
+      "is_directory": false,
+      "sha256": "8db084bb76e3f2e082d0025d6cd0e2afedf645e897b31e8888ac656b606f85d0"
+    },
+    "verify_endpoint_delivery.py": {
+      "device": 18360183284781620953,
+      "inode": 19703248370078837,
+      "creation_ns": 1792146275234743600,
+      "is_directory": false,
+      "sha256": "161533fcb1673c867a7e2723b2b18c5a0790ebac74bd032607843ad23837d5d7"
+    },
+    "verify_excluded_logs_20261016.py": {
+      "device": 18360183284781620953,
+      "inode": 10414574138329921,
+      "creation_ns": 1792134447953224200,
+      "is_directory": false,
+      "sha256": "dd39332ee85588e306764fa04485f0cb0c4da9fada833bbba9dbb680f7969a1e"
+    },
+    "verify_excluded_logs_report_20261016.py": {
+      "device": 18360183284781620953,
+      "inode": 2814749767143051,
+      "creation_ns": 1792134533786231000,
+      "is_directory": false,
+      "sha256": "09d0481616bdfb4fbe954576479c30c427fa43f99dfbccbdf9507b04344ef2a3"
+    },
+    "verify_export_preview.mjs": {
+      "device": 18360183284781620953,
+      "inode": 5066549582318439,
+      "creation_ns": 1791821229650316300,
+      "is_directory": false,
+      "sha256": "3ae6bb5f40dd6a6ee751d081d95bdf0f696265d8e93d1f9cdc3d93aa58af8709"
+    },
+    "verify_export_preview.py": {
+      "device": 18360183284781620953,
+      "inode": 15199648743929652,
+      "creation_ns": 1791821184814625000,
+      "is_directory": false,
+      "sha256": "7bc8faa49e8845fe979301bdd4b2fd695920abecc57fabd659921c17ba38a36e"
+    },
+    "verify_native_sparse_endpoints.py": {
+      "device": 18360183284781620953,
+      "inode": 10414574138645434,
+      "creation_ns": 1792146134069505900,
+      "is_directory": false,
+      "sha256": "be5a672b46aeca5df5b28e86df86638ae1a8f28842a5496580056cc021766585"
+    },
+    "verify_root_restore_20261019.py": {
+      "device": 18360183284781620953,
+      "inode": 37999121857550299,
+      "creation_ns": 1792374113101583800,
+      "is_directory": false,
+      "sha256": "a046b2185db7da8c62fdc02adbc142cb9aa73a1163d0d04fac237cb0d19538f2"
+    },
+    "version-path-memory-a498c187": {
+      "device": 18360183284781620953,
+      "inode": 4222124652216997,
+      "creation_ns": 1791863315030237400,
+      "is_directory": true,
+      "sha256": null
+    },
+    "version-path-memory-active.txt": {
+      "device": 18360183284781620953,
+      "inode": 3377699722085031,
+      "creation_ns": 1791863315037251400,
+      "is_directory": false,
+      "sha256": "dd49d3e8d8fd9432919651f835f721f7a851c4160a5e14b9b97df0d7f57c2202"
+    },
+    "whole_review_20260907": {
+      "device": 18360183284781620953,
+      "inode": 48976645948457922,
+      "creation_ns": 1788753925399290200,
+      "is_directory": true,
+      "sha256": null
+    },
+    "whole_review_20261017_075206": {
+      "device": 18360183284781620953,
+      "inode": 34339947160289806,
+      "creation_ns": 1792194726277921900,
+      "is_directory": true,
+      "sha256": null
+    },
+    "write_exclusion_audit_20261016.py": {
+      "device": 18360183284781620953,
+      "inode": 16888498602676034,
+      "creation_ns": 1792136573626216300,
+      "is_directory": false,
+      "sha256": "f411bf996fa6b7f393ea0c94d7c3e830bb8da247f75160b357758f7a4290bb86"
+    },
+    "zip-metadata-20261011": {
+      "device": 18360183284781620953,
+      "inode": 1125899908369338,
+      "creation_ns": 1791729895075642500,
+      "is_directory": true,
+      "sha256": null
+    }
+  },
+  "process_check": {
+    "active_target_processes": 0,
+    "unrelated_installed_exe_left_running": 2
+  },
+  "preview_delta_note": "收尾目录在预览后新增最终凭证、核验记录和本次清理核验脚本，均为本会话产物；清理目标仍为同24项",
+  "preserved_evidence": {
+    "path": "artifacts/cleanup-permission-evidence-20261021.zip",
+    "bytes": 14445,
+    "sha256": "9e3a8bd7b53018548d386a55841f9b97caef293b1c25fc120de3ef731ed73823",
+    "contents": "完整回归及最终相关回归日志、批准清单、源码验收、最终发布核验及清理脚本；不含业务正文或用户配置"
+  },
+  "verified_at_beijing": "2026-10-21T20:05:20+08:00",
+  "result": {
+    "deleted_targets": 24,
+    "deleted_files": 1032,
+    "logical_bytes_removed": 156527987,
+    "all_targets_absent": true,
+    "protected_hashes_unchanged": true,
+    "unrelated_tmp_entries_unchanged": true
+  },
+  "verification_boundary": "清理24项临时对象；不改变应用代码或重新构建，不扩大此前测试和EXE验收范围",
+  "post_cleanup_document_updates": [
+    "README.md",
+    "artifacts/archive-permission-classification-20261021.json",
+    "artifacts/release-permission-closeout-20261021.json"
+  ],
+  "final_protection_check": {
+    "unchanged_protected_files_after_document_updates": 276,
+    "intentional_document_updates": 3,
+    "source_fingerprint_unchanged": true,
+    "formal_exe_hash_unchanged": true,
+    "all_24_targets_absent": true,
+    "preserved_evidence_crc_valid": true,
+    "external_changes_after_cleanup_verification": [
+      {
+        "label": "installation/CompareTool.exe",
+        "before_sha256": "695f52c11051aba6926f92002b37b95e52bd9e5167a27352906c6c3d19af67d7",
+        "current_sha256": "245dfa0fa8a5301487278c79d1da2afaec4316da5c449dca45b2d28682728646",
+        "matches_new_dist_exe": true,
+        "observed_after_cleanup_verification": true
+      }
+    ]
+  },
+  "installation_observation_after_cleanup": {
+    "observed_at_beijing": "2026-10-21T20:09:36+08:00",
+    "after_cleanup_verified_at_beijing": "2026-10-21T20:05:20+08:00",
+    "exe_sha256": "245dfa0fa8a5301487278c79d1da2afaec4316da5c449dca45b2d28682728646",
+    "exe_matches_new_dist": true,
+    "exe_embedded_version_by_identical_dist_bytes": "2026.10.21.2",
+    "sidecar_version": "2026.10.21.1",
+    "sidecar_exe_sha256": "695f52c11051aba6926f92002b37b95e52bd9e5167a27352906c6c3d19af67d7",
+    "sidecar_matches_exe": false,
+    "manual_sha256": "8b943dd6c6dcbdf93785344de947c06683c0306e876cacbdc0043c2f71587aae",
+    "manual_matches_new_dist": false,
+    "modified_by_this_cleanup_task": false,
+    "action": "只读记录，未关闭程序、覆盖或恢复安装目录文件"
+  },
+  "warnings": [
+    "清理核验后安装目录EXE被外部替换为本次新包，而sidecar和说明书仍旧；当前安装三件套不一致，本次未写入安装目录"
+  ]
+}

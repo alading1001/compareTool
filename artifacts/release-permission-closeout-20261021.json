@@ -165,11 +165,29 @@
   },
   "installation": {
     "status": "out-of-scope",
-    "version": "2026.10.21.1",
-    "build_id": "e9dd517f30",
-    "changed": false,
-    "exe_hash_matches_existing_sidecar": true,
-    "note": "本次重新打包只更新项目dist，未覆盖常用安装目录"
+    "original_release_observation": {
+      "status": "out-of-scope",
+      "version": "2026.10.21.1",
+      "build_id": "e9dd517f30",
+      "changed": false,
+      "exe_hash_matches_existing_sidecar": true,
+      "note": "本次重新打包只更新项目dist，未覆盖常用安装目录"
+    },
+    "current_observation_after_cleanup": {
+      "observed_at_beijing": "2026-10-21T20:09:36+08:00",
+      "after_cleanup_verified_at_beijing": "2026-10-21T20:05:20+08:00",
+      "exe_sha256": "245dfa0fa8a5301487278c79d1da2afaec4316da5c449dca45b2d28682728646",
+      "exe_matches_new_dist": true,
+      "exe_embedded_version_by_identical_dist_bytes": "2026.10.21.2",
+      "sidecar_version": "2026.10.21.1",
+      "sidecar_exe_sha256": "695f52c11051aba6926f92002b37b95e52bd9e5167a27352906c6c3d19af67d7",
+      "sidecar_matches_exe": false,
+      "manual_sha256": "8b943dd6c6dcbdf93785344de947c06683c0306e876cacbdc0043c2f71587aae",
+      "manual_matches_new_dist": false,
+      "modified_by_this_cleanup_task": false,
+      "action": "只读记录，未关闭程序、覆盖或恢复安装目录文件"
+    },
+    "note": "原发布核验时安装版仍为21.1；清理核验后观察到范围外EXE更新，sidecar/PDF未同步。当前新包以项目dist完整三件套为准；本次未写安装目录"
   },
   "knowledge_faces": {
     "code": "changed-and-verified",
@@ -177,7 +195,7 @@
     "docs": "changed-and-verified",
     "rules": "changed-and-verified",
     "memory": "out-of-scope",
-    "workspace": "pending"
+    "workspace": "changed-and-verified"
   },
   "rules": {
     "canonical": "AGENTS.md",
@@ -190,17 +208,23 @@
   },
   "memory_policy": "generated-read-only；未修改生成记忆",
   "cleanup": {
-    "status": "pending-user-confirmation-after-report",
-    "deleted": false,
+    "status": "passed",
+    "deleted": true,
     "candidate_items": 24,
     "candidate_files_at_preview": 1025,
     "candidate_bytes_at_preview": 156506502,
-    "local_preview": ".tmp/permission-release-closeout-20261021/cleanup-preview.json",
-    "note": "复核现场保留；目录规模会随最后凭证生成略有变化；未经汇报后确认不清场"
+    "note": "用户在完整汇报后回复清理；仅清理已确认24项，必要日志与核验凭证已归档，保护文件及清单外临时对象保持原样",
+    "actual_deleted_targets": 24,
+    "actual_deleted_files": 1032,
+    "actual_logical_bytes_removed": 156527987,
+    "receipt": "artifacts/cleanup-permission-closeout-20261021.json",
+    "preview_archive": "artifacts/cleanup-permission-evidence-20261021.zip",
+    "preview_archive_member": "cleanup/approved-preview.json"
   },
   "warnings": [
     "全量807项最初有4个模板兼容错误，修复后4项和156项相关回归通过，未再次单次全量重跑",
-    "Windows符号链接权限导致1项跳过；完整回归有非致命Tk销毁后回调警告"
+    "Windows符号链接权限导致1项跳过；完整回归有非致命Tk销毁后回调警告",
+    "清理核验后安装目录EXE被外部替换为本次新包，而sidecar和说明书仍旧；当前安装三件套不一致，本次未写入安装目录"
   ],
   "preserved_evidence": {
     "path": "artifacts/release-permission-evidence-20261021.zip",
