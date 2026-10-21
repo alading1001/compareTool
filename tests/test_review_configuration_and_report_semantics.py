@@ -21,6 +21,11 @@ const html = fs.readFileSync(0, 'utf8');
 const pre = {textContent: ''};
 const document = {open() {}, write() {}, close() {}, getElementById() {return pre;}};
 const context = vm.createContext({window: {open() {return {document};}}});
+// 清单复用独立权限数据，需同时执行报告中的共享清单函数。
+const permissionHelper = html.lastIndexOf('function appendPermissionSummary(');
+if (permissionHelper >= 0) {
+    vm.runInContext(html.slice(permissionHelper, html.indexOf('var fileData = []', permissionHelper)), context);
+}
 vm.runInContext(html.slice(html.indexOf('var fileData = []'),
                           html.indexOf('var currentDiffAnchors')), context);
 vm.runInContext(html.slice(html.indexOf('function displayPath('),

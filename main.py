@@ -2274,6 +2274,9 @@ class CompareToolApp(TaskProgressUI):
         display_sources = {}
         for item in project_results:
             project_name = item.get("project_name", "")
+            for change in getattr(item["diff_result"], "permission_changes", ()):
+                display_path = self._multi_display_path(item, change.path)
+                display_sources.setdefault(display_path, set()).add(project_name)
             for file in item["diff_result"].files:
                 paths = (file.file_path, file.old_path) if file.old_path else (file.file_path,)
                 for path in paths:

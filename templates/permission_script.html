@@ -1,0 +1,32 @@
+// 权限记录只供报告查看，不能追加到 fileData / manifestData 的交付集合。
+function createPermissionDetail(file) {
+    var detail = document.createElement('section');
+    detail.className = 'permission-detail';
+    detail.setAttribute('aria-label', '仅权限变化详情');
+    var message = document.createElement('p');
+    message.textContent = '原始文件内容逐字节相同，仅文件权限发生变化。';
+    detail.appendChild(message);
+    var modes = document.createElement('dl');
+    [['旧权限', file.oldMode], ['新权限', file.newMode]].forEach(function(pair) {
+        var label = document.createElement('dt');
+        label.textContent = pair[0];
+        var value = document.createElement('dd');
+        value.textContent = pair[1];
+        modes.appendChild(label);
+        modes.appendChild(value);
+    });
+    detail.appendChild(modes);
+    var delivery = document.createElement('p');
+    delivery.textContent = '无需复制文件内容，未放入 oldVersion/newVersion；请结合上线操作说明，在目标环境核对新权限。';
+    detail.appendChild(delivery);
+    return detail;
+}
+
+function appendPermissionSummary(lines, entries, pathForFile) {
+    if (!entries.length) return;
+    lines.push('', 'P 仅权限变化（内容相同）：' + entries.length + ' 个',
+        '无需复制文件内容；请在目标环境核对新权限。');
+    entries.map(function(file) {
+        return pathForFile(file) + '：' + file.oldMode + ' → ' + file.newMode;
+    }).sort().forEach(function(line) { lines.push(line); });
+}

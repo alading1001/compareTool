@@ -146,9 +146,15 @@ Windows 上 `core.autocrlf=true`（Git）或 `svn:eol-style=native`（SVN）会�
 
 ZIP/TAR 成员内容一致而发生改名时，合并后的权限说明须比较真实旧成员和新成员，保留同时发生的 mode 变化；纯改名不能制造权限变化。剥离单层比较根、逐侧排除与报告递归共用该规则，原包及实际导出字节不变。上述替换引用和归档权限回归见 `tests/test_review_replace_refs_and_archive_modes.py`。
 
-同路径 ZIP/TAR 成员仅权限不同且原始内容逐字节相同时，使用独立 `permission_changes` 记录，不能追加成 `MODIFIED`。该记录不进入内容统计、manifest、文件树或 oldVersion/newVersion；单/多项目报告、纯文本清单与上线说明分别列出旧、新 mode。递归明细同样独立展示权限，内部权限不生成服务器操作。两侧均提供已知 mode 才能判断权限变化，单侧缺失不等于权限改变。真实内容变化、格式变化和改名继续保留原有类型、导出及伴随权限说明；不使用导出转换后的字节过滤原始差异。回归见 `tests/test_archive_permission_classification.py`。
+同路径 ZIP/TAR 成员仅权限不同且原始内容逐字节相同时，使用独立 `permission_changes` 记录，不能追加成 `MODIFIED`。报告用 P 提供“仅权限变化”的独立统计、筛选、文件树标签和旧/新 mode 详情；不进入内容修改统计、交付 manifest 或 oldVersion/newVersion。单/多项目报告沿用“全部＋各类型”的筛选方式，默认选中全部类型，类型标签可组合开关；“全部”恢复所有类型，不增加额外快捷筛选。纯文本清单和上线说明独立列出权限。递归明细同样独立展示 P，不累加到外层统计，内部权限不生成服务器操作。两侧均提供已知 mode 才能判断权限变化，单侧缺失不等于权限改变。真实内容变化、格式变化和改名继续保留原有类型、导出及伴随权限标记，不重复计入 P；不使用导出转换后的字节过滤原始差异。回归见 `tests/test_archive_permission_classification.py`。
+
+展示数据与交付数据分开：`fileData` 及默认别名 `manifestData` 仍只含实际内容/路径交付项；`permissionData` 只序列化一次，文件树通过组合引用查看两类记录，纯文本权限清单复用该数据。P 详情按需创建，无代码差异表和逐行导航。`summary.total_files` 保留交付集合的原含义，`permission_only_files` 独立计数；报告显示的“变更文件”为两者相加，与新增、修改、格式变化、删除、重命名、仅权限六类之和一致，不包含需删旧目录数量。多项目的同名展示路径检查覆盖权限路径及交付路径，自动补充项目名前缀，保存的偏好不变。Git/SVN/文件夹原有分类和端点算法不因 P 展示改变。
 
 组合变化沿用现有身份规则：同路径格式变化加权限变化为 `F`，原始字节完全相同且唯一配对的改名加权限变化为 `R`，两者均保留报告中的完整 mode 说明及原始内容导出。压缩包同时改名和改变编码/BOM/换行时，原始字节不再相同，仍按 `ADDED + DELETED` 处理；再叠加权限变化也不推测改名。上线说明对伴随内容或改名的权限变化继续提供原有可执行位提示，并非所有 mode 差异都会生成权限操作；完整旧、新 mode 独立清单仅适用于同路径内容相同的记录。合成 ZIP/TAR 的八种组合验证见 [权限分类凭证](../artifacts/archive-permission-classification-20261021.json)。
+
+文件夹模式比较相对路径和内容，不采集或比较 Windows 访问权限（ACL），也不以 Windows 文件属性模拟 Unix mode。压缩包模式中的权限来自归档元数据；手工解压后选择文件夹不能恢复原包权限比较的语义。
+
+P 展示的源码验收、实际双 TAR 分类与导出字节、浏览器筛选和深层回归记录见 [完整验证凭证](../artifacts/permission-report-ui-20261021.json) 和 [筛选兼容验证](../artifacts/permission-report-filter-compatibility-20261021.json)。EXE 的现役版本与验证范围统一见 [正式入口](../README.md#正式入口版本与任务进度)。
 
 ## 端点身份与展示标签
 

@@ -137,14 +137,17 @@ class ReportGenerator:
             yield '<h2>' + escaped(result.project_name) + '</h2><p>'
             yield ('交付未完成，请先核对下面问题清单。' if result.delivery_incomplete else '已导出文件清单。')
             yield '</p><pre>' + escaped(result.comparison_note) + '</pre>'
+            yield f'<p>变更文件：{len(result.files) + len(result.permission_changes)} 个（其中仅权限变化：{len(result.permission_changes)} 个）。</p>'
             for issue in result.issues:
                 yield '<p>' + escaped(f"[{issue['stage']}] {issue_path_text(issue)} {issue['message']}") + '</p>'
             yield '<ul>'
             for file in result.files:
                 yield '<li>' + escaped(f'{file.report_type} {file.old_path + " → " if file.old_path else ""}{file.file_path}') + '</li>'
+                if file.has_permission_change:
+                    yield '<li>' + escaped(f'伴随权限变化：{file.old_mode} → {file.new_mode}') + '</li>'
             yield '</ul>'
             if result.permission_changes:
-                yield '<h3>仅权限变化（内容相同）</h3><ul>'
+                yield '<h3>P 仅权限变化（内容相同）</h3><p>无需复制内容；请在目标环境核对新权限。</p><ul>'
                 for change in result.permission_changes:
                     yield '<li>' + escaped(f'{change.path}：{change.old_mode} → {change.new_mode}') + '</li>'
                 yield '</ul>'
@@ -197,6 +200,7 @@ class ReportGenerator:
             "failed_items": 0,
             "delivery_incomplete": False,
             "total_files": 0,
+            "permission_only_files": 0,
             "added_files": 0,
             "modified_files": 0,
             "format_changed_files": 0,
@@ -211,7 +215,7 @@ class ReportGenerator:
         for project in project_results:
             s = project["diff_result"].summary
             for key in (
-                "total_files", "added_files", "modified_files", "format_changed_files", "deleted_files",
+                "total_files", "permission_only_files", "added_files", "modified_files", "format_changed_files", "deleted_files",
                 "renamed_files", "required_directory_deletions",
                 "total_added_lines", "total_deleted_lines",
                 "skipped_line_count_files", "report_omitted_files",

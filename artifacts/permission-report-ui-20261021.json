@@ -1,0 +1,372 @@
+{
+  "schema_version": 1,
+  "status": "SOURCE_VERIFIED_EXE_NOT_REBUILT",
+  "verified_at": "2026-10-21T23:17:33.280874+08:00",
+  "purpose": "P 仅权限变化的独立统计、筛选、文件树和详情；内容分类及字节交付边界保持不变",
+  "base_commit": "15a5bbde50699bec8cc6ebc52ab50c6830879621",
+  "runtime_source_sha256": "863f33c85575d8ecaec8e1faf170383f5f0ecc7e262c5be572a5ff07134ef743",
+  "four_isolated_copies_match_runtime_source": true,
+  "updated_summary_test_helper_sha256": "d44b2af6d8ac99e84df8efe3fb2f3766e6089fdbc050dbfb884b6ec309b9acd0",
+  "regression": {
+    "tests": 810,
+    "failures": 0,
+    "errors": 0,
+    "skips": [
+      [
+        "test_review_regressions.ArchiveAndFolderRegressionTests.test_folder_file_symlink_cannot_read_outside_root",
+        "当前 Windows 未允许创建测试符号链接: [WinError 1314] 客户端没有所需的特权。: '<PROJECT>\\\\.tmp\\\\permission_report_ui_20261021\\\\group-3\\\\.tmp\\\\tmp8rhromxt\\\\secret.txt' -> '<PROJECT>\\\\.tmp\\\\permission_report_ui_20261021\\\\group-3\\\\.tmp\\\\tmp8rhromxt\\\\new\\\\linked.txt'"
+      ]
+    ],
+    "complete_selection": true,
+    "success": true,
+    "initial_error_subtests": 7,
+    "corrected_test_ids": [
+      "test_review_configuration_and_report_semantics.MultiProjectRenameDisplayTests.test_rename_old_path_is_rechecked_after_project_prefix_is_added",
+      "test_review_configuration_and_report_semantics.MultiProjectRenameDisplayTests.test_rename_source_conflicts_with_modified_path_and_other_rename_source",
+      "test_review_configuration_and_report_semantics.MultiVersionReportLabelsTests.test_git_and_svn_desktop_workers_render_selected_versions_and_export_fixed_bytes",
+      "test_review_five_integrity_fixes.PartialDeliverySummaryTests.test_multi_summary_retains_failed_project_and_successful_manifest",
+      "test_review_five_integrity_fixes.PartialDeliverySummaryTests.test_single_summary_retains_rejected_file_without_adding_it_to_manifest"
+    ],
+    "report_rerun": {
+      "selected": [
+        "test_review_configuration_and_report_semantics.MultiProjectRenameDisplayTests.test_rename_old_path_is_rechecked_after_project_prefix_is_added",
+        "test_review_configuration_and_report_semantics.MultiProjectRenameDisplayTests.test_rename_source_conflicts_with_modified_path_and_other_rename_source",
+        "test_review_configuration_and_report_semantics.MultiVersionReportLabelsTests.test_git_and_svn_desktop_workers_render_selected_versions_and_export_fixed_bytes",
+        "test_review_configuration_and_report_semantics.MultiVersionReportLabelsTests.test_public_report_accepts_class_and_desktop_labels_but_preserves_normal_labels",
+        "test_review_configuration_and_report_semantics.ProjectExclusionRecoveryTests.test_non_string_project_rules_restore_defaults_before_export_and_save",
+        "test_review_configuration_and_report_semantics.ProjectExclusionRecoveryTests.test_valid_empty_project_rules_still_disable_exclusions_and_survive_save",
+        "test_review_five_integrity_fixes.CompressedTarIntegrityTests.test_corrupt_top_level_is_incomplete_and_nested_archive_is_preserved_with_notice",
+        "test_review_five_integrity_fixes.CompressedTarIntegrityTests.test_gzip_trailer_is_checked_on_both_sides_even_when_every_member_is_excluded",
+        "test_review_five_integrity_fixes.CompressedTarIntegrityTests.test_valid_compressed_streams_keep_padding_and_member_bytes",
+        "test_review_five_integrity_fixes.MultiTaskRuleRecoveryTests.test_invalid_task_rules_are_warned_and_skipped_before_save_and_export",
+        "test_review_five_integrity_fixes.MultiTaskRuleRecoveryTests.test_legacy_missing_rules_use_defaults_but_explicit_empty_stays_empty",
+        "test_review_five_integrity_fixes.PartialDeliverySummaryTests.test_multi_summary_retains_failed_project_and_successful_manifest",
+        "test_review_five_integrity_fixes.PartialDeliverySummaryTests.test_single_summary_retains_rejected_file_without_adding_it_to_manifest",
+        "test_review_five_integrity_fixes.PartialDeliverySummaryTests.test_summary_escapes_issue_text_and_does_not_warn_for_informational_issues",
+        "test_review_five_integrity_fixes.SVNHistoryIntegrityTests.test_replaced_root_and_ancestor_keep_child_rename_in_same_revision",
+        "test_review_five_integrity_fixes.SVNHistoryIntegrityTests.test_replaced_root_and_ancestor_preserve_selected_file_endpoints",
+        "test_review_five_integrity_fixes.SVNHistoryIntegrityTests.test_unicode_whitespace_filename_keeps_literal_modify_and_rename_identity",
+        "test_archive_permission_classification.ArchivePermissionClassificationTests.test_nested_permission_changes_do_not_enter_parent_delivery",
+        "test_archive_permission_classification.ArchivePermissionClassificationTests.test_permission_only_project_still_has_report_and_instructions",
+        "test_archive_permission_classification.ArchivePermissionClassificationTests.test_permission_only_records_never_consume_delivery_manifest_capacity",
+        "test_archive_permission_classification.ArchivePermissionClassificationTests.test_permission_paths_participate_in_multi_project_disambiguation",
+        "test_archive_permission_classification.ArchivePermissionClassificationTests.test_real_workflow_keeps_only_content_or_path_changes_in_delivery",
+        "test_archive_permission_classification.ArchivePermissionClassificationTests.test_rename_format_and_permission_combinations_preserve_identity_and_bytes",
+        "test_archive_permission_classification.ArchivePermissionClassificationTests.test_root_and_exclusions_apply_to_permission_records",
+        "test_archive_permission_classification.ArchivePermissionClassificationTests.test_single_multi_and_basic_reports_escape_permission_paths",
+        "test_archive_permission_classification.ArchivePermissionClassificationTests.test_unknown_zip_permissions_do_not_invent_a_change"
+      ],
+      "tests": 26,
+      "failures": 0,
+      "errors": 0,
+      "seconds": 58.80379200000061,
+      "success": true
+    },
+    "resumed_group": {
+      "initial_completed": 130,
+      "resumed_tests": 72
+    },
+    "initial_group_results": [
+      {
+        "tests": 203,
+        "failures": 0,
+        "errors": 2,
+        "skips": [],
+        "seconds": 564.1570689999999,
+        "success": false
+      },
+      {
+        "tests": 203,
+        "failures": 0,
+        "errors": 1,
+        "skips": [],
+        "seconds": 502.4640503999999,
+        "success": false
+      },
+      {
+        "tests": 202,
+        "failures": 0,
+        "errors": 2,
+        "skips": [],
+        "seconds": 1289.6270929000002,
+        "success": false
+      },
+      {
+        "tests": 72,
+        "failures": 0,
+        "errors": 0,
+        "skips": [
+          [
+            "test_review_regressions.ArchiveAndFolderRegressionTests.test_folder_file_symlink_cannot_read_outside_root",
+            "当前 Windows 未允许创建测试符号链接: [WinError 1314] 客户端没有所需的特权。: '<PROJECT>\\\\.tmp\\\\permission_report_ui_20261021\\\\group-3\\\\.tmp\\\\tmp8rhromxt\\\\secret.txt' -> '<PROJECT>\\\\.tmp\\\\permission_report_ui_20261021\\\\group-3\\\\.tmp\\\\tmp8rhromxt\\\\new\\\\linked.txt'"
+          ]
+        ],
+        "seconds": 185.5695040999999,
+        "success": true
+      }
+    ]
+  },
+  "sample_acceptance": [
+    {
+      "case": "mixed-zip",
+      "seconds": 0.2568904999998267,
+      "summary": {
+        "issue_count": 0,
+        "delivery_incomplete": false,
+        "failed_items": 0,
+        "total_files": 5,
+        "permission_only_files": 2,
+        "added_files": 1,
+        "modified_files": 1,
+        "format_changed_files": 1,
+        "deleted_files": 1,
+        "renamed_files": 1,
+        "required_directory_deletions": 0,
+        "total_added_lines": 2,
+        "total_deleted_lines": 2,
+        "line_counts_complete": true,
+        "skipped_line_count_files": 0,
+        "report_omitted_files": 0,
+        "manifest_listed_files": 5,
+        "manifest_omitted_files": 0
+      },
+      "accompanied_permissions": 3
+    },
+    {
+      "case": "mixed-tar",
+      "seconds": 0.24042999999983294,
+      "summary": {
+        "issue_count": 0,
+        "delivery_incomplete": false,
+        "failed_items": 0,
+        "total_files": 5,
+        "permission_only_files": 2,
+        "added_files": 1,
+        "modified_files": 1,
+        "format_changed_files": 1,
+        "deleted_files": 1,
+        "renamed_files": 1,
+        "required_directory_deletions": 0,
+        "total_added_lines": 2,
+        "total_deleted_lines": 2,
+        "line_counts_complete": true,
+        "skipped_line_count_files": 0,
+        "report_omitted_files": 0,
+        "manifest_listed_files": 5,
+        "manifest_omitted_files": 0
+      },
+      "accompanied_permissions": 3
+    },
+    {
+      "case": "nested",
+      "seconds": 0.24665160000040487,
+      "summary": {
+        "issue_count": 0,
+        "delivery_incomplete": false,
+        "failed_items": 0,
+        "total_files": 1,
+        "permission_only_files": 0,
+        "added_files": 0,
+        "modified_files": 1,
+        "format_changed_files": 0,
+        "deleted_files": 0,
+        "renamed_files": 0,
+        "required_directory_deletions": 0,
+        "total_added_lines": 0,
+        "total_deleted_lines": 0,
+        "line_counts_complete": false,
+        "skipped_line_count_files": 1,
+        "report_omitted_files": 0,
+        "manifest_listed_files": 1,
+        "manifest_omitted_files": 0
+      },
+      "accompanied_permissions": 0
+    },
+    {
+      "case": "actual-all",
+      "seconds": 119.9171252999995,
+      "summary": {
+        "issue_count": 0,
+        "delivery_incomplete": false,
+        "failed_items": 0,
+        "total_files": 4,
+        "permission_only_files": 2877,
+        "added_files": 0,
+        "modified_files": 4,
+        "format_changed_files": 0,
+        "deleted_files": 0,
+        "renamed_files": 0,
+        "required_directory_deletions": 0,
+        "total_added_lines": 12,
+        "total_deleted_lines": 12,
+        "line_counts_complete": true,
+        "skipped_line_count_files": 0,
+        "report_omitted_files": 0,
+        "manifest_listed_files": 4,
+        "manifest_omitted_files": 0
+      },
+      "accompanied_permissions": 3
+    },
+    {
+      "case": "actual-default-recursive",
+      "seconds": 112.18483809999998,
+      "summary": {
+        "issue_count": 0,
+        "delivery_incomplete": false,
+        "failed_items": 0,
+        "total_files": 4,
+        "permission_only_files": 2872,
+        "added_files": 0,
+        "modified_files": 4,
+        "format_changed_files": 0,
+        "deleted_files": 0,
+        "renamed_files": 0,
+        "required_directory_deletions": 0,
+        "total_added_lines": 12,
+        "total_deleted_lines": 12,
+        "line_counts_complete": true,
+        "skipped_line_count_files": 0,
+        "report_omitted_files": 0,
+        "manifest_listed_files": 4,
+        "manifest_omitted_files": 0
+      },
+      "accompanied_permissions": 3
+    }
+  ],
+  "source_archives_unchanged": true,
+  "actual_sample_exports": {
+    "files_each_run": 8,
+    "all_bytes_equal_original_members": true
+  },
+  "combination_coverage": {
+    "archive_formats": [
+      "ZIP",
+      "TAR"
+    ],
+    "rename_format_permission_combinations": 16
+  },
+  "browser": {
+    "version": "Chrome/155.0.8059.85",
+    "permission_reports": [
+      {
+        "content": 5,
+        "permissionOnly": 2,
+        "filterCombinations": 64,
+        "permissionDetail": true,
+        "manifest": true,
+        "contentNavigation": true
+      },
+      {
+        "content": 5,
+        "permissionOnly": 2,
+        "filterCombinations": 64,
+        "permissionDetail": true,
+        "manifest": true,
+        "contentNavigation": true
+      },
+      {
+        "content": 10,
+        "permissionOnly": 4,
+        "filterCombinations": 64,
+        "permissionDetail": true,
+        "manifest": true,
+        "contentNavigation": true
+      },
+      {
+        "content": 0,
+        "permissionOnly": 2,
+        "filterCombinations": 64,
+        "permissionDetail": true,
+        "manifest": true,
+        "contentNavigation": false
+      },
+      {
+        "content": 0,
+        "permissionOnly": 0,
+        "filterCombinations": 64,
+        "permissionDetail": false,
+        "manifest": true,
+        "contentNavigation": false
+      },
+      {
+        "content": 1,
+        "permissionOnly": 0,
+        "filterCombinations": 64,
+        "permissionDetail": false,
+        "manifest": true,
+        "contentNavigation": true
+      },
+      {
+        "content": 4,
+        "permissionOnly": 2877,
+        "filterCombinations": 64,
+        "permissionDetail": true,
+        "manifest": true,
+        "contentNavigation": true
+      },
+      {
+        "content": 4,
+        "permissionOnly": 2872,
+        "filterCombinations": 64,
+        "permissionDetail": true,
+        "manifest": true,
+        "contentNavigation": true
+      }
+    ],
+    "legacy_reports": [
+      {
+        "lazyTree": {
+          "initialFiles": 2,
+          "completeFiles": 602,
+          "filterCombinations": 32
+        },
+        "keyboardAndFocus": true,
+        "manifestAndFiltering": true,
+        "normalNavigation": true
+      },
+      {
+        "lazyTree": {
+          "initialFiles": 2,
+          "completeFiles": 602,
+          "filterCombinations": 32
+        },
+        "keyboardAndFocus": true,
+        "manifestAndFiltering": true,
+        "normalNavigation": true
+      },
+      {
+        "lazyTree": {
+          "initialFiles": 0,
+          "completeFiles": 1204,
+          "filterCombinations": 32
+        },
+        "keyboardAndFocus": true,
+        "manifestAndFiltering": true,
+        "normalNavigation": true
+      }
+    ],
+    "all_success": true,
+    "exceptions": 0
+  },
+  "manual": {
+    "pages": 17,
+    "sha256": "ca69510c62fba079046bd0e605a641ad1da9a6215c9821e9eaf8bb010285cc70",
+    "docs_dist_identical": true,
+    "rendered_pages_reviewed": [
+      14,
+      15
+    ]
+  },
+  "release": {
+    "exe_rebuilt": false,
+    "commit_created": false,
+    "pushed": false
+  },
+  "notes": [
+    "串行全量回归在完成前主动结束，改为四个独立副本核对完整测试集合；串行日志不作为通过凭证。",
+    "初轮五个测试方法（七个子项）截取报告脚本时漏载共享权限清单函数；修正测试入口后，两个相关模块及权限模块共 26 项全部通过。",
+    "一个分组在辅助进度文件 os.replace 时被 Windows 文件占用打断；保留前 130 项记录，补齐剩余 72 项，不把中断视为通过。",
+    "初始验收脚本在任务已关闭后复用 HTML 片段失败；改为在任务存活时保存小型合成报告片段，最终重新完成全部验收。",
+    "Windows 沙箱拒绝测试临时目录及 PDF 写入后，已在正常权限下重跑通过。"
+  ]
+}

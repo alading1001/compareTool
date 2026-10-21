@@ -1,7 +1,7 @@
 {% if permission_changes %}
 <details class="permission-changes" style="flex-shrink:0;padding:6px 24px;background:#fafafa">
-  <summary>仅权限变化（内容相同）：{{ permission_changes | length }} 个</summary>
-  <p>以下文件内容相同，不计入内容变更，也无需复制文件；请按新权限核对。</p>
+  <summary><span class="archive-tag archive-tag-P">P</span> 仅权限变化（内容相同）：{{ permission_changes | length }} 个</summary>
+  <p>以下包内成员原始内容相同，仅权限不同；只供审查，不单独导出或生成服务器权限操作。</p>
   <ul style="max-height:180px;overflow:auto">
   {% for change in permission_changes %}
     <li>{{ permission_prefix | default('') }}{{ change.path }}：{{ change.old_mode }} → {{ change.new_mode }}</li>

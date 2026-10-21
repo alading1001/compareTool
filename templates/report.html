@@ -1,4 +1,6 @@
 {% set is_multi_version = vcs_type in ('GitMultiVersionVCS', 'SVNMultiVersionVCS', 'Git多版本', 'SVN多版本') -%}
+{% set permission_changes = permission_changes | default([]) -%}
+{% set permission_count = permission_changes | length -%}
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -108,6 +110,7 @@ table.diff tr.diff-current-end td { border-bottom: 2px solid #4a90e2; }
 
 table.diff span { white-space: pre; }
 {% include 'archive_style.html' %}
+{% include 'permission_style.html' %}
 </style>
 </head>
 <body>
@@ -130,15 +133,15 @@ table.diff span { white-space: pre; }
 {% if comparison_note %}<div class="delivery-note">{{ comparison_note }}</div>{% endif %}
 
 {% with result=diff_result %}{% include "result_issues.html" %}{% endwith %}
-{% with permission_changes=permission_changes | default([]), permission_prefix=(project_name ~ '/' if show_project_root else '') %}{% include "permission_changes.html" %}{% endwith %}
 <div class="summary">
-    <div class="card total"><div class="num">{{ summary.total_files }}</div><div class="lbl">变更文件</div></div>
+    <div class="card total"><div class="num">{{ summary.total_files + permission_count }}</div><div class="lbl">变更文件</div></div>
     <div class="card added"><div class="num">{{ summary.added_files }}</div><div class="lbl">新增</div></div>
     <div class="card modified"><div class="num">{{ summary.modified_files }}</div><div class="lbl">修改</div></div>
     <div class="card format"><div class="num">{{ summary.format_changed_files }}</div><div class="lbl">格式变化</div></div>
     <div class="card deleted"><div class="num">{{ summary.deleted_files }}</div><div class="lbl">删除</div></div>
     <div class="card directory"><div class="num">{{ summary.required_directory_deletions }}</div><div class="lbl">需删旧目录</div></div>
     <div class="card renamed"><div class="num">{{ summary.renamed_files }}</div><div class="lbl">重命名</div></div>
+    <div class="card permission"><div class="num">{{ permission_count }}</div><div class="lbl">仅权限变化</div></div>
 </div>
 
 <div class="delivery-note">
@@ -148,7 +151,7 @@ table.diff span { white-space: pre; }
 {% if summary.skipped_line_count_files %}<br>有 {{ summary.skipped_line_count_files }} 个文件因二进制、体积或复杂度限制未统计行数，当前行数合计仅代表已完成统计的文件。{% endif %}
 </div>
 
-{% if archive_details_enabled %}<div class="delivery-note">已启用包内递归审查。点击带“包内差异”的文件逐层展开；上方汇总及变更清单仍只统计交付文件。包内删除不等于服务器路径删除。</div>{% endif %}
+{% if archive_details_enabled %}<div class="delivery-note">已启用包内递归审查。点击带“包内差异”的文件逐层展开；包内成员数量独立展示，不计入上方汇总或交付清单。包内删除不等于服务器路径删除。</div>{% endif %}
 <div class="body">
     <div class="sidebar">
         <div class="sidebar-header">
@@ -164,6 +167,7 @@ table.diff span { white-space: pre; }
                 <span class="leg"><span class="dot format"></span>格式变化</span>
                 <span class="leg"><span class="dot deleted"></span>删除</span>
                 <span class="leg"><span class="dot renamed"></span>重命名</span>
+                <span class="leg"><span class="dot permission"></span>仅权限</span>
             </div>
         </div>
         <div class="filter-bar">
@@ -182,6 +186,9 @@ table.diff span { white-space: pre; }
 {% endif %}
 {% if summary.renamed_files %}
             <span class="flt r on" onclick="toggleFilter('R', this)">重命名</span>
+{% endif %}
+{% if permission_count %}
+            <span class="flt p on" onclick="toggleFilter('P', this)">仅权限</span>
 {% endif %}
             <span style="font-size:10px;color:#bbb;margin-left:4px;">点击标签过滤，支持任意组合</span>
         </div>
@@ -212,6 +219,7 @@ table.diff span { white-space: pre; }
 
 <script>
 {% include "archive_script.html" %}
+{% include "permission_script.html" %}
 // 只保存明细 ID，选择文件时克隆模板，不预先复制所有 HTML 字符串
 var fileData = [];
 {% for file in files %}
@@ -219,6 +227,7 @@ fileData.push({
     path: {{ file.file_path | replace('\\','/') | tojson }},
     oldPath: {{ file.old_path | replace('\\','/') | tojson }},
     type: {{ file.report_type | tojson }},
+    permissionChanged: {{ file.has_permission_change | default(false) | tojson }},
     archiveDetails: {{ (file.archive_details is not none) | tojson }},
     detailId: "sbs-{{ loop.index }}"
 });
@@ -235,12 +244,15 @@ manifestData.push({
 });
 {% endfor %}
 {% endif %}
+var permissionData = [];
+{% include 'permission_data.html' %}
+var treeFileData = fileData.concat(permissionData);
 var currentDiffAnchors = [];
 var currentDiffGroups = [];
 var currentDiffIndex = -1;
 
-function typeLabel(t) { return t === 'A' ? '新增' : t === 'M' ? '修改' : t === 'F' ? '格式变化' : t === 'D' ? '删除' : t === 'R' ? '重命名' : ''; }
-function typeClass(t) { return t === 'A' ? 'added' : t === 'M' ? 'modified' : t === 'F' ? 'format' : t === 'D' ? 'deleted' : t === 'R' ? 'renamed' : ''; }
+function typeLabel(t) { return t === 'A' ? '新增' : t === 'M' ? '修改' : t === 'F' ? '格式变化' : t === 'D' ? '删除' : t === 'R' ? '重命名' : t === 'P' ? '仅权限变化' : ''; }
+function typeClass(t) { return t === 'A' ? 'added' : t === 'M' ? 'modified' : t === 'F' ? 'format' : t === 'D' ? 'deleted' : t === 'R' ? 'renamed' : t === 'P' ? 'permission' : ''; }
 function displayPath(file) {
     return file.type === 'R' && file.oldPath ? file.oldPath + ' -> ' + file.path : file.path;
 }
@@ -282,7 +294,7 @@ var treeContainers = [];
 var activeTreeRow = null;
 
 function cacheDirectoryTypes(root) {
-    var bits = {A:1, M:2, F:4, D:8, R:16};
+    var bits = {A:1, M:2, F:4, D:8, R:16, P:32};
     var queue = [root], ordered = [];
     while (queue.length) {
         var node = queue.pop();
@@ -299,11 +311,10 @@ function cacheDirectoryTypes(root) {
 
 function getDirType(node) {
     if (typeof node.typeMask !== 'number') cacheDirectoryTypes(node);
-    return ({1:'A',2:'M',4:'F',8:'D',16:'R'})[node.typeMask] || '';
+    return ({1:'A',2:'M',4:'F',8:'D',16:'R',32:'P'})[node.typeMask] || '';
 }
 
 // ===== 渲染文件树 =====
-var treeRoot = buildTree(fileData);
 
 function renderTree(node, container, isRoot) {
     if (isRoot) {
@@ -380,6 +391,7 @@ function renderTree(node, container, isRoot) {
         row.dataset.fileType = f.data.type;
         row.innerHTML = '<span class="icon">📄</span><span class="name">' + esc(f.name) + '</span>' +
             '<span class="tag ' + f.data.type + '">' + typeLabel(f.data.type) + '</span>' +
+            (f.data.permissionChanged ? '<span class="permission-badge">权限变化</span>' : '') +
             (f.data.archiveDetails ? '<span class="archive-badge">包内差异</span>' : '');
 
         row.addEventListener('click', function(e) {
@@ -425,9 +437,14 @@ function showDiff(file) {
     setDiffNavTitle(shownPath);
 
     var tableWrapper = document.createElement('div');
-    var source = document.getElementById(file.detailId);
-    if (!source || !source.content) throw new Error("报告明细来源不存在");
-    tableWrapper.appendChild(source.content.cloneNode(true));
+    if (file.type === 'P') {
+        panel.setAttribute('aria-label', '仅权限变化详情');
+        tableWrapper.appendChild(createPermissionDetail(file));
+    } else {
+        var source = document.getElementById(file.detailId);
+        if (!source || !source.content) throw new Error("报告明细来源不存在");
+        tableWrapper.appendChild(source.content.cloneNode(true));
+    }
     initArchiveDetails(tableWrapper);
     // 给差异行的行号单元格着色
     currentDiffAnchors = [];
@@ -470,7 +487,7 @@ function showDiff(file) {
     container.appendChild(panel);
     document.querySelector('.main').scrollTop = 0;
     updateDiffNav();
-    if (file.archiveDetails) setDiffNavVisible(false);
+    if (file.archiveDetails || file.type === 'P') setDiffNavVisible(false);
 }
 
 function updateDiffNav() {
@@ -608,7 +625,7 @@ function openSummary() {
             });
         }
     });
-{% with permission_changes=permission_changes | default([]), permission_prefix=(project_name ~ '/' if show_project_root else '') %}{% include "summary_permissions.html" %}{% endwith %}
+    appendPermissionSummary(lines, permissionData, summaryPath);
     w.document.open();
     w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title></title></head><body><pre id="summaryText"></pre></body></html>');
     w.document.close();
@@ -617,15 +634,16 @@ function openSummary() {
 }
 
 // ===== 变更类型过滤 =====
-var filterState = { A: true, M: true, F: true, D: true, R: true };
+var filterState = { A: true, M: true, F: true, D: true, R: true, P: true };
 
 function updateFilterUI() {
-    var allOn = filterState.A && filterState.M && filterState.F && filterState.D && filterState.R;
+    var allOn = filterState.A && filterState.M && filterState.F && filterState.D && filterState.R && filterState.P;
     document.querySelectorAll('.filter-bar .flt.a').forEach(function(el) { el.classList.toggle('on', filterState.A); });
     document.querySelectorAll('.filter-bar .flt.m').forEach(function(el) { el.classList.toggle('on', filterState.M); });
     document.querySelectorAll('.filter-bar .flt.f').forEach(function(el) { el.classList.toggle('on', filterState.F); });
     document.querySelectorAll('.filter-bar .flt.d').forEach(function(el) { el.classList.toggle('on', filterState.D); });
     document.querySelectorAll('.filter-bar .flt.r').forEach(function(el) { el.classList.toggle('on', filterState.R); });
+    document.querySelectorAll('.filter-bar .flt.p').forEach(function(el) { el.classList.toggle('on', filterState.P); });
     document.querySelectorAll('.filter-bar .flt.all').forEach(function(el) { el.classList.toggle('on', allOn); });
 }
 
@@ -636,14 +654,14 @@ function toggleFilter(type, el) {
 
 function setFilter(type) {
     if (type === 'all') {
-        filterState.A = filterState.M = filterState.F = filterState.D = filterState.R = true;
+        filterState.A = filterState.M = filterState.F = filterState.D = filterState.R = filterState.P = true;
     }
     applyFilter();
 }
 
 function applyFilter() {
     updateFilterUI();
-    var filtered = fileData.filter(function(f) { return filterState[f.type]; });
+    var filtered = treeFileData.filter(function(f) { return filterState[f.type]; });
     var newRoot = buildTree(filtered);
     var treeEl = document.getElementById('tree');
     treeEl.innerHTML = '';
@@ -667,8 +685,7 @@ function toggleAll(expand) {
 }
 
 // ===== 启动 =====
-var treeEl = document.getElementById('tree');
-renderTree(treeRoot, treeEl, true);
+applyFilter();
 </script>
 
 </body>

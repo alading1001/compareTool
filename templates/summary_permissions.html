@@ -1,6 +1,0 @@
-{% if permission_changes %}
-    lines.push('', '仅权限变化（内容相同，无需复制文件）：{{ permission_changes | length }} 个');
-{% for change in permission_changes %}
-    lines.push({{ ((permission_prefix | default('')) ~ change.path ~ '：' ~ change.old_mode ~ ' → ' ~ change.new_mode) | tojson }});
-{% endfor %}
-{% endif %}

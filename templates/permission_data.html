@@ -1,0 +1,10 @@
+{% for change in permission_changes | default([]) %}
+permissionData.push({
+    path: {{ change.path | replace('\\','/') | tojson }},
+    type: 'P',
+    oldMode: {{ change.old_mode | tojson }},
+    newMode: {{ change.new_mode | tojson }}{% if permission_project is defined %},
+    project: {{ permission_project.project_name | tojson }},
+    showProjectRoot: {{ permission_project.show_project_root | tojson }}{% endif %}
+});
+{% endfor %}

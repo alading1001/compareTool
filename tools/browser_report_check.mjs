@@ -1,9 +1,10 @@
-// Real Edge/CDP report checks. Requires Node >=22; no npm packages.
+// Chromium/CDP 报告交互验证；需要 Node >=22，无额外 npm 依赖。
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {spawn} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
 import assert from 'node:assert/strict';
+import {checkPermissionReport} from './check_permission_report.mjs';
 const [edge,input,output,profile,flavor="candidate"]=process.argv.slice(2);
 if(!profile) throw new Error('usage: node browser_report_check.mjs EDGE REPORT JSON PROFILE');
 await fs.mkdir(profile,{recursive:true});
@@ -37,7 +38,7 @@ async function click(selector){
     await call('Input.dispatchMouseEvent',{type:'mouseReleased',...point,button:'left',clickCount:1});
     await sleep(100);
 }
-const result={input,checks:{},scope:'Real headless Edge. CDP keyboard/mouse events; snapshots are not whole-system peak memory.'};
+const result={input,checks:{},scope:'真实无头 Chromium，使用独立配置及 CDP 鼠标/键盘事件；内存快照不代表整机峰值。'};
 try{
     let port;
     for(let i=0;i<100;i++){
@@ -57,6 +58,9 @@ try{
     await call('Page.navigate',{url:pathToFileURL(path.resolve(input)).href});
     for(let i=0;i<100;i++){try{if(await evaluate("document.readyState==='complete' && typeof fileData!=='undefined'"))break;}catch{}await sleep(100);}
     result.initial=await evaluate("({files:fileData.length,htmlStrings:fileData.filter(f=>typeof f.html==='string').length,templates:document.querySelectorAll('template.diff-source').length,nodes:document.querySelectorAll('*').length,manifestComplete:manifestData===fileData})");
+    if(flavor==='permissions'){
+        result.checks=await checkPermissionReport(evaluate,click);
+    } else {
     if(flavor==='candidate'){
         assert.equal(result.initial.htmlStrings,0);
         assert.equal(result.initial.files,result.initial.templates);
@@ -118,6 +122,7 @@ try{
     for(let i=0;i<10;i++)await evaluate("showDiff(fileData.find(f=>f.archiveDetails));showDiff(fileData.find(f=>f.path.endsWith('plain.txt')))");
     assert.equal(await evaluate("document.querySelectorAll('#diffContainer .diff-panel').length"),1);
     await call('HeapProfiler.collectGarbage');result.finalHeap=await call('Runtime.getHeapUsage');result.finalDOM=await call('Memory.getDOMCounters');
+    }
     result.errors=errors;assert.equal(errors.length,0);
     const image=await call('Page.captureScreenshot',{format:'png'});
     await fs.writeFile(output+'.png',Buffer.from(image.data,'base64'));

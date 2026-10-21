@@ -1,15 +1,18 @@
 """归档内容与权限分别交付，覆盖真实工作线程和递归报告。"""
 import hashlib
 import io
+import json
+import re
 import stat
 import tarfile
 import zipfile
 
 from archive_workflow_fixtures import WorkflowCase, tree_hashes
-from diff_engine import DiffEngine, DiffResult
+from diff_engine import DiffEngine, DiffResult, FileDiff
+from main import CompareToolApp
 from report_generator import ReportGenerator
 from vcs.archive_vcs import ArchiveVCS
-from vcs.base import FilePermissionChange
+from vcs.base import ChangeType, FilePermissionChange
 
 
 def package(path, entries, unix=True):
@@ -59,8 +62,12 @@ class ArchivePermissionClassificationTests(WorkflowCase):
                     for name,body in expected.items():
                         self.assertEqual(body,(out/side/'Demo'/name).read_bytes())
                 report = (out/'report.html').read_text('utf-8')
-                self.assertIn('仅权限变化（内容相同）：3 个',report)
-                self.assertIn('Demo/same.txt：0664 → 0640',report)
+                self.assertEqual(3, result.summary['permission_only_files'])
+                self.assertIn('<div class="num">3</div><div class="lbl">仅权限变化',report)
+                permission_paths = re.findall(r'permissionData.push\(\{\s*path: (.*?),', report)
+                self.assertEqual({'same.txt','same.jar','empty'}, {json.loads(p) for p in permission_paths})
+                self.assertEqual({'text.txt','binary.class','format.txt','after.bin'},
+                                 {f.file_path for f in result.files if f.has_permission_change})
                 self.assertNotIn('data-path="same.txt"',report)
                 instructions = next(out.glob('*操作说明.txt')).read_text('utf-8-sig')
                 self.assertIn('[文件权限] Demo/same.txt：0664 → 0640',instructions)
@@ -134,9 +141,71 @@ class ArchivePermissionClassificationTests(WorkflowCase):
             show_project_root=True,old_version='old',new_version='new')],str(multi))
         for path in (single,multi):
             report = path.read_text('utf-8')
-            self.assertIn('&lt;/script&gt;&lt;b&gt;&amp;.txt',report)
             self.assertNotIn('</script><b>',report)
             self.assertIn('\\u003c/script\\u003e',report)
+            self.assertIn('"0644"', report)
+            self.assertIn('"0755"', report)
         basic = ''.join(generator._basic_chunks([dict(diff_result=result)]))
         self.assertIn('仅权限变化',basic)
         self.assertIn('&lt;/script&gt;',basic)
+
+    def test_permission_paths_participate_in_multi_project_disambiguation(self):
+        for second_permission in (True, False):
+            with self.subTest(second_permission=second_permission):
+                projects = []
+                for index in range(2):
+                    result = DiffResult('project', f'Project{index}', 'archive', 'old', 'new')
+                    if index == 0 or second_permission:
+                        result.permission_changes.append(FilePermissionChange('same.txt', '0644', '0755'))
+                    else:
+                        result.files.append(FileDiff('same.txt', ChangeType.MODIFIED))
+                    projects.append(dict(project_name=result.project_name, diff_result=result,
+                                         vcs_type='archive', show_project_root=False))
+                app = CompareToolApp.__new__(CompareToolApp)
+                app._check_multi_display_path_conflicts(projects)
+                self.assertTrue(all(p['show_project_root'] for p in projects))
+                self.assertTrue(all(p['diff_result'].issues for p in projects))
+                self.assertFalse(any(p['diff_result'].delivery_incomplete for p in projects))
+                summary = ReportGenerator._multi_summary(projects)
+                self.assertEqual(2 if second_permission else 1, summary['permission_only_files'])
+                self.assertEqual(0 if second_permission else 1, summary['total_files'])
+
+    def test_permission_only_records_never_consume_delivery_manifest_capacity(self):
+        result = DiffResult('project', 'Demo', 'archive', 'old', 'new',
+                            files=[FileDiff('modified.txt', ChangeType.MODIFIED)],
+                            permission_changes=[FilePermissionChange(f'p/{i}.txt','0644','0755') for i in range(3000)])
+        result.MAX_REPORT_MANIFEST_FILES = 1
+        self.assertEqual(['modified.txt'], [f.file_path for f in result.report_manifest_files])
+        self.assertEqual(1, result.summary['total_files'])
+        self.assertEqual(3000, result.summary['permission_only_files'])
+        self.assertEqual(0, result.summary['manifest_omitted_files'])
+        target = self.root/'large.html'
+        ReportGenerator().generate(result, str(target))
+        report = target.read_text('utf-8')
+        self.assertEqual(3000, report.count('permissionData.push({'))
+        self.assertEqual(1, report.count('<template class="diff-source"'))
+
+    def test_rename_format_and_permission_combinations_preserve_identity_and_bytes(self):
+        for suffix in ('.zip', '.tar'):
+            for renamed in (False, True):
+                for formatted in (False, True):
+                    for permission in (False, True):
+                        name = f'{suffix[1:]}-{renamed}-{formatted}-{permission}'
+                        with self.subTest(case=name):
+                            old, new = self.root/('old-'+name+suffix), self.root/('new-'+name+suffix)
+                            old_path, new_path = 'before.txt', 'after.txt' if renamed else 'before.txt'
+                            old_bytes = b'line\n'
+                            new_bytes = b'line\r\n' if formatted else old_bytes
+                            package(old, {old_path: (old_bytes, 0o644)})
+                            package(new, {new_path: (new_bytes, 0o755 if permission else 0o644)})
+                            app, result, out = self.generate(self.task(old,new), False, self.root/name)
+                            self.assert_success(app)
+                            expected = ['A','D'] if renamed and formatted else ['R'] if renamed else ['F'] if formatted else []
+                            self.assertEqual(expected, sorted(f.report_type for f in result.files))
+                            self.assertEqual(int(permission and not renamed and not formatted), len(result.permission_changes))
+                            self.assertEqual(int(permission and (renamed != formatted)), sum(f.has_permission_change for f in result.files))
+                            for side, path, content in (('oldVersion',old_path,old_bytes), ('newVersion',new_path,new_bytes)):
+                                files = [p for p in (out/side).rglob('*') if p.is_file()]
+                                self.assertEqual(int(bool(expected)), len(files))
+                                if expected:
+                                    self.assertEqual(content, (out/side/'Demo'/path).read_bytes())

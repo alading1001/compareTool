@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "status": "SOURCE_VERIFIED_EXE_NOT_REBUILT",
+  "verified_at": "2026-10-21T23:44:16.548603+08:00",
+  "purpose": "恢复原有全部加各类型筛选习惯，移除额外快捷入口及术语",
+  "runtime_source_sha256": "987f85d28c132008373aee62c4df4fc59941bee3007caea4f4cb9837285b83d9",
+  "behavior": {
+    "default_all": true,
+    "filter_types": [
+      "A",
+      "M",
+      "F",
+      "D",
+      "R",
+      "P"
+    ],
+    "extra_shortcut": false,
+    "total_label": "变更文件",
+    "display_total": 2876
+  },
+  "regression": {
+    "tests": 50,
+    "failures": 0,
+    "errors": 0,
+    "isolated_source": true
+  },
+  "sample": {
+    "summary": {
+      "issue_count": 0,
+      "delivery_incomplete": false,
+      "failed_items": 0,
+      "total_files": 4,
+      "permission_only_files": 2872,
+      "added_files": 0,
+      "modified_files": 4,
+      "format_changed_files": 0,
+      "deleted_files": 0,
+      "renamed_files": 0,
+      "required_directory_deletions": 0,
+      "total_added_lines": 12,
+      "total_deleted_lines": 12,
+      "line_counts_complete": true,
+      "skipped_line_count_files": 0,
+      "report_omitted_files": 0,
+      "manifest_listed_files": 4,
+      "manifest_omitted_files": 0
+    },
+    "exports": 8,
+    "all_exported_bytes_equal_original_members": true,
+    "source_archives_unchanged": true
+  },
+  "browser": {
+    "version": "Chrome/155.0.8059.85",
+    "reports": 7,
+    "filter_combinations_each": 64,
+    "all_success": true,
+    "exceptions": 0
+  },
+  "manual": {
+    "pages": 17,
+    "sha256": "936e6a1ed566739b4d299ffaa4a1ff1d79dffbd8f1cd1f2cacd8ceb112e7816a",
+    "docs_dist_identical": true,
+    "rendered_pages_reviewed": [
+      14
+    ]
+  },
+  "previous_full_regression": "permission-report-ui-20261021.json",
+  "exe_rebuilt": false,
+  "committed": false,
+  "pushed": false
+}

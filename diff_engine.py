@@ -56,6 +56,11 @@ class FileDiff:
             return "F"
         return self.change_type.value
 
+    @property
+    def has_permission_change(self) -> bool:
+        """伴随权限只作展示标记，不改变主分类或交付集合。"""
+        return bool(self.old_mode and self.new_mode and self.old_mode != self.new_mode)
+
 
 @dataclass
 class _DecodedText:
@@ -179,6 +184,7 @@ class DiffResult:
             "delivery_incomplete": self.delivery_incomplete,
             "failed_items": sum(issue['delivery'] for issue in self.issues),
             "total_files": len(self.files),
+            "permission_only_files": len(self.permission_changes),
             "added_files": added,
             "modified_files": modified,
             "format_changed_files": format_changed,
