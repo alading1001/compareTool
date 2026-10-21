@@ -334,12 +334,13 @@
   },
   "knowledge_faces": {
     "code": "changed-and-verified",
-    "runtime": "pending",
+    "runtime": "changed-and-verified",
     "docs": "changed-and-verified",
     "rules": "changed-and-verified",
     "memory": "out-of-scope",
     "workspace": "pending"
   },
   "memory_policy": "generated-read-only；本次未写入或更新记忆",
-  "workspace_policy": "临时诊断和验证现场保留；未执行破坏性清场"
+  "workspace_policy": "临时诊断和验证现场保留；未执行破坏性清场",
+  "release_receipt": "artifacts/release-permission-closeout-20261021.json"
 }
