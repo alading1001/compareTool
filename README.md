@@ -168,7 +168,7 @@ Windows 文件夹扫描的重复元数据查询和比较根路径解析也已优
 
 此前的 P 仅权限展示、完整构建身份及下载校验记录见 [2026-10-22 发布凭证](artifacts/release-permission-closeout-20261022.json)。[v2026.10.22.1](https://github.com/alading1001/compareTool/releases/tag/v2026.10.22.1) 是此前发布的 GitHub 发行版；本轮源码推送和本地安装更新不代表创建了新的 GitHub Release 或上传附件。
 
-历史已批准清理及保留对象核验见 [2026-10-22 清场凭证](artifacts/cleanup-permission-closeout-20261022.json) 和 [补存证据](artifacts/cleanup-permission-evidence-20261022.zip)。本轮 12 项临时对象仅完成 [清场预览](artifacts/prefixed-text-cleanup-preview-20261023.json)，未删除；正式交付、旧版归档和必要复核现场保留，等待完整汇报后的明确确认。Windows ACL 比较未增加，生成记忆只读。
+历史已批准清理及保留对象核验见 [2026-10-22 清场凭证](artifacts/cleanup-permission-closeout-20261022.json) 和 [补存证据](artifacts/cleanup-permission-evidence-20261022.zip)。本轮用户在完整汇报后确认清理，已按 [12 项清场预览](artifacts/prefixed-text-cleanup-preview-20261023.json) 删除 436 个临时文件、114,960,710 字节；14 份保护文件及 8 组保留目录的 1,132 个文件核验未变，见 [本轮清场凭证](artifacts/cleanup-prefixed-text-20261023.json)。正式交付、旧版归档和必要复核现场保留。Windows ACL 比较未增加，生成记忆只读。
 
 使用 `dist/CompareTool.exe`；标题中的版本和构建号用于区分不同构建，底部“版本信息”可查看构建时间、源码指纹和实际运行路径。`build.bat` 通过 `tools/build_release.py` 生成并嵌入构建信息，附带 `CompareTool_build.json`；请使用此入口打包，而非旧的手工 spec。
 

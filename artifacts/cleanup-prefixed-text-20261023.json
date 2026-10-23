@@ -1,0 +1,116 @@
+{
+  "schema": "comparetool.approved-cleanup.v1",
+  "status": "CLEANED_AND_VERIFIED",
+  "completed_at": "2026-10-23T14:17:38.1442125+08:00",
+  "authorization": {
+    "user_message": "清理",
+    "scope": "用户在查看完整汇报及 12 项清场预览后明确确认；仅该清单有效"
+  },
+  "approved_preview": "artifacts/prefixed-text-cleanup-preview-20261023.json",
+  "deleted": [
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\prefixed-text-final-focused-ad80d10300fd4544b6c02d4643f7da04",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\prefixed-text-focused-002f2a3388b8429daf25c826950dba56",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\prefixed-text-focused-7a3d98dcd20947ddb3a59d433f61adda",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\prefixed-text-real-files-20261023",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\prefixed-text-real-files-20261023-v2",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\prefixed-text-regression-20261023",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\tmp0md8vde0",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\tmp6e26_xep",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\tmpcm5f6_y9",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\tmpx4ui8o9d",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\tmpxvj0g_t0",
+    "D:\\AI\\project\\compareTool_myself\\.tmp\\release_build_a8rysqom"
+  ],
+  "deleted_target_count": 12,
+  "files": 436,
+  "bytes": 114960710,
+  "protected_files_unchanged": true,
+  "retained_trees_unchanged": true,
+  "protected_file_count": 14,
+  "retained_tree_count": 8,
+  "active_candidate_references": [],
+  "error": null,
+  "preflight": {
+    "checked_at": "2026-10-23T14:17:29.9202031+08:00",
+    "preview_sha256": "72679019d6d32065bc352e672f8045b0e9fdadf18d76995e3a707005837d7e1a",
+    "manifest_sha256": "78d9a47c283e6acb034c9e6258debabe69311305b8c4327a2e9cf4230fb7adae",
+    "active_candidate_references": [],
+    "boundary_and_reparse_checks_passed": true,
+    "tracked_targets": 0
+  },
+  "retained_trees": [
+    {
+      "root": "D:\\AI\\project\\compareTool_myself\\.tmp\\prefixed-text-real-files-20261023-final",
+      "files": 81,
+      "bytes": 35460353
+    },
+    {
+      "root": "D:\\AI\\project\\compareTool_myself\\.tmp\\prefixed-text-regression-20261023-final",
+      "files": 224,
+      "bytes": 14625652
+    },
+    {
+      "root": "D:\\AI\\project\\compareTool_myself\\.tmp\\prefixed-text-regression-20261023-check",
+      "files": 222,
+      "bytes": 14472320
+    },
+    {
+      "root": "D:\\AI\\project\\compareTool_myself\\.tmp\\prefixed-text-path-baseline-20261023",
+      "files": 222,
+      "bytes": 14466923
+    },
+    {
+      "root": "D:\\AI\\project\\compareTool_myself\\.tmp\\prefixed-text-path-repro-20261023",
+      "files": 222,
+      "bytes": 14471175
+    },
+    {
+      "root": "D:\\AI\\project\\compareTool_myself\\dist",
+      "files": 110,
+      "bytes": 797420001
+    },
+    {
+      "root": "D:\\AI\\project\\compareTool_myself\\artifacts",
+      "files": 46,
+      "bytes": 4052270
+    },
+    {
+      "root": "D:\\java\\applications\\CompareTool\\archive\\20261023_132730_before_15d359eecc6c",
+      "files": 5,
+      "bytes": 20956528
+    }
+  ],
+  "evidence": {
+    "cleanup-files.json": {
+      "path": ".tmp/prefixed-release-20261023/cleanup-files.json",
+      "sha256": "78d9a47c283e6acb034c9e6258debabe69311305b8c4327a2e9cf4230fb7adae"
+    },
+    "cleanup-preflight-confirmed.json": {
+      "path": ".tmp/prefixed-release-20261023/cleanup-preflight-confirmed.json",
+      "sha256": "11b24217773daf3e08d4c4c68d1b9eba31b4daed5e81b5ae0f4c1365667b633d"
+    },
+    "retained-before-approved-cleanup.json": {
+      "path": ".tmp/prefixed-release-20261023/retained-before-approved-cleanup.json",
+      "sha256": "7a16efbf3e807b497f06f27ab5926b6802be570c2ab0f149d7c11368b9d0d8be"
+    },
+    "protected-before-cleanup.json": {
+      "path": ".tmp/prefixed-release-20261023/protected-before-cleanup.json",
+      "sha256": "98394b4f6a37458c9db744960317c71d74e953ea4d05ca0bed77345664a81996"
+    },
+    "cleanup-result.json": {
+      "path": ".tmp/prefixed-release-20261023/cleanup-result.json",
+      "sha256": "09a9b95bd2f5296f7887814f945eb78319532d74288cc7c22fe5f413c956fb5d"
+    },
+    "execute-approved-cleanup.ps1": {
+      "path": ".tmp/prefixed-release-20261023/execute-approved-cleanup.ps1",
+      "sha256": "74a3d78b05f0324433a0ee74fc7e5ceca985869c0914f46888fbf88ab851d198"
+    }
+  },
+  "remaining_warning": "完整回归保留原有 1 项夹具 WinError 5 与 1 项符号链接权限跳过；相关模块 7 项复验通过，本轮清场不改变测试结论。",
+  "intentional_after_cleanup_updates": [
+    "README.md",
+    "docs/release-20261023-prefixed-text.md",
+    "artifacts/release-prefixed-text-20261023.json",
+    "artifacts/cleanup-prefixed-text-20261023.json"
+  ]
+}

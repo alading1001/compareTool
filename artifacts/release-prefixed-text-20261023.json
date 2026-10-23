@@ -1,6 +1,6 @@
 {
   "schema": "comparetool.release-closeout.v1",
-  "status": "INSTALLED_AND_VERIFIED_CLEANUP_PENDING",
+  "status": "INSTALLED_VERIFIED_AND_CLEANED",
   "verified_at": "2026-10-23T13:34:47+08:00",
   "build": {
     "version": "2026.10.23.1",
@@ -196,7 +196,7 @@
     "docs": "changed-and-verified",
     "rules": "changed-and-verified",
     "memory": "out-of-scope; generated-read-only",
-    "workspace": "pending: cleanup awaits post-report confirmation"
+    "workspace": "changed-and-verified: approved 12-target cleanup completed; retained evidence unchanged"
   },
   "governance": {
     "rule_source": "AGENTS.md",
@@ -210,8 +210,12 @@
     "candidates": 12,
     "files": 436,
     "bytes": 114960710,
-    "approved": false,
-    "deleted": false
+    "approved": true,
+    "deleted": true,
+    "receipt": "artifacts/cleanup-prefixed-text-20261023.json",
+    "completed_at": "2026-10-23T14:17:38.1442125+08:00",
+    "protected_files_unchanged": true,
+    "retained_trees_unchanged": true
   },
   "out_of_scope": [
     "创建或上传 GitHub Release 附件及标签",
@@ -221,5 +225,6 @@
   ],
   "warnings": [
     "完整回归原始结果为 814 通过、1 次夹具目录改名 WinError 5、1 次符号链接特权跳过；相关模块 7 项独立复验全过，未覆盖原始异常记录。"
-  ]
+  ],
+  "cleanup_verified_at": "2026-10-23T14:17:38.1442125+08:00"
 }
