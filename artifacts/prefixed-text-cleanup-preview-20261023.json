@@ -1,0 +1,130 @@
+{
+  "status": "PREVIEW_ONLY_REQUIRES_POST_REPORT_USER_CONFIRMATION",
+  "scope": "仅本轮明确列出的临时对象，不含历史归档、当前验证现场、输入文件及用户配置",
+  "entries": [
+    {
+      "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\prefixed-text-final-focused-ad80d10300fd4544b6c02d4643f7da04",
+      "relative": ".tmp/prefixed-text-final-focused-ad80d10300fd4544b6c02d4643f7da04",
+      "files": 0,
+      "bytes": 0,
+      "inventory_sha256": "5f44fc9b9c7f509f7b212f17c13de8ea8be3af6836a774a4be861bf2eed7e8e6",
+      "reparse_paths": [],
+      "reason": "本轮已替代或失败的验证副本、空测试目录或可复建构建中间物；必要证据另行保留"
+    },
+    {
+      "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\prefixed-text-focused-002f2a3388b8429daf25c826950dba56",
+      "relative": ".tmp/prefixed-text-focused-002f2a3388b8429daf25c826950dba56",
+      "files": 0,
+      "bytes": 0,
+      "inventory_sha256": "db795ce32de4d0e5d9f15eeb9a6c5c697fca05551dbca457aad123afd6a614ab",
+      "reparse_paths": [],
+      "reason": "本轮已替代或失败的验证副本、空测试目录或可复建构建中间物；必要证据另行保留"
+    },
+    {
+      "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\prefixed-text-focused-7a3d98dcd20947ddb3a59d433f61adda",
+      "relative": ".tmp/prefixed-text-focused-7a3d98dcd20947ddb3a59d433f61adda",
+      "files": 0,
+      "bytes": 0,
+      "inventory_sha256": "d56c453fb8b1c23d8ff393520a941dcc30c6780a34a8a2692073c522757dc964",
+      "reparse_paths": [],
+      "reason": "本轮已替代或失败的验证副本、空测试目录或可复建构建中间物；必要证据另行保留"
+    },
+    {
+      "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\prefixed-text-real-files-20261023",
+      "relative": ".tmp/prefixed-text-real-files-20261023",
+      "files": 39,
+      "bytes": 16739002,
+      "inventory_sha256": "086c95d834df6f95fcb8ea58ae6bdb1cdc3ae17bea2f869f7502083d26cbf6ca",
+      "reparse_paths": [],
+      "reason": "本轮已替代或失败的验证副本、空测试目录或可复建构建中间物；必要证据另行保留"
+    },
+    {
+      "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\prefixed-text-real-files-20261023-v2",
+      "relative": ".tmp/prefixed-text-real-files-20261023-v2",
+      "files": 81,
+      "bytes": 35460317,
+      "inventory_sha256": "04ffcf267e645e7097d8386dc2bbce416811697dd15cf6aac2d024b948e2b567",
+      "reparse_paths": [],
+      "reason": "本轮已替代或失败的验证副本、空测试目录或可复建构建中间物；必要证据另行保留"
+    },
+    {
+      "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\prefixed-text-regression-20261023",
+      "relative": ".tmp/prefixed-text-regression-20261023",
+      "files": 299,
+      "bytes": 14723733,
+      "inventory_sha256": "a75410b5766f0213f8a666c7875e44cd378ca5664497edcffe150372396a7a65",
+      "reparse_paths": [],
+      "reason": "本轮已替代或失败的验证副本、空测试目录或可复建构建中间物；必要证据另行保留"
+    },
+    {
+      "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\tmp0md8vde0",
+      "relative": ".tmp/tmp0md8vde0",
+      "files": 0,
+      "bytes": 0,
+      "inventory_sha256": "9974d64ff20a7853ebcb3fda7c34a4b7a2d245bcfd763c4b26a164104944fb00",
+      "reparse_paths": [],
+      "reason": "本轮已替代或失败的验证副本、空测试目录或可复建构建中间物；必要证据另行保留"
+    },
+    {
+      "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\tmp6e26_xep",
+      "relative": ".tmp/tmp6e26_xep",
+      "files": 0,
+      "bytes": 0,
+      "inventory_sha256": "054c0fc23897097a458916447a59877a37c6b2f6fda8c32c67c7395ea3e77c74",
+      "reparse_paths": [],
+      "reason": "本轮已替代或失败的验证副本、空测试目录或可复建构建中间物；必要证据另行保留"
+    },
+    {
+      "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\tmpcm5f6_y9",
+      "relative": ".tmp/tmpcm5f6_y9",
+      "files": 0,
+      "bytes": 0,
+      "inventory_sha256": "b2ef17effb6c6b7c2295bc0071daadc5ca808dae031a40bd457674b4a60b2557",
+      "reparse_paths": [],
+      "reason": "本轮已替代或失败的验证副本、空测试目录或可复建构建中间物；必要证据另行保留"
+    },
+    {
+      "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\tmpx4ui8o9d",
+      "relative": ".tmp/tmpx4ui8o9d",
+      "files": 0,
+      "bytes": 0,
+      "inventory_sha256": "b1e43a1c38a7a271d3b1f507ad020ff735b4fc8bcf1a6ddfbedd34611d08fabe",
+      "reparse_paths": [],
+      "reason": "本轮已替代或失败的验证副本、空测试目录或可复建构建中间物；必要证据另行保留"
+    },
+    {
+      "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\tmpxvj0g_t0",
+      "relative": ".tmp/tmpxvj0g_t0",
+      "files": 0,
+      "bytes": 0,
+      "inventory_sha256": "407be1a10495b691ba690f9bff81ec1fec4462a8d50dd8fb6c9e81ccc7501c66",
+      "reparse_paths": [],
+      "reason": "本轮已替代或失败的验证副本、空测试目录或可复建构建中间物；必要证据另行保留"
+    },
+    {
+      "path": "D:\\AI\\project\\compareTool_myself\\.tmp\\release_build_a8rysqom",
+      "relative": ".tmp/release_build_a8rysqom",
+      "files": 17,
+      "bytes": 48037658,
+      "inventory_sha256": "058ef62855d68f24925aecab631008aa8cec23f5587a04121bf5a5e80db1f86b",
+      "reparse_paths": [],
+      "reason": "本轮已替代或失败的验证副本、空测试目录或可复建构建中间物；必要证据另行保留"
+    }
+  ],
+  "total_files": 436,
+  "total_bytes": 114960710,
+  "per_file_manifest": ".tmp\\prefixed-release-20261023\\cleanup-files.json",
+  "per_file_manifest_sha256": "78d9a47c283e6acb034c9e6258debabe69311305b8c4327a2e9cf4230fb7adae",
+  "retained": [
+    ".tmp/prefixed-text-real-files-20261023-final",
+    ".tmp/prefixed-text-regression-20261023-final",
+    ".tmp/prefixed-text-regression-20261023-check",
+    ".tmp/prefixed-text-path-baseline-20261023",
+    ".tmp/prefixed-text-path-repro-20261023",
+    ".tmp/prefixed-release-20261023",
+    "dist",
+    "artifacts",
+    "D:/java/applications/CompareTool/archive"
+  ],
+  "deleted": false
+}

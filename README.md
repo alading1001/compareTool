@@ -162,11 +162,13 @@ Windows 文件夹扫描的重复元数据查询和比较根路径解析也已优
 
 ## 正式入口、版本与任务进度
 
-2026-10-23 的特殊头部文本修复已完成源码验收：真实文件中的 8 个 `.js` 在全文和上下文模式均保留头部与正文差异，每种模式的 34 份导出均与原文件字节一致，见 [源码验证凭证](artifacts/prefixed-text-verification-20261023.json)。当前正在按已授权流程提交、构建和更新常用程序目录；源码验收不等于该目录中的 EXE 已更新。
+当前项目及常用程序目录的正式入口为 **`2026.10.23.1 [aa35eb29e8]`**，从已推送的干净源码提交 `44a9624` 构建。`D:\java\applications\CompareTool` 已同步 EXE、构建信息和中文说明书，旧版已归档；真实窗口版本、实际路径、响应性和配置字节保留均已核对，见 [发布安装凭证](artifacts/release-prefixed-text-20261023.json)。
+
+本轮支持带特殊头部文本的完整字节与逐行正文展示。真实文件中的 8 个 `.js` 在全文和上下文模式均保留头部与正文差异，每种模式的 34 份导出与原文件字节一致。正式包的 29 个应用模块和 23 项模板、资源与验收源码一致，并使用包内代码复验真实文件；没有自动操作正式 EXE 的比较界面。源码回归、Windows 测试环境告警及范围见 [本轮发布记录](docs/release-20261023-prefixed-text.md)。
 
 此前的 P 仅权限展示、完整构建身份及下载校验记录见 [2026-10-22 发布凭证](artifacts/release-permission-closeout-20261022.json)。[v2026.10.22.1](https://github.com/alading1001/compareTool/releases/tag/v2026.10.22.1) 是此前发布的 GitHub 发行版；本轮源码推送和本地安装更新不代表创建了新的 GitHub Release 或上传附件。
 
-历史已批准清理及保留对象核验见 [2026-10-22 清场凭证](artifacts/cleanup-permission-closeout-20261022.json) 和 [补存证据](artifacts/cleanup-permission-evidence-20261022.zip)。本轮复核现场保留，清场须在完整汇报后单独确认。Windows ACL 比较未增加，生成记忆只读。
+历史已批准清理及保留对象核验见 [2026-10-22 清场凭证](artifacts/cleanup-permission-closeout-20261022.json) 和 [补存证据](artifacts/cleanup-permission-evidence-20261022.zip)。本轮 12 项临时对象仅完成 [清场预览](artifacts/prefixed-text-cleanup-preview-20261023.json)，未删除；正式交付、旧版归档和必要复核现场保留，等待完整汇报后的明确确认。Windows ACL 比较未增加，生成记忆只读。
 
 使用 `dist/CompareTool.exe`；标题中的版本和构建号用于区分不同构建，底部“版本信息”可查看构建时间、源码指纹和实际运行路径。`build.bat` 通过 `tools/build_release.py` 生成并嵌入构建信息，附带 `CompareTool_build.json`；请使用此入口打包，而非旧的手工 spec。
 

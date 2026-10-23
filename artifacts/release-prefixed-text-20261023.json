@@ -1,0 +1,225 @@
+{
+  "schema": "comparetool.release-closeout.v1",
+  "status": "INSTALLED_AND_VERIFIED_CLEANUP_PENDING",
+  "verified_at": "2026-10-23T13:34:47+08:00",
+  "build": {
+    "version": "2026.10.23.1",
+    "build_id": "aa35eb29e8",
+    "built_at": "2026-10-23T13:23:47+08:00",
+    "commit": "44a962450d6d37143b71169ac53522e293988f1c",
+    "dirty": false,
+    "source_sha256": "aa35eb29e8f60ea2497d5b5c157a9004a6c47134c7b702f51ca243e609a75ae8",
+    "exe_sha256": "5c9d02dbae579ce8c729f734cd9d6f76dc57fc3f62c408d82f252d6744f1cacb"
+  },
+  "source_pushed_before_build": true,
+  "verified_remote_build_commit": "44a962450d6d37143b71169ac53522e293988f1c",
+  "installation": {
+    "install_dir": "D:\\java\\applications\\CompareTool",
+    "backup": "D:\\java\\applications\\CompareTool\\archive\\20261023_132730_before_15d359eecc6c",
+    "before": {
+      "CompareTool.exe": "15d359eecc6cf8fbd115cbdab2fbd6d1d3178e60563e432a8e1d2a7a11deef39",
+      "CompareTool_build.json": "70038f77a2da407db1f30684aee7a577b5f2d09406d838e0ebc6858b5ddece16",
+      "CompareTool_使用说明书.pdf": "8b943dd6c6dcbdf93785344de947c06683c0306e876cacbdc0043c2f71587aae",
+      "compareTool_config.json": "2043e3436c08e1dca50d1b32194f03d932e8d15a16036d1ef3aafd69d1d85ed9"
+    },
+    "old_embedded_build": {
+      "version": "2026.10.22.2",
+      "build_id": "987f85d28c",
+      "built_at": "2026-10-22T00:46:14+08:00",
+      "commit": "af5947e85131fbed94e50836ad6ce74590340292",
+      "dirty": false,
+      "source_sha256": "987f85d28c132008373aee62c4df4fc59941bee3007caea4f4cb9837285b83d9"
+    },
+    "new_build": {
+      "version": "2026.10.23.1",
+      "build_id": "aa35eb29e8",
+      "built_at": "2026-10-23T13:23:47+08:00",
+      "commit": "44a962450d6d37143b71169ac53522e293988f1c",
+      "dirty": false,
+      "source_sha256": "aa35eb29e8f60ea2497d5b5c157a9004a6c47134c7b702f51ca243e609a75ae8",
+      "exe_sha256": "5c9d02dbae579ce8c729f734cd9d6f76dc57fc3f62c408d82f252d6744f1cacb"
+    },
+    "after": {
+      "CompareTool.exe": "5c9d02dbae579ce8c729f734cd9d6f76dc57fc3f62c408d82f252d6744f1cacb",
+      "CompareTool_build.json": "0555561e4d7ca99fc5c1a0ec42d3258cb81f242e6edaabfba6de78b7e8ab2388",
+      "CompareTool_使用说明书.pdf": "4e0a078fe0dae82fcd2ea4f631ebba3e985bc15a859b921925516be0d5e58636",
+      "compareTool_config.json": "2043e3436c08e1dca50d1b32194f03d932e8d15a16036d1ef3aafd69d1d85ed9"
+    },
+    "config_preserved": true,
+    "copied_files": [
+      "CompareTool.exe",
+      "CompareTool_build.json",
+      "CompareTool_使用说明书.pdf"
+    ],
+    "other_install_files_modified": false
+  },
+  "native_window_smoke": {
+    "actual_exe": "D:\\java\\applications\\CompareTool\\CompareTool.exe",
+    "process_id": 24608,
+    "title": "代码比对报告工具 v2026.10.23.1 [aa35eb29e8]",
+    "responding": true,
+    "main_window_handle": 198262,
+    "config_sha256": "2043E3436C08E1DCA50D1B32194F03D932E8D15A16036D1EF3AAFD69D1D85ED9",
+    "config_preserved": true,
+    "running_for_user": true,
+    "verification": "实际安装目录 EXE 启动、版本标题、窗口句柄及进程响应性；未自动操作比较界面"
+  },
+  "package_validation": {
+    "application_modules": 29,
+    "resources": 23,
+    "code_and_resources_match": true,
+    "embedded_metadata_matches_sidecar": true,
+    "source_fingerprint_matches": true,
+    "receipt": ".tmp\\prefixed-release-20261023\\package\\package-verification.json",
+    "formal_exe_ui_business_sample_repeated": false
+  },
+  "real_files": {
+    "input_files": 48,
+    "inputs_unchanged": true,
+    "modes": {
+      "full": {
+        "js_files": 8,
+        "exported_files": 34,
+        "exports_byte_identical": true,
+        "summary": {
+          "issue_count": 0,
+          "delivery_incomplete": false,
+          "failed_items": 0,
+          "total_files": 17,
+          "permission_only_files": 0,
+          "added_files": 0,
+          "modified_files": 17,
+          "format_changed_files": 0,
+          "deleted_files": 0,
+          "renamed_files": 0,
+          "required_directory_deletions": 0,
+          "total_added_lines": 166,
+          "total_deleted_lines": 387,
+          "line_counts_complete": false,
+          "skipped_line_count_files": 9,
+          "report_omitted_files": 0,
+          "manifest_listed_files": 17,
+          "manifest_omitted_files": 0
+        },
+        "single_report": "D:\\AI\\project\\compareTool_myself\\.tmp\\prefixed-release-20261023\\package\\sample\\full\\report.html",
+        "multi_report": "D:\\AI\\project\\compareTool_myself\\.tmp\\prefixed-release-20261023\\package\\sample\\full\\multi_report.html"
+      },
+      "context": {
+        "js_files": 8,
+        "exported_files": 34,
+        "exports_byte_identical": true,
+        "summary": {
+          "issue_count": 0,
+          "delivery_incomplete": false,
+          "failed_items": 0,
+          "total_files": 17,
+          "permission_only_files": 0,
+          "added_files": 0,
+          "modified_files": 17,
+          "format_changed_files": 0,
+          "deleted_files": 0,
+          "renamed_files": 0,
+          "required_directory_deletions": 0,
+          "total_added_lines": 166,
+          "total_deleted_lines": 387,
+          "line_counts_complete": false,
+          "skipped_line_count_files": 9,
+          "report_omitted_files": 0,
+          "manifest_listed_files": 17,
+          "manifest_omitted_files": 0
+        },
+        "single_report": "D:\\AI\\project\\compareTool_myself\\.tmp\\prefixed-release-20261023\\package\\sample\\context\\report.html",
+        "multi_report": "D:\\AI\\project\\compareTool_myself\\.tmp\\prefixed-release-20261023\\package\\sample\\context\\multi_report.html"
+      }
+    },
+    "receipt": ".tmp\\prefixed-release-20261023\\package\\sample\\verification.json"
+  },
+  "source_validation": {
+    "receipt": "artifacts/prefixed-text-verification-20261023.json",
+    "focused": {
+      "tests": 6,
+      "passed": 6
+    },
+    "full_regression": {
+      "tests": 816,
+      "passed": 814,
+      "errors": 1,
+      "skipped": 1,
+      "seconds": 2628.676,
+      "command": "python -B -m unittest discover -s tests -v",
+      "isolated_source": ".tmp\\prefixed-text-regression-20261023-final\\source",
+      "log": ".tmp\\prefixed-text-regression-20261023-final\\unittest.log",
+      "log_sha256": "f46aafeb5d697ca7cfa204b3060debf43e63b39aefb8b07be653fbb3f00b88ea",
+      "error": {
+        "test": "test_review_git_repository_paths.GitRepositoryPathTests.test_unicode_line_separators_never_select_adjacent_repository",
+        "phase": "测试夹具准备：wrong.path.rename；该子场景尚未调用比对流程",
+        "detail": "PermissionError [WinError 5] 临时仓库目录改名被拒绝；未查明访问拒绝的外部根因",
+        "fixed_source_single_retry": "1 passed",
+        "unchanged_head_single_retry": "1 passed",
+        "related_module_retry": "7 passed",
+        "related_module_log": ".tmp\\prefixed-text-regression-20261023-check\\path-module.log",
+        "related_module_log_sha256": "130d5f620c4ab6f1f36bbd8778df904e691c59cc3bd903bd08c77a70345973c9"
+      },
+      "skip": "WinError 1314：当前 Windows 令牌不具备创建符号链接的权限"
+    }
+  },
+  "manual": {
+    "pages": 17,
+    "bookmarks": 17,
+    "toc_links": 11,
+    "missing_glyphs": [],
+    "embedded_fonts": {
+      "/AAAAAA+MicrosoftYaHei-0": true,
+      "/AAAAAB+MicrosoftYaHei-0": true,
+      "/AAAAAC+MicrosoftYaHei-0": true,
+      "/AAAAAA+MicrosoftYaHei-Bold-0": true,
+      "/AAAAAB+MicrosoftYaHei-Bold-0": true
+    },
+    "out_of_bounds_characters": 0,
+    "bytes": 489371,
+    "sha256": "4e0a078fe0dae82fcd2ea4f631ebba3e985bc15a859b921925516be0d5e58636",
+    "source": "docs/manual/build_manual.py",
+    "date": "2026-10-23",
+    "copies_identical": [
+      "docs",
+      "dist",
+      "D:\\java\\applications\\CompareTool"
+    ],
+    "modified_page_visual_review": [
+      14
+    ],
+    "all_17_page_contact_sheet_review": true
+  },
+  "fact_surfaces": {
+    "code": "changed-and-verified",
+    "runtime": "changed-and-verified",
+    "docs": "changed-and-verified",
+    "rules": "changed-and-verified",
+    "memory": "out-of-scope; generated-read-only",
+    "workspace": "pending: cleanup awaits post-report confirmation"
+  },
+  "governance": {
+    "rule_source": "AGENTS.md",
+    "claude_import": "@AGENTS.md",
+    "project_rule_bytes": 28188,
+    "global_rules_modified": false,
+    "memory_modified": false
+  },
+  "cleanup": {
+    "preview": "artifacts/prefixed-text-cleanup-preview-20261023.json",
+    "candidates": 12,
+    "files": 436,
+    "bytes": 114960710,
+    "approved": false,
+    "deleted": false
+  },
+  "out_of_scope": [
+    "创建或上传 GitHub Release 附件及标签",
+    "生成记忆写入",
+    "未列入清单的历史残留清理",
+    "正式 EXE 界面自动驱动业务比较"
+  ],
+  "warnings": [
+    "完整回归原始结果为 814 通过、1 次夹具目录改名 WinError 5、1 次符号链接特权跳过；相关模块 7 项独立复验全过，未覆盖原始异常记录。"
+  ]
+}
