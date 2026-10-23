@@ -1,0 +1,107 @@
+{
+  "schema": "comparetool.prefixed-text-verification.v1",
+  "date": "2026-10-23",
+  "status": "SOURCE_VERIFIED_EXE_NOT_BUILT",
+  "base_commit": "af5947e85131fbed94e50836ad6ce74590340292",
+  "source_files_sha256": {
+    "diff_engine.py": "e1e7e4960e5d340569b6df71aa0b0c9b53f59056e2a1225df78c395549f8777e",
+    "docs/report-and-export-contract.md": "de10d06e90371f2cd9d58466531a7a9273380416ca41769e40d51376dad75af7",
+    "tests/test_prefixed_text.py": "e039de9fd30b4e151ab14d39bec10146571d03ce8912f5fb299626f797a97f87",
+    "tools/verify_prefixed_text.py": "701b0c9e5fc62c027f2699c87b0833900b5ca28002568957f435ff05075f27c1"
+  },
+  "focused_regressions": {
+    "tests": 6,
+    "passed": 6
+  },
+  "real_files": {
+    "inputs_unchanged": true,
+    "checked_input_files": 48,
+    "modes": {
+      "full": {
+        "js_files": 8,
+        "exported_files": 34,
+        "all_export_bytes_equal_to_inputs": true,
+        "summary": {
+          "issue_count": 0,
+          "delivery_incomplete": false,
+          "failed_items": 0,
+          "total_files": 17,
+          "permission_only_files": 0,
+          "added_files": 0,
+          "modified_files": 17,
+          "format_changed_files": 0,
+          "deleted_files": 0,
+          "renamed_files": 0,
+          "required_directory_deletions": 0,
+          "total_added_lines": 166,
+          "total_deleted_lines": 387,
+          "line_counts_complete": false,
+          "skipped_line_count_files": 9,
+          "report_omitted_files": 0,
+          "manifest_listed_files": 17,
+          "manifest_omitted_files": 0
+        }
+      },
+      "context": {
+        "js_files": 8,
+        "exported_files": 34,
+        "all_export_bytes_equal_to_inputs": true,
+        "summary": {
+          "issue_count": 0,
+          "delivery_incomplete": false,
+          "failed_items": 0,
+          "total_files": 17,
+          "permission_only_files": 0,
+          "added_files": 0,
+          "modified_files": 17,
+          "format_changed_files": 0,
+          "deleted_files": 0,
+          "renamed_files": 0,
+          "required_directory_deletions": 0,
+          "total_added_lines": 166,
+          "total_deleted_lines": 387,
+          "line_counts_complete": false,
+          "skipped_line_count_files": 9,
+          "report_omitted_files": 0,
+          "manifest_listed_files": 17,
+          "manifest_omitted_files": 0
+        }
+      }
+    },
+    "verification_json": ".tmp\\prefixed-text-real-files-20261023-final\\verification.json",
+    "verification_json_sha256": "8451deabd479dcae8069a8e3d9d5d91e3e5c117a5f85823b1cd3cc47fe3ca02c",
+    "reports": {
+      "full": {
+        "single": "D:\\AI\\project\\compareTool_myself\\.tmp\\prefixed-text-real-files-20261023-final\\full\\report.html",
+        "multi": "D:\\AI\\project\\compareTool_myself\\.tmp\\prefixed-text-real-files-20261023-final\\full\\multi_report.html"
+      },
+      "context": {
+        "single": "D:\\AI\\project\\compareTool_myself\\.tmp\\prefixed-text-real-files-20261023-final\\context\\report.html",
+        "multi": "D:\\AI\\project\\compareTool_myself\\.tmp\\prefixed-text-real-files-20261023-final\\context\\multi_report.html"
+      }
+    }
+  },
+  "full_regression": {
+    "tests": 816,
+    "passed": 814,
+    "errors": 1,
+    "skipped": 1,
+    "seconds": 2628.676,
+    "command": "python -B -m unittest discover -s tests -v",
+    "isolated_source": ".tmp\\prefixed-text-regression-20261023-final\\source",
+    "log": ".tmp\\prefixed-text-regression-20261023-final\\unittest.log",
+    "log_sha256": "f46aafeb5d697ca7cfa204b3060debf43e63b39aefb8b07be653fbb3f00b88ea",
+    "error": {
+      "test": "test_review_git_repository_paths.GitRepositoryPathTests.test_unicode_line_separators_never_select_adjacent_repository",
+      "phase": "测试夹具准备：wrong.path.rename；该子场景尚未调用比对流程",
+      "detail": "PermissionError [WinError 5] 临时仓库目录改名被拒绝；未查明访问拒绝的外部根因",
+      "fixed_source_single_retry": "1 passed",
+      "unchanged_head_single_retry": "1 passed",
+      "related_module_retry": "7 passed",
+      "related_module_log": ".tmp\\prefixed-text-regression-20261023-check\\path-module.log",
+      "related_module_log_sha256": "130d5f620c4ab6f1f36bbd8778df904e691c59cc3bd903bd08c77a70345973c9"
+    },
+    "skip": "WinError 1314：当前 Windows 令牌不具备创建符号链接的权限"
+  },
+  "scope": "源码桌面工作线程、完整正文及头部字节、全文/上下文、单/多项目模板、原始导出字节；未打包或替换 EXE，未完成浏览器视觉交互验收"
+}

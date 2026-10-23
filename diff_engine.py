@@ -67,6 +67,7 @@ class _DecodedText:
     text: str
     encoding: str
     bom: str = "无"
+    header: bytes = b""
 
 
 @dataclass
@@ -510,6 +511,16 @@ class DiffEngine:
         new_decoded = new_strict_decoded or (
             self._decode_text_fallback(new_raw) if new_raw is not None else None
         )
+        header_html = self._text_header_html(old_decoded, new_decoded)
+        if header_html:
+            file_diff.display_notes.append(
+                "特殊头部按原始字节单独比较；正文行号从头部之后的第 1 行开始，"
+                "行数统计只含正文，导出保留完整原始字节。"
+            )
+            if (old_decoded is not None and new_decoded is not None
+                    and old_decoded.header != new_decoded.header
+                    and old_decoded.text == new_decoded.text):
+                file_diff.display_notes.append("正文无变化，特殊头部字节已变化。")
         unknown_sides = [
             label for label, raw, decoded in (
                 ("旧版本", old_raw, old_strict_decoded),
@@ -536,7 +547,7 @@ class DiffEngine:
                 cf, complexity_reason
             )
             file_diff.line_counts_complete = False
-            self._prepend_metadata(file_diff)
+            self._prepend_metadata(file_diff, header_html)
             return file_diff
 
         # 纯重命名或纯格式变化只需要线性检查和小型说明卡片，不应被为
@@ -547,7 +558,7 @@ class DiffEngine:
                     file_diff.side_by_side_html = self._rename_only_placeholder(
                         old_path, cf.path
                     )
-                    self._prepend_metadata(file_diff)
+                    self._prepend_metadata(file_diff, header_html)
                     return file_diff
                 format_details = self._format_only_details(
                     old_strict_decoded, new_strict_decoded, old_raw, new_raw
@@ -563,7 +574,7 @@ class DiffEngine:
                         file_diff.side_by_side_html = self._format_only_placeholder(
                             cf.path, format_details
                         )
-                    self._prepend_metadata(file_diff)
+                    self._prepend_metadata(file_diff, header_html)
                     return file_diff
 
         if any(limit is not None for limit in (
@@ -587,7 +598,7 @@ class DiffEngine:
                     cf, budget_reason
                 )
                 file_diff.line_counts_complete = False
-                self._prepend_metadata(file_diff)
+                self._prepend_metadata(file_diff, header_html)
                 return file_diff
 
         if cf.change_type == ChangeType.ADDED:
@@ -636,7 +647,7 @@ class DiffEngine:
             file_diff.side_by_side_html = self._side_by_side_html(
                 old_lines, new_lines, cf.path)
 
-        self._prepend_metadata(file_diff)
+        self._prepend_metadata(file_diff, header_html)
         return file_diff
 
     @staticmethod
@@ -867,8 +878,8 @@ class DiffEngine:
         self._report_budget["render_rows"] += render_rows
         return ""
 
-    def _prepend_metadata(self, file_diff: FileDiff):
-        if not file_diff.metadata_changes and not file_diff.display_notes:
+    def _prepend_metadata(self, file_diff: FileDiff, content_prefix: str = ""):
+        if not file_diff.metadata_changes and not file_diff.display_notes and not content_prefix:
             return
         details = "".join(
             f'<div style="margin-top:5px;">{html.escape(item)}</div>'
@@ -881,7 +892,7 @@ class DiffEngine:
             'color:#6b4b16;">'
             f'<b>{title}</b>'
             f'{details}</div>'
-        )
+        ) + content_prefix
         body = file_diff.side_by_side_html
         file_diff.side_by_side_html = (banner + body if isinstance(body, str)
                                        else chain((banner,), body))
@@ -1040,6 +1051,26 @@ class DiffEngine:
 
     @staticmethod
     def _decode_text_strict(data: Optional[bytes]) -> Optional[_DecodedText]:
+        plain = DiffEngine._decode_plain_text_strict(data)
+        # UTF-16/32 的正常 NUL 列及正文也可能偶然拼出十六进制字节。
+        # 已识别的宽字符文本优先，不能将其前 32 字节误当头部丢出正文。
+        if plain is not None and plain.encoding.startswith(("UTF-16", "UTF-32")):
+            return plain
+        # 只识别有完整结构证据的带头文本，不按 .js 后缀放行含 NUL 文件。
+        # 头部的控制字节不参与解码/拆行，全部原字节另行展示和比较。
+        if (data is not None and len(data) > 32
+                and any(byte < 32 and byte not in (9, 10, 13) for byte in data[:16])
+                and re.fullmatch(rb"[0-9A-Fa-f]{16}", data[16:32])):
+            body = DiffEngine._decode_plain_text_strict(data[32:])
+            if body is not None and "\x00" not in body.text and body.text:
+                printable = sum(char.isprintable() or char in "\t\n\r\f"
+                                for char in body.text)
+                if printable * 10 >= len(body.text) * 9:
+                    return _DecodedText(body.text, body.encoding, body.bom, data[:32])
+        return plain
+
+    @staticmethod
+    def _decode_plain_text_strict(data: Optional[bytes]) -> Optional[_DecodedText]:
         """保守解码。只有严格解码成功时才参与格式变化判断。"""
         if data is None:
             return None
@@ -1185,6 +1216,9 @@ class DiffEngine:
     ) -> Optional[List[str]]:
         if old_raw == new_raw:
             return None
+        # 头部变化是实际内容修改；即使正文相同，也不能归为仅格式变化。
+        if old.header != new.header:
+            return None
         old_normalized = self._normalize_line_endings(old.text)
         new_normalized = self._normalize_line_endings(new.text)
         trailing_newline_only = (
@@ -1298,6 +1332,44 @@ class DiffEngine:
             combined = matches | state
             state = combined & ~(combined - ((state << 1) | 1))
         return common + state.bit_count()
+
+    @staticmethod
+    def _text_header_html(old: Optional[_DecodedText], new: Optional[_DecodedText]) -> str:
+        old_header = old.header if old is not None else b""
+        new_header = new.header if new is not None else b""
+        if not old_header and not new_header:
+            return ""
+
+        def cells(data, other, offset, kind):
+            if not data:
+                return "无特殊头部"
+            values = []
+            for index in range(offset, min(offset + 16, len(data))):
+                value = f"{data[index]:02X}"
+                if index >= len(other) or data[index] != other[index]:
+                    value = (f'<span class="diff_{kind} header-byte-changed" '
+                             f'style="background:#ffe0a3" title="原始字节偏移 0x{index:04X}">'
+                             f'{value}</span>')
+                values.append(value)
+            return " ".join(values)
+
+        rows = []
+        for offset in range(0, max(len(old_header), len(new_header)), 16):
+            rows.append(
+                f'<tr><td>0x{offset:04X}</td>'
+                f'<td><code>{cells(old_header, new_header, offset, "sub")}</code></td>'
+                f'<td><code>{cells(new_header, old_header, offset, "add")}</code></td></tr>'
+            )
+        status = "已变化" if old_header != new_header else "无变化"
+        return (
+            '<section class="text-header" style="margin-bottom:16px;overflow-x:auto;">'
+            f'<b>特殊头部字节（{status}）</b>'
+            '<p>十六进制按原始字节偏移排列，高亮表示变化；头部不计入正文行数。'
+            f'正文起始偏移：旧侧 0x{len(old_header):04X}，新侧 0x{len(new_header):04X}。</p>'
+            '<table class="text-header-bytes" style="border-spacing:12px 6px;white-space:nowrap;">'
+            '<thead><tr><th>字节偏移</th><th>旧版本</th><th>新版本</th></tr></thead>'
+            '<tbody>' + "".join(rows) + '</tbody></table></section>'
+        )
 
     def _binary_placeholder(self, cf: ChangedFile) -> str:
         """二进制文件：占位提示"""
