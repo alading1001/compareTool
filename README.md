@@ -170,13 +170,13 @@ Windows 文件夹扫描的重复元数据查询和比较根路径解析也已优
 
 ## 正式入口、版本与任务进度
 
-当前项目及常用程序目录的正式入口为 **`2026.10.23.1 [aa35eb29e8]`**，从已推送的干净源码提交 `44a9624` 构建。`D:\java\applications\CompareTool` 已同步 EXE、构建信息和中文说明书，旧版已归档；真实窗口版本、实际路径、响应性和配置字节保留均已核对，见 [发布安装凭证](artifacts/release-prefixed-text-20261023.json)。
+当前项目及常用程序目录的正式入口为 **`2026.10.25.1 [0d240683c0]`**，从已推送的干净源码提交 `7cb3b27` 构建。`D:\java\applications\CompareTool` 已同步 EXE、构建信息和 18 页中文说明书，旧版及配置已备份；真实窗口版本、实际路径、响应性和配置字节保留均已核对，见 [发布安装凭证](artifacts/release-external-exclusions-20261025.json)。
 
-本轮支持带特殊头部文本的完整字节与逐行正文展示。真实文件中的 8 个 `.js` 在全文和上下文模式均保留头部与正文差异，每种模式的 34 份导出与原文件字节一致。正式包的 29 个应用模块和 23 项模板、资源与验收源码一致，并使用包内代码复验真实文件；没有自动操作正式 EXE 的比较界面。源码回归、Windows 测试环境告警及范围见 [本轮发布记录](docs/release-20261023-prefixed-text.md)。
+本轮增加外部排除规则关联、最近文件复用、路径试匹配，以及多项目固定快照或跟随文件。最终源码 89 项专项通过；正式包的 31 个应用模块及 24 项模板、资源与验收源码一致，使用包内代码在宿主 Python 中执行的 15 项工作流回归通过。实际 EXE 完成启动冒烟，没有自动操作比较界面。开发中段全量回归的 4 个模板兼容错误已修复并复验，修复后未再次执行完整全量；完整范围与受控警告见 [本轮发布记录](docs/release-20261025-external-exclusions.md)。
 
-此前的 P 仅权限展示、完整构建身份及下载校验记录见 [2026-10-22 发布凭证](artifacts/release-permission-closeout-20261022.json)。[v2026.10.22.1](https://github.com/alading1001/compareTool/releases/tag/v2026.10.22.1) 是此前发布的 GitHub 发行版；本轮源码推送和本地安装更新不代表创建了新的 GitHub Release 或上传附件。
+特殊头部文本的真实文件、原始导出字节及此前安装验证见 [2026-10-23 发布记录](docs/release-20261023-prefixed-text.md)，相关行为继续保留。P 仅权限展示、完整构建身份及下载校验记录见 [2026-10-22 发布凭证](artifacts/release-permission-closeout-20261022.json)。[v2026.10.22.1](https://github.com/alading1001/compareTool/releases/tag/v2026.10.22.1) 是此前的 GitHub 发行版；本轮未创建新 Release、标签或发行附件。
 
-历史已批准清理及保留对象核验见 [2026-10-22 清场凭证](artifacts/cleanup-permission-closeout-20261022.json) 和 [补存证据](artifacts/cleanup-permission-evidence-20261022.zip)。本轮用户在完整汇报后确认清理，已按 [12 项清场预览](artifacts/prefixed-text-cleanup-preview-20261023.json) 删除 436 个临时文件、114,960,710 字节；14 份保护文件及 8 组保留目录的 1,132 个文件核验未变，见 [本轮清场凭证](artifacts/cleanup-prefixed-text-20261023.json)。正式交付、旧版归档和必要复核现场保留。Windows ACL 比较未增加，生成记忆只读。
+本轮只生成 [4 项清场预览](artifacts/external-exclusion-cleanup-preview-20261025.json)，约 66.9 MiB，未删除候选；复核现场、原始回归记录、交付物和旧版备份保留，等待用户查看汇报后确认清场。历史已批准清理见 [2026-10-23 清场凭证](artifacts/cleanup-prefixed-text-20261023.json)、[2026-10-22 清场凭证](artifacts/cleanup-permission-closeout-20261022.json) 和 [补存证据](artifacts/cleanup-permission-evidence-20261022.zip)。生成记忆只读。
 
 使用 `dist/CompareTool.exe`；标题中的版本和构建号用于区分不同构建，底部“版本信息”可查看构建时间、源码指纹和实际运行路径。`build.bat` 通过 `tools/build_release.py` 生成并嵌入构建信息，附带 `CompareTool_build.json`；请使用此入口打包，而非旧的手工 spec。
 
@@ -186,7 +186,7 @@ Windows 文件夹扫描的重复元数据查询和比较根路径解析也已优
 
 正式版本号为 `yyyy.MM.dd.N`：每次打包按本地日期生成，同一输出目录及旧构建归档中的当天最大序号加一，跨日从 1 开始。标题和“版本信息”使用 EXE 内嵌版本；源码运行显示“开发版 [source]”，缺失或无效元数据显示 `unknown`。
 
-上一版 **`2026.10.20.2 [11dbbf3810]`** 的发布、安装验证及已批准清场属于历史记录，见 [第二次发布凭证](artifacts/release-closeout-20261020-2.json) 和 [第二次清场核验](artifacts/cleanup-closeout-20261020-2.json)。更早的 `2026.10.20.1` 见 [首次发布凭证](artifacts/release-closeout-20261020.json) 和 [清场核验](artifacts/cleanup-closeout-20261020.json)。
+历史版本 **`2026.10.20.2 [11dbbf3810]`** 的发布、安装验证及已批准清场见 [第二次发布凭证](artifacts/release-closeout-20261020-2.json) 和 [第二次清场核验](artifacts/cleanup-closeout-20261020-2.json)。更早的 `2026.10.20.1` 见 [首次发布凭证](artifacts/release-closeout-20261020.json) 和 [清场核验](artifacts/cleanup-closeout-20261020.json)。
 
 2026-10-17 后续两轮审查修复涵盖重命名交付依赖，以及 Git 原始路径、端点标签、SOH 展示和损坏缓存标记，现已随 `2026.10.17.2` 纳入正式包。源码阶段的完整回归与复审见 [源码修复验收记录](docs/source-review-fixes-20261017.md)。
 

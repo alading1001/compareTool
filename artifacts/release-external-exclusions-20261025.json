@@ -1,0 +1,153 @@
+{
+  "schema": "comparetool.release-closeout.v1",
+  "status": "INSTALLED_LIVE_VERIFIED_EVIDENCE_RETAINED",
+  "verified_at": "2026-10-25T00:10:24+08:00",
+  "build": {
+    "version": "2026.10.25.1",
+    "build_id": "0d240683c0",
+    "built_at": "2026-10-25T00:03:53+08:00",
+    "commit": "7cb3b275a5fd03fd1a74a5adae49744da1ed0cd2",
+    "dirty": false,
+    "source_sha256": "0d240683c0ab569519a6b0cf0723feeb3e02f088a13624fed99f0cad135b896c",
+    "exe_sha256": "f90bf69248bf4b8c4a49c6b4c178ee27e55631245e0c399c6be9eda88f1af37d"
+  },
+  "source_pushed_before_build": true,
+  "verified_remote_build_commit": "7cb3b275a5fd03fd1a74a5adae49744da1ed0cd2",
+  "installation": {
+    "install_dir": "D:\\java\\applications\\CompareTool",
+    "backup": "D:\\java\\applications\\CompareTool\\archive\\20261025_000802_before_5c9d02dbae57",
+    "before": {
+      "CompareTool.exe": "5c9d02dbae579ce8c729f734cd9d6f76dc57fc3f62c408d82f252d6744f1cacb",
+      "CompareTool_build.json": "0555561e4d7ca99fc5c1a0ec42d3258cb81f242e6edaabfba6de78b7e8ab2388",
+      "CompareTool_使用说明书.pdf": "4e0a078fe0dae82fcd2ea4f631ebba3e985bc15a859b921925516be0d5e58636",
+      "compareTool_config.json": "2043e3436c08e1dca50d1b32194f03d932e8d15a16036d1ef3aafd69d1d85ed9"
+    },
+    "after": {
+      "CompareTool.exe": "f90bf69248bf4b8c4a49c6b4c178ee27e55631245e0c399c6be9eda88f1af37d",
+      "CompareTool_build.json": "da71956baff3cd28a9a6dd9fe8bbe94b6858dc9b756991545d34232f15166188",
+      "CompareTool_使用说明书.pdf": "27b15ddf8fe186929ea552f264119c29b7b8e359c332bbb03d50b2b18265fb7c",
+      "compareTool_config.json": "2043e3436c08e1dca50d1b32194f03d932e8d15a16036d1ef3aafd69d1d85ed9"
+    },
+    "config_preserved": true,
+    "copied_files": [
+      "CompareTool.exe",
+      "CompareTool_build.json",
+      "CompareTool_使用说明书.pdf"
+    ],
+    "other_install_files_modified": false,
+    "build": {
+      "version": "2026.10.25.1",
+      "build_id": "0d240683c0",
+      "built_at": "2026-10-25T00:03:53+08:00",
+      "commit": "7cb3b275a5fd03fd1a74a5adae49744da1ed0cd2",
+      "dirty": false,
+      "source_sha256": "0d240683c0ab569519a6b0cf0723feeb3e02f088a13624fed99f0cad135b896c",
+      "exe_sha256": "f90bf69248bf4b8c4a49c6b4c178ee27e55631245e0c399c6be9eda88f1af37d"
+    }
+  },
+  "native_window_smoke": {
+    "actual_exe": "D:\\java\\applications\\CompareTool\\CompareTool.exe",
+    "process_id": 33628,
+    "parent_process_id": 18756,
+    "title": "代码比对报告工具 v2026.10.25.1 [0d240683c0]",
+    "responding": true,
+    "main_window_handle": 4396236,
+    "config_sha256": "2043e3436c08e1dca50d1b32194f03d932e8d15a16036d1ef3aafd69d1d85ed9",
+    "config_preserved": true,
+    "running_for_user": true,
+    "comparison_ui_automated": false
+  },
+  "isolated_exe_smoke": {
+    "actual_exe": "D:\\AI\\project\\compareTool_myself\\.tmp\\external-release-20261025\\exe-smoke\\CompareTool.exe",
+    "process_id": 18192,
+    "title": "代码比对报告工具 v2026.10.25.1 [0d240683c0]",
+    "responding": true,
+    "main_window_handle": 1447426,
+    "isolated_config": true,
+    "comparison_ui_automated": false
+  },
+  "package_validation": {
+    "application_modules": 31,
+    "resources": 24,
+    "code_and_resources_match": true,
+    "embedded_metadata_matches_sidecar": true,
+    "source_fingerprint_matches": true,
+    "tests": 15,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "mode": "packaged_application_code_on_host_python",
+    "formal_exe_ui_business_sample_repeated": false,
+    "receipt": ".tmp/external-release-20261025/package/package-verification.json"
+  },
+  "source_validation": {
+    "receipt": "artifacts/external-exclusion-rules-20261024.json",
+    "tests": 89,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "full_regression": {
+      "tests": 825,
+      "initial_errors": 4,
+      "skipped": 1,
+      "seconds": 2624.898,
+      "log": ".tmp\\external_rules_validation_5355cfd3\\full-regression.log",
+      "note": "全量执行于开发中段独立源码副本。末轮 89 项基于最终源码，包含修复后的 4 个兼容用例；本轮未执行第二次完整回归。"
+    }
+  },
+  "manual": {
+    "pages": 18,
+    "bookmarks": 18,
+    "toc_links": 12,
+    "missing_glyphs": [],
+    "embedded_fonts": {
+      "/AAAAAA+MicrosoftYaHei-0": true,
+      "/AAAAAB+MicrosoftYaHei-0": true,
+      "/AAAAAC+MicrosoftYaHei-0": true,
+      "/AAAAAA+MicrosoftYaHei-Bold-0": true,
+      "/AAAAAB+MicrosoftYaHei-Bold-0": true
+    },
+    "out_of_bounds_characters": 0,
+    "bytes": 501965,
+    "sha256": "27b15ddf8fe186929ea552f264119c29b7b8e359c332bbb03d50b2b18265fb7c"
+  },
+  "knowledge": {
+    "code": "changed-and-verified",
+    "runtime": "changed-and-verified",
+    "docs": "changed-and-verified",
+    "rules": "changed-and-verified",
+    "memory": "out-of-scope; generated-read-only",
+    "workspace": "pending; cleanup preview only"
+  },
+  "governance": {
+    "rule_authority": "AGENTS.md",
+    "claude_import": "@AGENTS.md",
+    "project_instructions_bytes": 28878,
+    "default_budget_bytes": 32768,
+    "global_rules_read_only": true,
+    "generated_memory_written": false,
+    "other_projects_modified": false,
+    "inventory": ".tmp/external-release-20261025/inventory.json"
+  },
+  "warnings": [
+    "开发中段全量 825 项出现 4 个模板兼容错误及 1 跳过；修复后最终源码 89 项全部通过，未执行第二次全量。",
+    "全量日志保留 Tk 销毁后的 after 回调警告。",
+    "AGENTS.md 占默认 32KiB 预算约 88.1%；本轮来源规则已压缩，未跨主题重写。"
+  ],
+  "out_of_scope": [
+    "GitHub Release/tag/发行附件",
+    "机器生成记忆写入",
+    "其他项目审计",
+    "正式 EXE 比较界面端到端自动化"
+  ],
+  "cleanup": {
+    "status": "PREVIEW_ONLY_AWAITING_POST_REPORT_USER_CONFIRMATION",
+    "deleted": false,
+    "entries": 4,
+    "files": 21,
+    "bytes": 70105809,
+    "preview": "artifacts/external-exclusion-cleanup-preview-20261025.json"
+  },
+  "local_evidence": ".tmp/external-release-20261025",
+  "installed_window_screenshot": ".tmp/external-release-20261025/installed-window.png"
+}
