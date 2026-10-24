@@ -1,0 +1,113 @@
+{
+  "status": "INSTALLED_VERIFIED",
+  "build": {
+    "version": "2026.10.25.4",
+    "build_id": "eafbd9586c",
+    "built_at": "2026-10-25T01:22:49+08:00",
+    "commit": "65765f76ffefbf29a65e635bc3c69b5baeee8c9c",
+    "dirty": false,
+    "source_sha256": "eafbd9586ca10905ed3bce612f6b81941f8df30e0bd4d1f661fe9adf41129e31",
+    "exe_sha256": "8ec280cf2c1c5abd1d25cbece6ed2b6e0536fde3ac025d81444c09648f361287"
+  },
+  "source_pushed_before_build": true,
+  "runtime_change": {
+    "runtime_change": "one checkbox text literal",
+    "ast_identical_after_label_substitution": true,
+    "before": "使用外置排除文件",
+    "after": "追加外置排除规则"
+  },
+  "package": {
+    "mode": "static_package_identity_validation",
+    "exe": "D:\\AI\\project\\compareTool_myself\\dist\\CompareTool.exe",
+    "build": {
+      "version": "2026.10.25.4",
+      "build_id": "eafbd9586c",
+      "built_at": "2026-10-25T01:22:49+08:00",
+      "commit": "65765f76ffefbf29a65e635bc3c69b5baeee8c9c",
+      "dirty": false,
+      "source_sha256": "eafbd9586ca10905ed3bce612f6b81941f8df30e0bd4d1f661fe9adf41129e31",
+      "exe_sha256": "8ec280cf2c1c5abd1d25cbece6ed2b6e0536fde3ac025d81444c09648f361287"
+    },
+    "application_modules": 31,
+    "resources": 24,
+    "code_resources_match": true,
+    "embedded_metadata_matches_sidecar": true,
+    "source_fingerprint_matches": true
+  },
+  "installation": {
+    "install_dir": "D:\\java\\applications\\CompareTool",
+    "backup": "D:\\java\\applications\\CompareTool\\archive\\20261025_012443_before_dd2f01916e28",
+    "before": {
+      "CompareTool.exe": "dd2f01916e28311fa65c466ced13038d0579c856dfe2579450ecaf06e58bc041",
+      "CompareTool_build.json": "32c939f5e5b40f03a5e631a864c9eff487d8516294c332a90571bf9852d9e8ea",
+      "CompareTool_使用说明书.pdf": "89b205f0dd5cbf233ed2cc0971f7d15fe1457e1f6d366277613c01b983901f94",
+      "compareTool_config.json": "e3b38c6d5778010fdf38d6fe0363d689dda9940540cdc5313e6f9c0d87f6cd7f"
+    },
+    "after": {
+      "CompareTool.exe": "8ec280cf2c1c5abd1d25cbece6ed2b6e0536fde3ac025d81444c09648f361287",
+      "CompareTool_build.json": "92f24722ed4fbfddb1ef9eb2155096f3fcdf077bb387398fde02863d05084fd1",
+      "CompareTool_使用说明书.pdf": "97125ecdf5c0dd8c9f284d0acfc4d39613205693d23a7f96d4607e8ff1204a85",
+      "compareTool_config.json": "e3b38c6d5778010fdf38d6fe0363d689dda9940540cdc5313e6f9c0d87f6cd7f"
+    },
+    "config_preserved": true,
+    "copied_files": [
+      "CompareTool.exe",
+      "CompareTool_build.json",
+      "CompareTool_使用说明书.pdf"
+    ],
+    "other_install_files_modified": false,
+    "build": {
+      "version": "2026.10.25.4",
+      "build_id": "eafbd9586c",
+      "built_at": "2026-10-25T01:22:49+08:00",
+      "commit": "65765f76ffefbf29a65e635bc3c69b5baeee8c9c",
+      "dirty": false,
+      "source_sha256": "eafbd9586ca10905ed3bce612f6b81941f8df30e0bd4d1f661fe9adf41129e31",
+      "exe_sha256": "8ec280cf2c1c5abd1d25cbece6ed2b6e0536fde3ac025d81444c09648f361287"
+    }
+  },
+  "native_window": {
+    "actual_exe": "D:\\java\\applications\\CompareTool\\CompareTool.exe",
+    "process_id": 53200,
+    "parent_process_id": 64056,
+    "title": "代码比对报告工具 v2026.10.25.4 [eafbd9586c]",
+    "responding": true,
+    "main_window_handle": 2758832,
+    "config_sha256": "e3b38c6d5778010fdf38d6fe0363d689dda9940540cdc5313e6f9c0d87f6cd7f",
+    "config_preserved": true,
+    "running_for_user": true,
+    "comparison_ui_automated": false
+  },
+  "manual": {
+    "pages": 18,
+    "bookmarks": 18,
+    "toc_links": 12,
+    "missing_glyphs": [],
+    "embedded_fonts": {
+      "/AAAAAA+MicrosoftYaHei-0": true,
+      "/AAAAAB+MicrosoftYaHei-0": true,
+      "/AAAAAC+MicrosoftYaHei-0": true,
+      "/AAAAAA+MicrosoftYaHei-Bold-0": true,
+      "/AAAAAB+MicrosoftYaHei-Bold-0": true
+    },
+    "out_of_bounds_characters": 0,
+    "bytes": 495888,
+    "sha256": "97125ecdf5c0dd8c9f284d0acfc4d39613205693d23a7f96d4607e8ff1204a85"
+  },
+  "source_window": [
+    {
+      "width": 760,
+      "preview_visible": true,
+      "toggle_works": true,
+      "manual_unchanged": true
+    },
+    {
+      "width": 600,
+      "preview_visible": true,
+      "toggle_works": true,
+      "manual_unchanged": true
+    }
+  ],
+  "evidence": ".tmp/exclusion-label-20261025",
+  "validation_scope": "Checkbox text, unchanged runtime AST after text replacement, native source window, PDF structure/rendering, packaged code/resources, real EXE startup; no new business regression suite"
+}
