@@ -24,7 +24,7 @@ font = TTFont('CheckYaHei', 'C:/Windows/Fonts/msyh.ttc', subfontIndex=0)
 text = '\n'.join(page.extract_text() or '' for page in reader.pages)
 for phrase in ['app/classes/**/*.class', 'BOOT-INF/classes/**/*.class',
                '不支持', '区分大小写', '任意一条命中', '重命名只排除一侧',
-               '特殊头部', '新旧十六进制值', '关联外部文件', '固定快照', '跟随文件', '测试相对路径']:
+               '特殊头部', '新旧十六进制值', '使用外置排除文件', '合并去重', '只读内容', '未启用']:
     assert phrase in text, f'Missing exclusion guidance: {phrase}'
 missing = sorted({c for c in text if not c.isspace() and ord(c) not in font.face.charToGlyph})
 assert not missing, f'Missing glyphs: {missing}'

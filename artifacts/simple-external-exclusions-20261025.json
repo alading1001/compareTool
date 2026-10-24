@@ -1,0 +1,58 @@
+{
+  "tests": 93,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "source": "D:\\AI\\project\\compareTool_myself\\.tmp\\simple-exclusions-20261025\\source-final",
+  "patterns": [
+    "test_external_exclusion_rules.py",
+    "test_review_configuration_and_report_semantics.py",
+    "test_recent_project_name_persistence.py",
+    "test_review_externals_config_cleanup.py",
+    "test_exclusion_path_flow.py",
+    "test_adversarial_regressions.py",
+    "test_format_changes.py"
+  ],
+  "source_sha256": {
+    "main.py": "bfe5cb87c6950ac0e14d5ca96ef52201de896bb3f148fc089cc6772bef074919",
+    "exclusion_ui.py": "82e2c34c2d609db625bd195b365f3e13e027b76a3bbee40906b8112b02ac0657",
+    "exclusion_rules.py": "fd69895269ca6dbcf6443f5fb46a421923638c6ad30597be5a14376c62e90471",
+    "report_generator.py": "12bae82e24af20269029d703f7a1ef40e5b51bc2a4b801198eed406e69af121c",
+    "templates/exclusion_snapshot.html": "74468cb275f7cafe384b7b282a90845fe9a95dfc1b45ec2431e2d2c8832b7432",
+    "tests/test_external_exclusion_rules.py": "bc7b108b0dddd4efb9edbacc26ba030d846dbed101d3a15643775ff5a5002102"
+  },
+  "status": "SOURCE_VERIFIED",
+  "manual": {
+    "pages": 18,
+    "bookmarks": 18,
+    "toc_links": 12,
+    "missing_glyphs": [],
+    "embedded_fonts": {
+      "/AAAAAA+MicrosoftYaHei-0": true,
+      "/AAAAAB+MicrosoftYaHei-0": true,
+      "/AAAAAC+MicrosoftYaHei-0": true,
+      "/AAAAAA+MicrosoftYaHei-Bold-0": true,
+      "/AAAAAB+MicrosoftYaHei-Bold-0": true
+    },
+    "out_of_bounds_characters": 0,
+    "bytes": 495262,
+    "sha256": "cde48674049027f53dfa9e2d37676cf694f000ac83a091e2cdf9d1f853c3121c"
+  },
+  "source_window": [
+    {
+      "width": 760,
+      "preview_visible": true,
+      "toggle_works": true,
+      "manual_unchanged": true
+    },
+    {
+      "width": 600,
+      "preview_visible": true,
+      "toggle_works": true,
+      "manual_unchanged": true
+    }
+  ],
+  "log": ".tmp/simple-exclusions-20261025/regression-final.log",
+  "visual_evidence": ".tmp/simple-exclusions-20261025",
+  "semantics": "manual rules plus optional external file, exact trimmed-rule deduplication; visible read-only file preview"
+}

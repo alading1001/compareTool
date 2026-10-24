@@ -107,40 +107,48 @@ class ExternalRulesTests(WorkflowCase):
 
     def test_window_reuses_file_across_release_paths_and_preserves_binding_on_restart(self):
         task = self.folder_task()
-        source = self.file_source("# 只排日志\n*.log\n")
-        config = dict(vcs_type="folder", output_dir=str(self.root / "output"),
-                      last_comparison_paths={"folder": {k: task[k] for k in ("old_version", "new_version")}})
+        file = self.file_source("# 只排日志\n*.log\n")
+        config = dict(vcs_type="folder", last_comparison_paths={"folder": {
+            k: task[k] for k in ("old_version", "new_version")}})
         with self.window(config) as app:
-            app._link_rule_file(source["path"])
-            self.assertEqual("disabled", app.exclude_text.cget("state"))
-            self.assertEqual(("*.log",), app._current_rule_snapshot().patterns)
-            app._save_current_config()
+            app._replace_exclude_text("*.class\n*.log")
+            app._link_rule_file(file["path"])
+            self.assertFalse(app.exclude_enabled_var.get())
+            self.assertEqual("*.class\n*.log", app._current_exclude_rules())
+            self.assertEqual("normal", app.exclude_text.cget("state"))
+            self.assertEqual("disabled", app.exclude_file_text.cget("state"))
+            self.assertIn("# 只排日志", app.exclude_file_text.get("1.0", "end"))
+            app.exclude_enabled_var.set(True)
+            snapshot = app._current_rule_snapshot()
+            self.assertEqual(("*.class", "*.log"), snapshot.patterns)
+            self.assertIn("已启用", app._exclude_preview_title.get())
+            self.assertTrue(app._save_current_config())
             release = self.root / "release_next"
             release.mkdir()
             app.new_version_var.set(str(release))
             app._refresh_output_paths_now()
-            # 新路径不猜项目身份；通过最近文件一次选择复用。
-            app.exclude_file_var.set(source["path"])
-            app._reuse_rule_file()
-            app.project_name_var.set("Demo")
+            self.assertFalse(app.exclude_enabled_var.get())
+            self.assertEqual("", app.exclude_file_var.get())
+            app._link_rule_file(file['path'])
+            app.exclude_enabled_var.set(True)
+            app._replace_exclude_text('bin/**')
+            app.project_name_var.set('Demo')
             saved = app._task_from_current_form()
-            self.assertEqual(source["path"], saved["exclude_source"]["path"])
-            self.assertTrue(saved["exclude_source"]["follow"])
-            self.assertEqual("*.log", saved["exclude_rules"])
+            self.assertEqual('bin/**', saved['exclude_rules'])
+            self.assertTrue(saved['exclude_source']['enabled'])
+            self.assertEqual(['bin/**', '*.log'], freeze_tasks([saved])[0]['exclude_rules'].splitlines())
             self.assertTrue(app._save_current_config())
         with self.window(None) as app:
-            self.assertEqual("file", app.exclude_source_var.get())
-            self.assertEqual(source["path"], app.exclude_file_var.get())
-            self.assertEqual(1, len(app._recent_exclude_files))
-            app.exclude_test_var.set("logs/a.log")
-            with mock.patch("exclusion_ui.messagebox.showinfo") as show:
-                app._test_rule_path()
-            self.assertIn("第 2 行", show.call_args.args[1])
-            self.assertIn("结果：排除", show.call_args.args[1])
-            app.exclude_template_var.set("部署包比较")
-            app._apply_rule_template()
-            self.assertFalse(app._current_rule_snapshot().matches("WEB-INF/A.class"))
-            self.assertFalse(app._current_rule_snapshot().matches("bin/start.sh"))
+            self.assertTrue(app.exclude_enabled_var.get())
+            self.assertEqual(file['path'], app.exclude_file_var.get())
+            self.assertEqual('bin/**', app._current_exclude_rules())
+            app.exclude_enabled_var.set(False)
+            self.assertEqual(('bin/**',), app._current_rule_snapshot().patterns)
+            self.assertTrue(app._save_current_config())
+        with self.window(None) as app:
+            self.assertFalse(app.exclude_enabled_var.get())
+            self.assertEqual(file['path'], app.exclude_file_var.get())
+            self.assertIn('*.log', app.exclude_file_text.get('1.0', 'end'))
 
     def test_single_gui_freezes_current_file_then_uses_same_bytes_for_report_and_export(self):
         task = self.folder_task()
@@ -150,7 +158,9 @@ class ExternalRulesTests(WorkflowCase):
                       last_comparison_paths={"folder": {k: task[k] for k in ("old_version", "new_version")}})
         with self.window(config) as app:
             app.project_name_var.set("Demo")
+            app._replace_exclude_text('*.class')
             app._link_rule_file(source["path"])
+            app.exclude_enabled_var.set(True)
             # 预览后修改文件；点击生成必须读取最新内容。
             Path(source['path']).write_text("*.txt", encoding="utf-8")
             dispatch = []
@@ -163,21 +173,21 @@ class ExternalRulesTests(WorkflowCase):
                 app._generate()
             self.assertEqual(1, len(dispatch))
             _target, args, kwargs = dispatch[0]
-            self.assertEqual(["*.txt"], args[5])
+            self.assertEqual(["*.class", "*.txt"], args[5])
             Path(source['path']).write_text("*", encoding="utf-8")
             worker = self.app()
             worker._do_generate(*args, **kwargs)
             self.assert_success(worker)
             new_root = Path(args[10]) / "Demo"
             self.assertFalse((new_root / "src/a.txt").exists())
-            self.assertEqual(b"newWEB-INF/A.class", (new_root / "WEB-INF/A.class").read_bytes())
+            self.assertFalse((new_root / "WEB-INF/A.class").exists())
             html = Path(args[8]).read_text("utf-8")
             self.assertIn(kwargs['exclude_snapshot']['sha256'], html)
             self.assertIn("*.txt", html)
             self.assertNotIn("<pre style=\"white-space:pre-wrap;overflow-wrap:anywhere\">*</pre>", html)
 
     def test_multirun_uses_one_snapshot_across_projects_and_next_run_refreshes(self):
-        source = self.file_source()
+        source = dict(self.file_source(), combine=True, enabled=True, encoding="auto")
         tasks = [self.folder_task(name) for name in ("One", "Two")]
         for task in tasks:
             task["exclude_source"] = source
@@ -234,6 +244,8 @@ class ExternalRulesTests(WorkflowCase):
                       last_comparison_paths={'folder': {k: task[k] for k in ('old_version', 'new_version')}})
         with self.window(config) as app:
             app._link_rule_file(source['path'])
+            app._replace_exclude_text('')
+            app.exclude_enabled_var.set(True)
             app.project_name_var.set('Demo')
             for invalid in ('missing', 'encoding'):
                 if invalid == 'missing':
@@ -245,43 +257,43 @@ class ExternalRulesTests(WorkflowCase):
                 thread.assert_not_called()
                 self.assertIn('排除规则', error.call_args.args[0])
 
-    def test_saved_fixed_task_edit_and_path_test_keep_snapshot_when_file_is_missing(self):
+    def test_task_edit_preserves_manual_rules_and_disabled_file(self):
         task = self.folder_task()
-        source = self.file_source()
+        file = self.file_source()
         config = dict(vcs_type='folder', last_comparison_paths={'folder': {
             k: task[k] for k in ('old_version', 'new_version')}})
         with self.window(config) as app:
             app.project_name_var.set('Demo')
-            app._link_rule_file(source['path'])
-            app.exclude_follow_var.set(False)
+            app._replace_exclude_text('bin/**')
+            app._link_rule_file(file['path'])
             app._multi_tasks = [app._task_from_current_form()]
             self.assertTrue(app._save_current_config())
-        Path(source['path']).unlink()
+        Path(file['path']).unlink()
         with self.window(None) as app:
             app.multi_task_tree.selection_set('0')
             app._edit_multi_task()
-            app.exclude_test_var.set('logs/a.log')
-            with mock.patch('exclusion_ui.messagebox.showinfo') as show:
-                app._test_rule_path()
-            self.assertIn('结果：排除', show.call_args.args[1])
+            self.assertFalse(app.exclude_enabled_var.get())
+            self.assertEqual('bin/**', app._current_exclude_rules())
+            self.assertEqual(file['path'], app.exclude_file_var.get())
             updated = app._task_from_current_form()
-            self.assertFalse(updated['exclude_source']['follow'])
-            self.assertEqual('*.log', updated['exclude_rules'])
-            self.assertEqual('*.log', freeze_tasks([updated])[0]['exclude_rules'])
+            self.assertEqual('bin/**', freeze_tasks([updated])[0]['exclude_rules'])
+            app.exclude_enabled_var.set(True)
+            with self.assertRaisesRegex(ValueError, '无法读取'):
+                app._task_from_current_form()
 
-    def test_corrupt_project_binding_blocks_generation_until_explicitly_reselected(self):
+    def test_corrupt_project_binding_requires_file_selection_or_explicit_disable(self):
         task = self.folder_task()
         key = main.CompareToolApp._normalize_project_path(task['new_version'])
         config = dict(vcs_type='folder', last_comparison_paths={'folder': {
-            k: task[k] for k in ('old_version','new_version')}},
+            k: task[k] for k in ('old_version', 'new_version')}},
             project_exclude_rules={key: '*.log'}, project_exclude_sources={key: None})
         with mock.patch('main.warn'), mock.patch('exclusion_ui.warn'), self.window(config) as app:
-            self.assertEqual('invalid', app.exclude_source_var.get())
-            with self.assertRaisesRegex(ValueError, '来源损坏'):
+            self.assertTrue(app.exclude_enabled_var.get())
+            with self.assertRaisesRegex(ValueError, '配置损坏'):
                 app._current_rule_snapshot()
-            app.exclude_template_var.set('空白规则')
-            app._apply_rule_template()
-            self.assertEqual((), app._current_rule_snapshot().patterns)
+            self.assertEqual('*.log', app._current_exclude_rules())
+            app.exclude_enabled_var.set(False)
+            self.assertEqual(('*.log',), app._current_rule_snapshot().patterns)
 
     def test_corrupt_source_map_cannot_turn_into_manual_defaults_or_destroy_saved_rules(self):
         task = self.folder_task()
@@ -291,7 +303,6 @@ class ExternalRulesTests(WorkflowCase):
                 k: task[k] for k in ('old_version', 'new_version')}},
                 project_exclude_rules={key: '*.log'}, project_exclude_sources=invalid)
             with self.subTest(value=invalid), mock.patch('exclusion_ui.warn'), self.window(config) as app:
-                self.assertEqual('invalid', app.exclude_source_var.get())
                 with self.assertRaises(ValueError):
                     app._current_rule_snapshot()
                 self.assertTrue(app._save_current_config())
@@ -302,7 +313,7 @@ class ExternalRulesTests(WorkflowCase):
     def test_recursive_report_uses_frozen_external_rules_and_exports_original_archive(self):
         import io
         task = self.folder_task()
-        source = self.file_source()
+        source = dict(self.file_source(), combine=True, enabled=True, encoding="auto")
         payloads = {}
         for key, side in (('old_version', b'old'), ('new_version', b'new')):
             data = io.BytesIO()
@@ -341,7 +352,7 @@ class ExternalRulesTests(WorkflowCase):
                 self.assertNotIn('<script>alert(1)</script>', html)
 
     def test_external_rules_feed_all_six_vcs_modes(self):
-        source = self.file_source("*.log\n")
+        source = dict(self.file_source("*.log\n"), combine=True, enabled=True, encoding="auto")
         tasks = [self.folder_task()]
         archives = []
         for side, prefix in (("old", b"old"), ("new", b"new")):
@@ -374,6 +385,63 @@ class ExternalRulesTests(WorkflowCase):
                 exported = [p for p in (out/'newVersion').rglob('*') if p.is_file()]
                 self.assertTrue(exported)
                 self.assertFalse(any(p.suffix == '.log' for p in exported))
+
+
+    def test_merge_deduplicates_preserves_literal_manual_hash_and_decodes_common_files(self):
+        for encoding in ('utf-8-sig', 'gb18030'):
+            file = self.file_source('# 注释\n*.log\n目录/**\n*.log', encoding=encoding)
+            source = dict(file, combine=True, enabled=True, encoding='auto')
+            frozen = freeze_tasks([dict(project_name='Demo', exclude_rules='*.class\n*.log\n#literal', exclude_source=source)])[0]
+            self.assertEqual('*.class\n*.log\n#literal\n目录/**', frozen['exclude_rules'])
+            snapshot = frozen['exclude_snapshot']
+            self.assertEqual(hashlib.sha256(Path(file['path']).read_bytes()).hexdigest(), snapshot['file_sha256'])
+            from exclusion_rules import restore_snapshot
+            self.assertTrue(restore_snapshot(snapshot).matches('#literal'))
+            self.assertTrue(restore_snapshot(snapshot).matches('目录/a.txt'))
+
+    def test_disabled_missing_file_does_not_read_and_shared_file_merges_per_project(self):
+        file = self.file_source()
+        source = dict(file, combine=True, enabled=False, encoding='auto')
+        Path(file['path']).unlink()
+        with mock.patch('exclusion_rules.read_rule_file', side_effect=AssertionError('disabled file was read')):
+            frozen = freeze_tasks([dict(project_name='Off', exclude_rules='bin/**', exclude_source=source)])[0]
+        self.assertEqual('bin/**', frozen['exclude_rules'])
+        self.assertEqual(file['path'], frozen['exclude_source']['path'])
+        Path(file['path']).write_text('*.log', encoding='utf-8')
+        source['enabled'] = True
+        tasks = [dict(project_name=name, exclude_rules=manual, exclude_source=source) for name, manual in (('A', 'bin/**'), ('B', 'target/**'))]
+        with mock.patch('exclusion_rules.read_rule_file', wraps=read_rule_file) as read:
+            frozen = freeze_tasks(tasks)
+        self.assertEqual(1, read.call_count)
+        self.assertEqual(['bin/**\n*.log', 'target/**\n*.log'], [t['exclude_rules'] for t in frozen])
+        self.assertEqual(['bin/**', 'target/**'], [t['exclude_rules'] for t in tasks])
+
+    def test_old_file_preview_never_becomes_permanent_manual_rules(self):
+        task = self.folder_task()
+        file = self.file_source()
+        key = main.CompareToolApp._normalize_project_path(task['new_version'])
+        config = dict(vcs_type='folder', last_comparison_paths={'folder': {k: task[k] for k in ('old_version', 'new_version')}},
+            project_exclude_rules={key: '*.log'}, project_exclude_sources={key: file})
+        Path(file['path']).write_text('*.txt', encoding='utf-8')
+        with self.window(config) as app:
+            self.assertEqual('', app._current_exclude_rules())
+            self.assertEqual(('*.txt',), app._current_rule_snapshot().patterns)
+            app.exclude_enabled_var.set(False)
+            self.assertEqual((), app._current_rule_snapshot().patterns)
+
+    def test_combined_report_preserves_both_sources_and_escapes_file_comments(self):
+        from diff_engine import DiffResult
+        file = dict(self.file_source('# <script>bad()</script>\n*.log'), combine=True, enabled=True)
+        frozen = freeze_tasks([dict(project_name='Demo', exclude_rules='*.class\n*.log', exclude_source=file)])[0]
+        result = DiffResult('', 'Demo', 'folder', 'old', 'new', exclude_snapshot=frozen['exclude_snapshot'])
+        for fallback in (False, True):
+            output = self.root / ('merged-fallback.html' if fallback else 'merged-normal.html')
+            ReportGenerator(str(self.root/'missing') if fallback else None, best_effort=True).generate(result, str(output))
+            html = output.read_text('utf-8')
+            self.assertIn('手工填写的规则', html)
+            self.assertIn(frozen['exclude_snapshot']['file_sha256'], html)
+            self.assertIn('&lt;script&gt;bad()&lt;/script&gt;', html)
+            self.assertNotIn('<script>bad()</script>', html)
 
 
 if __name__ == '__main__':

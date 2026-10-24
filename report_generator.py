@@ -141,7 +141,12 @@ class ReportGenerator:
             if snapshot:
                 yield '<details><summary>本次排除规则：' + escaped(snapshot.get('path') or '手工填写') + '</summary>'
                 yield '<p>SHA-256：' + escaped(snapshot.get('sha256', '')) + '</p><pre>'
-                yield escaped(snapshot.get('text', '')) + '</pre></details>'
+                yield escaped(snapshot.get('text', '')) + '</pre>'
+                if snapshot.get('combined'):
+                    yield '<p>手工填写的规则：</p><pre>' + escaped(snapshot.get('manual_text', '')) + '</pre>'
+                    yield '<p>外置文件原文 · 文件 SHA-256：' + escaped(snapshot.get('file_sha256', '')) + '</p><pre>'
+                    yield escaped(snapshot.get('file_text', '')) + '</pre>'
+                yield '</details>'
             yield f'<p>变更文件：{len(result.files) + len(result.permission_changes)} 个（其中仅权限变化：{len(result.permission_changes)} 个）。</p>'
             for issue in result.issues:
                 yield '<p>' + escaped(f"[{issue['stage']}] {issue_path_text(issue)} {issue['message']}") + '</p>'

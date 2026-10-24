@@ -342,7 +342,7 @@ class CompareToolApp(ExclusionRulesUI, TaskProgressUI):
         self.project_name_entry.bind("<<ComboboxSelected>>", self._on_recent_project_selected)
 
         # ── 排除规则 ──
-        ttk.Label(main, text="排除规则 (每行一个，支持 * 和 ** 通配符):", font=("", 10)).grid(row=6, column=0, sticky=tk.W, pady=(0, 3))
+        ttk.Label(main, text="手工排除规则 (每行一个，支持 * 和 ** 通配符):", font=("", 10)).grid(row=6, column=0, sticky=tk.W, pady=(0, 3))
         exclude_frame = ttk.Frame(main)
         exclude_frame.grid(row=7, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
         self._build_exclusion_controls(exclude_frame)
@@ -500,7 +500,7 @@ class CompareToolApp(ExclusionRulesUI, TaskProgressUI):
         multi_list_frame.grid(row=26, column=0, columnspan=3, sticky=tk.EW, pady=(0, 5))
         self.multi_task_tree = ttk.Treeview(
             multi_list_frame,
-            columns=("name", "type", "source", "versions", "rules"),
+            columns=("name", "type", "source", "versions"),
             show="headings",
             height=4
         )
@@ -508,12 +508,10 @@ class CompareToolApp(ExclusionRulesUI, TaskProgressUI):
         self.multi_task_tree.heading("type", text="类型")
         self.multi_task_tree.heading("source", text="项目路径/来源")
         self.multi_task_tree.heading("versions", text="版本")
-        self.multi_task_tree.heading("rules", text="排除规则")
         self.multi_task_tree.column("name", width=120, stretch=False)
         self.multi_task_tree.column("type", width=90, stretch=False)
-        self.multi_task_tree.column("source", width=220, stretch=True)
-        self.multi_task_tree.column("versions", width=200, stretch=True)
-        self.multi_task_tree.column("rules", width=85, stretch=False)
+        self.multi_task_tree.column("source", width=260, stretch=True)
+        self.multi_task_tree.column("versions", width=220, stretch=True)
         self.multi_task_tree.pack(side=tk.LEFT, fill=tk.X, expand=True)
         multi_scroll = ttk.Scrollbar(multi_list_frame, orient=tk.VERTICAL, command=self.multi_task_tree.yview)
         multi_scroll.pack(side=tk.RIGHT, fill=tk.Y)
@@ -630,9 +628,9 @@ class CompareToolApp(ExclusionRulesUI, TaskProgressUI):
                 snapshot = None
                 if "exclude_snapshot" in item:
                     snapshot = restore_snapshot(item["exclude_snapshot"])
-                if source["kind"] == "file" and not source["follow"] and snapshot is None:
+                if source["kind"] == "file" and not source.get("combine") and not source["follow"] and snapshot is None:
                     raise ValueError("固定文件规则缺少快照")
-                if source["kind"] == "file" and snapshot is not None:
+                if source["kind"] == "file" and not source.get("combine") and snapshot is not None:
                     if (snapshot.kind, snapshot.path, snapshot.encoding) != ("file", source["path"], source["encoding"]):
                         raise ValueError("文件规则快照与来源不一致")
             except ValueError as exc:
@@ -1211,8 +1209,6 @@ class CompareToolApp(ExclusionRulesUI, TaskProgressUI):
         self.exclude_text.config(state=tk.NORMAL)
         self.exclude_text.delete("1.0", tk.END)
         self.exclude_text.insert("1.0", text or "")
-        if hasattr(self, "exclude_source_var") and self.exclude_source_var.get() != "manual":
-            self.exclude_text.config(state=tk.DISABLED)
 
     def _current_exclude_rules(self) -> str:
         return self.exclude_text.get("1.0", tk.END).strip()
@@ -1924,7 +1920,6 @@ class CompareToolApp(ExclusionRulesUI, TaskProgressUI):
                     self._vcs_label(task.get("vcs_type", "")),
                     self._task_source_text(task),
                     self._task_versions_text(task),
-                    "跟随文件" if task.get("exclude_source", {}).get("follow") else "固定快照",
                 )
             )
         self._sync_multi_task_buttons()
@@ -2005,7 +2000,7 @@ class CompareToolApp(ExclusionRulesUI, TaskProgressUI):
 
         exclude_key = self._project_key_for_values(vcs_type, project_path, old_version, new_version)
         snapshot = self._current_rule_snapshot(for_task=True)
-        exclude_rules = snapshot.effective_text
+        exclude_rules = self._current_exclude_rules()
         if exclude_key:
             self._project_exclude_rules[exclude_key] = exclude_rules
             self._save_rule_binding(exclude_key)
@@ -2019,7 +2014,7 @@ class CompareToolApp(ExclusionRulesUI, TaskProgressUI):
             "new_version": new_version,
             "exclude_key": exclude_key,
             "exclude_rules": exclude_rules,
-            "exclude_source": self._current_rule_source() if hasattr(self, "exclude_source_var") else {"kind": "manual"},
+            "exclude_source": self._current_rule_source(),
             "exclude_snapshot": snapshot.to_dict(),
             "show_project_root": self.show_project_root_var.get() == "yes",
             "show_full_context": self.show_full_context_var.get() == "yes",
@@ -2910,7 +2905,6 @@ class CompareToolApp(ExclusionRulesUI, TaskProgressUI):
             "vcs_type": self.vcs_var.get(),
             "project_exclude_rules": self._project_exclude_rules,
             "project_exclude_sources": getattr(self, "_project_exclude_sources", {}),
-            "recent_exclude_files": getattr(self, "_recent_exclude_files", []),
             "project_display_options": self._project_display_options,
             "recent_projects": self._recent_projects,
             "last_comparison_paths": getattr(self, "_last_comparison_paths", {}),

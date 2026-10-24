@@ -1,5 +1,5 @@
 """排除规则的来源、读取与运行快照；不改变现有 glob 匹配语义。"""
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, fields
 import hashlib
 import os
 import re
@@ -7,7 +7,7 @@ import re
 from vcs.base import BaseVCS
 
 
-ENCODINGS = ("utf-8-sig", "gb18030")
+ENCODINGS = ("auto", "utf-8-sig", "gb18030")
 
 
 @dataclass(frozen=True)
@@ -17,13 +17,18 @@ class RuleSnapshot:
     path: str = ""
     encoding: str = "utf-8"
     sha256: str = ""
+    combined: bool = False
+    manual_text: str = ""
+    file_text: str = ""
+    file_sha256: str = ""
 
     @property
     def rules(self):
         # 注释仅属于新增的外部文件格式；旧手工规则中的 # 仍是字面字符。
         return tuple((number, line.strip())
                      for number, line in enumerate(self.text.splitlines(), 1)
-                     if line.strip() and not (self.kind == "file" and line.lstrip().startswith("#")))
+                     if line.strip() and not (self.kind == "file" and not self.combined
+                                             and line.lstrip().startswith("#")))
 
     @property
     def patterns(self):
@@ -34,8 +39,7 @@ class RuleSnapshot:
         return "\n".join(self.patterns)
 
     def to_dict(self):
-        return dict(text=self.text, kind=self.kind, path=self.path,
-                    encoding=self.encoding, sha256=self.sha256)
+        return asdict(self)
 
     def matches(self, path):
         path = path.replace("\\", "/")
@@ -51,11 +55,33 @@ def manual_snapshot(text):
     return RuleSnapshot(text=text, sha256=hashlib.sha256(text.encode("utf-8")).hexdigest())
 
 
+def combine_rules(text, external):
+    """手工规则始终生效；外置内容去掉注释后合并，按原顺序去重。"""
+    manual = manual_snapshot(text)
+    patterns = tuple(dict.fromkeys((*manual.patterns, *external.patterns)))
+    effective = "\n".join(patterns)
+    return RuleSnapshot(effective, "file", external.path, external.encoding,
+        hashlib.sha256(effective.encode("utf-8")).hexdigest(), True,
+        text, external.text, external.sha256)
+
+
 def normalize_source(value, base_dir=""):
     if not isinstance(value, dict) or value.get("kind") not in ("manual", "file"):
         raise ValueError("排除规则来源无效，请重新选择手工规则或外部文件")
     if value["kind"] == "manual":
         return {"kind": "manual"}
+    if "combine" in value and not isinstance(value["combine"], bool):
+        raise ValueError("外置排除规则的合并设置无效")
+    if value.get("combine"):
+        path = value.get("path")
+        enabled = value.get("enabled")
+        encoding = value.get("encoding", "auto")
+        if not isinstance(path, str) or not isinstance(enabled, bool) or encoding not in ENCODINGS:
+            raise ValueError("外置排除文件的路径或启用设置无效")
+        if enabled and not path.strip():
+            raise ValueError("请先选择外置排除文件")
+        return dict(kind="file", path=os.path.abspath(os.path.join(base_dir, path)) if path else "",
+                    encoding=encoding, combine=True, enabled=enabled)
     path = value.get("path")
     encoding = value.get("encoding", "utf-8-sig")
     follow = value.get("follow", True)
@@ -81,12 +107,21 @@ def read_rule_file(source):
         identity = lambda stat: (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
         if identity(before) != identity(after) or identity(after) != identity(current) or len(content) != after.st_size:
             raise ValueError("读取期间文件发生变化，请保存文件后重试")
-        text = content.decode(source["encoding"], errors="strict")
+        encoding = source["encoding"]
+        if encoding == "auto":
+            try:
+                text = content.decode("utf-8-sig", errors="strict")
+                encoding = "utf-8-sig"
+            except UnicodeError:
+                text = content.decode("gb18030", errors="strict")
+                encoding = "gb18030"
+        else:
+            text = content.decode(encoding, errors="strict")
         if "\x00" in text:
             raise ValueError("文件包含 NUL，不能作为排除规则文本")
     except (OSError, UnicodeError, ValueError) as exc:
         raise ValueError(f"无法读取排除规则文件：{path}\n编码：{source['encoding']}\n{exc}") from exc
-    return RuleSnapshot(text, "file", path, source["encoding"], hashlib.sha256(content).hexdigest())
+    return RuleSnapshot(text, "file", path, encoding, hashlib.sha256(content).hexdigest())
 
 
 def restore_snapshot(value):
@@ -98,7 +133,10 @@ def restore_snapshot(value):
         raise ValueError("排除规则快照来源或摘要无效")
     if value["kind"] == "file":
         normalize_source(dict(kind="file", path=value["path"], encoding=value["encoding"]))
-    return RuleSnapshot(**{key: value[key] for key in ("text", "kind", "path", "encoding", "sha256")})
+    if not isinstance(value.get("combined", False), bool) or not all(
+            isinstance(value.get(key, ""), str) for key in ("manual_text", "file_text", "file_sha256")):
+        raise ValueError("排除规则合并记录无效")
+    return RuleSnapshot(**{field.name: value[field.name] for field in fields(RuleSnapshot) if field.name in value})
 
 
 def freeze_tasks(tasks, *, best_effort=False):
@@ -113,7 +151,9 @@ def freeze_tasks(tasks, *, best_effort=False):
             continue
         try:
             source = normalize_source(task.get("exclude_source", {"kind": "manual"}))
-            if source["kind"] == "file" and source["follow"]:
+            if source.get("combine") and not source["enabled"]:
+                snapshot = manual_snapshot(task.get("exclude_rules", ""))
+            elif source["kind"] == "file" and (source.get("combine") or source["follow"]):
                 key = (source["path"], source["encoding"])
                 if key not in files:
                     try:
@@ -123,6 +163,8 @@ def freeze_tasks(tasks, *, best_effort=False):
                 if isinstance(files[key], ValueError):
                     raise files[key]
                 snapshot = files[key]
+                if source.get("combine"):
+                    snapshot = combine_rules(task.get("exclude_rules", ""), snapshot)
             elif source["kind"] == "file":
                 snapshot = restore_snapshot(task.get("exclude_snapshot"))
                 if (snapshot.kind, snapshot.path, snapshot.encoding) != ("file", source["path"], source["encoding"]):
