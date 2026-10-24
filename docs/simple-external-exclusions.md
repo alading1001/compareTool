@@ -16,10 +16,18 @@
 
 证据见 [源码与界面验收](../artifacts/simple-external-exclusions-20261025.json)。正式 EXE 版本和安装状态统一见 [README 正式入口](../README.md#正式入口版本与任务进度)；源码验收不能替代新 EXE 的启动验证。
 
-## 正式发布与程序目录更新
+## 2026.10.25.2 发布验收（历史记录）
 
 正式版本 `2026.10.25.2 [5703d8703e]`，构建源码提交 `3e7dd383ff7445d6df32df59ac24684d5f81c2a4`，构建时工作区干净；后续文档提交不改变运行代码指纹。EXE SHA-256 为 `0fa255b445a206d09c8e083e288c1e7d883db7ca8b43cc0139f059aa9ce5e84d`。
 
 包内 31 个应用模块、24 项模板及资源、内嵌元数据与源码/sidecar 一致，包内应用代码在宿主 Python 中完成 19 项外置规则回归，全部通过。新 EXE 在隔离目录及实际程序目录真实启动，版本标题和响应性通过；未自动操作正式 EXE 的比较流程。
 
 `D:/java/applications/CompareTool` 的 EXE、构建信息及说明书已更新，配置在更新和启动前后字节一致，旧三件套与配置保留于 `D:\java\applications\CompareTool\archive\20261025_004618_before_f90bf69248bf`。docs/dist/安装目录的说明书字节一致。来源凭证见 [发布安装验收](../artifacts/release-simple-exclusions-20261025.json)。本轮没有执行历史清场、生成记忆写入或创建 GitHub Release。
+
+## 清空关联与按勾选展示
+
+本次补充“清空文件”及仅勾选时读取、展开预览。清空取消勾选并移除路径，清掉预览内容；取消勾选保留路径并收起预览。手工规则和磁盘上的原文件都不改变。清空后保存配置、重启及任务编辑均保持解除关联的结果。
+
+当前版本 `2026.10.25.3 [7d611fd2b7]`，构建源码 `fea4c34a43d3d85fde656ce6761d97ddb2739bc6` 已在构建前推送，构建时工作区干净。20 项源码回归及 20 项包内应用代码回归通过，覆盖实际按钮调用、显隐、原文件字节不变及重启恢复。源码窗口已检查 600/760 像素布局，说明书第 8、13、18 页已重做和视觉检查；PDF 仍为 18 页、18 书签、12 个目录链接，docs/dist/安装目录一致。
+
+程序目录 `D:/java/applications/CompareTool` 已更新，旧版及配置保留于 `D:\java\applications\CompareTool\archive\20261025_010534_before_0fa255b445a2`。新 EXE 真实启动、标题和响应性通过，配置更新前后字节一致；未自动操作正式 EXE 的比较界面。证据见 [本次发布验收](../artifacts/release-exclusion-clear-20261025.json)及[源码验收](../artifacts/exclusion-clear-20261025.json)。后续文档提交不改变 EXE 代码指纹。本轮未创建 GitHub Release、修改生成记忆或清理历史现场。

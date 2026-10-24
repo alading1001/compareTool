@@ -172,9 +172,9 @@ Windows 文件夹扫描的重复元数据查询和比较根路径解析也已优
 
 ## 正式入口、版本与任务进度
 
-当前项目及常用程序目录的正式入口为 **`2026.10.25.2 [5703d8703e]`**，从已推送的干净源码提交 `3e7dd38` 构建。`D:/java/applications/CompareTool` 已同步 EXE、构建信息和 18 页说明书，旧版及配置已备份。真实窗口版本、响应性和配置字节保留已核对，见 [发布安装凭证](artifacts/release-simple-exclusions-20261025.json)。
+当前项目及常用程序目录的正式入口为 **`2026.10.25.3 [7d611fd2b7]`**，从已推送的干净源码提交 `fea4c34` 构建。`D:/java/applications/CompareTool` 已同步 EXE、构建信息和 18 页说明书，旧版及配置已备份。真实窗口版本、响应性和配置字节保留已核对，见 [发布安装凭证](artifacts/release-exclusion-clear-20261025.json)。
 
-本轮简化为手工规则加一个可开关的外置文件，选择后直接显示只读原文，勾选后合并去重。最终源码 93 项相关回归通过，正式包 31 个应用模块和 24 项模板、资源与源码一致；包内代码在宿主 Python 中执行 19 项外置规则工作流通过，实际 EXE 启动冒烟通过。未执行正式 EXE 比较界面的端到端自动化，详见 [本轮记录](docs/simple-external-exclusions.md)。
+本轮补充“清空文件”，并改为仅勾选时读取和展示文件内容，取消勾选保留路径、隐藏预览。20 项相关源码回归通过；正式包 31 个应用模块、24 项资源与源码一致，包内代码在宿主 Python 中执行 20 项工作流通过，新 EXE 启动验证通过。未自动操作正式 EXE 的比较流程，详见 [本轮记录](docs/simple-external-exclusions.md)。
 
 特殊头部文本的真实文件、原始导出字节及此前安装验证见 [2026-10-23 发布记录](docs/release-20261023-prefixed-text.md)，相关行为继续保留。P 仅权限展示、完整构建身份及下载校验记录见 [2026-10-22 发布凭证](artifacts/release-permission-closeout-20261022.json)。[v2026.10.22.1](https://github.com/alading1001/compareTool/releases/tag/v2026.10.22.1) 是此前的 GitHub 发行版；本轮未创建新 Release、标签或发行附件。
 
