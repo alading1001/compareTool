@@ -1,0 +1,519 @@
+{
+  "status": "PREVIEW_ONLY_AWAITING_POST_REPORT_USER_CONFIRMATION",
+  "deleted": false,
+  "created_at": "2026-10-25T01:36:25+08:00",
+  "scope": "仅本轮四次发布的明确会话产物；不按目录名批量清理其他历史目录",
+  "entries": [
+    {
+      "path": ".tmp/external_rules_validation_qzo6ri4x",
+      "files": 0,
+      "bytes": 0,
+      "reason": "本轮失败空目录、已交付构建中间物、已退出的隔离冒烟副本或空运行目录；原始验证证据另行保留",
+      "file_manifest": {},
+      "exe_retained_copies": {}
+    },
+    {
+      "path": ".tmp/release_build_wzk7nxc5",
+      "files": 17,
+      "bytes": 48091204,
+      "reason": "本轮失败空目录、已交付构建中间物、已退出的隔离冒烟副本或空运行目录；原始验证证据另行保留",
+      "file_manifest": {
+        "build_info.json": {
+          "bytes": 270,
+          "sha256": "3d5777d4a2471cec5aea22be766e6d14600fb73226637d9e788fdf32e8cd4dec"
+        },
+        "CompareTool.spec": {
+          "bytes": 1004,
+          "sha256": "53ba73e7d8471f94f58e66d2759f3540361d398ed4c99d3e5057dc10cca30085"
+        },
+        "binary/CompareTool.exe": {
+          "bytes": 21512005,
+          "sha256": "f90bf69248bf4b8c4a49c6b4c178ee27e55631245e0c399c6be9eda88f1af37d"
+        },
+        "build/CompareTool/Analysis-00.toc": {
+          "bytes": 223428,
+          "sha256": "b87aa78026972ded7d9e63329fc73154b0f0e96b3d27efb3e3a32830ae6bc3e2"
+        },
+        "build/CompareTool/base_library.zip": {
+          "bytes": 1333717,
+          "sha256": "2c8a8a3aa496a68bf45566510ec6544ad50f9f1b075fc09bd9a676550f60ef59"
+        },
+        "build/CompareTool/CompareTool.pkg": {
+          "bytes": 21113157,
+          "sha256": "e0b9db3cb727363ec05f720958a1da122aba07a7771191bf2ba5729c6a30e0b2"
+        },
+        "build/CompareTool/EXE-00.toc": {
+          "bytes": 166166,
+          "sha256": "b6ffac98e9301de4e1c3bbcccf87e5eb84d0996c0477c98ac5b0fd3d7d7a44e6"
+        },
+        "build/CompareTool/PKG-00.toc": {
+          "bytes": 164463,
+          "sha256": "e0ef806aff41a91cbe34f8f20b37100fb480dfdf2f7c93d349f28475c6dfbc5b"
+        },
+        "build/CompareTool/PYZ-00.pyz": {
+          "bytes": 3007429,
+          "sha256": "8aef91229ed3a09356a87940501cc3d9856c3c267f9ed061cbd5238170032c60"
+        },
+        "build/CompareTool/PYZ-00.toc": {
+          "bytes": 35808,
+          "sha256": "1ad257f992568b4c9fd050a09207ee226cb4a21ab41c53b2344786aac031c583"
+        },
+        "build/CompareTool/warn-CompareTool.txt": {
+          "bytes": 4111,
+          "sha256": "0620dded80f6b1a7e77989bfd1fec12649920579aa8d97826a31a4f5e7c3e4a7"
+        },
+        "build/CompareTool/xref-CompareTool.html": {
+          "bytes": 484593,
+          "sha256": "9168b7cb30d82fd8e6b70d1ebafde51d7a76684b5c8add60194969d7b714c130"
+        },
+        "build/CompareTool/localpycs/pyimod01_archive.pyc": {
+          "bytes": 4842,
+          "sha256": "475bc1508c68fd99819f6caaa9d342fe16c9c79d3007975733ac24d866cecc45"
+        },
+        "build/CompareTool/localpycs/pyimod02_importers.pyc": {
+          "bytes": 32130,
+          "sha256": "a330656688eb6f2c24c50be4d571208bc24b1769fc0931040c57d373acddae79"
+        },
+        "build/CompareTool/localpycs/pyimod03_ctypes.pyc": {
+          "bytes": 6146,
+          "sha256": "878041d96ab96be30048b2c805f601440982f75514884de05ed678c5489bb81c"
+        },
+        "build/CompareTool/localpycs/pyimod04_pywin32.pyc": {
+          "bytes": 1630,
+          "sha256": "a9181526bcd0fe65904496297930e3bb9edb7922994e468b9942f81f320f71ab"
+        },
+        "build/CompareTool/localpycs/struct.pyc": {
+          "bytes": 305,
+          "sha256": "ca4e611e0bb2404d8ae2b6baf0818c23c01c36f91cbf2ef51c64c9404a9c5634"
+        }
+      },
+      "exe_retained_copies": {
+        "binary/CompareTool.exe": [
+          "D:\\AI\\project\\compareTool_myself\\dist\\archive\\20261025_004323_release_build_xgn2vi2h\\CompareTool.exe",
+          "D:\\java\\applications\\CompareTool\\archive\\20261025_004618_before_f90bf69248bf\\CompareTool.exe"
+        ]
+      }
+    },
+    {
+      "path": ".tmp/release_build_xgn2vi2h",
+      "files": 17,
+      "bytes": 48085852,
+      "reason": "本轮失败空目录、已交付构建中间物、已退出的隔离冒烟副本或空运行目录；原始验证证据另行保留",
+      "file_manifest": {
+        "build_info.json": {
+          "bytes": 270,
+          "sha256": "f9cda7f2859259676c8e1fea10f5467718a6da4ea7009e42bc69b8c31418a332"
+        },
+        "CompareTool.spec": {
+          "bytes": 1004,
+          "sha256": "314bb634faf41cfa4f7483f8536d1ac57b5314d4a37fb3cdddbf24e2f7ad6d0e"
+        },
+        "binary/CompareTool.exe": {
+          "bytes": 21510666,
+          "sha256": "0fa255b445a206d09c8e083e288c1e7d883db7ca8b43cc0139f059aa9ce5e84d"
+        },
+        "build/CompareTool/Analysis-00.toc": {
+          "bytes": 223428,
+          "sha256": "efe1dfd3c9c75875792d853e29e57641017ba5ad099605261912b2c8bf26f117"
+        },
+        "build/CompareTool/base_library.zip": {
+          "bytes": 1333717,
+          "sha256": "48ec0ce906292cfd6ab1a25d3083e77c2c3f35cb1d81417be80da2fcd5ed7cbf"
+        },
+        "build/CompareTool/CompareTool.pkg": {
+          "bytes": 21111818,
+          "sha256": "2873a49fd848e2a1a694bfcd41c89238bf18fee8cb5fadaefdd8f0373e2cd52f"
+        },
+        "build/CompareTool/EXE-00.toc": {
+          "bytes": 166166,
+          "sha256": "e2677af3314393dbdd2410187c819f240fa6458d77ab4af0118c6831a59de770"
+        },
+        "build/CompareTool/PKG-00.toc": {
+          "bytes": 164463,
+          "sha256": "508c8046d44837d9f8693405d99d78fd34dc0cf93572a886049d457f1af69262"
+        },
+        "build/CompareTool/PYZ-00.pyz": {
+          "bytes": 3004873,
+          "sha256": "ff443c75a80ea32f7687f9da9c50785d7022937d347a139554f5f3cfacd665b5"
+        },
+        "build/CompareTool/PYZ-00.toc": {
+          "bytes": 35808,
+          "sha256": "487b3ca2c6e2bd748b108fc27d2698d2ba2c35c487d42413469a28f97bfad58d"
+        },
+        "build/CompareTool/warn-CompareTool.txt": {
+          "bytes": 4111,
+          "sha256": "a885819d22be17b9977c7d157ff971028e9faa31d955e7634f123a8e9d743504"
+        },
+        "build/CompareTool/xref-CompareTool.html": {
+          "bytes": 484475,
+          "sha256": "5c05f43fa4d66b72bf52d3c9ede3741805edbc7fb1566c4cca19d5940a76fcd1"
+        },
+        "build/CompareTool/localpycs/pyimod01_archive.pyc": {
+          "bytes": 4842,
+          "sha256": "475bc1508c68fd99819f6caaa9d342fe16c9c79d3007975733ac24d866cecc45"
+        },
+        "build/CompareTool/localpycs/pyimod02_importers.pyc": {
+          "bytes": 32130,
+          "sha256": "a330656688eb6f2c24c50be4d571208bc24b1769fc0931040c57d373acddae79"
+        },
+        "build/CompareTool/localpycs/pyimod03_ctypes.pyc": {
+          "bytes": 6146,
+          "sha256": "878041d96ab96be30048b2c805f601440982f75514884de05ed678c5489bb81c"
+        },
+        "build/CompareTool/localpycs/pyimod04_pywin32.pyc": {
+          "bytes": 1630,
+          "sha256": "a9181526bcd0fe65904496297930e3bb9edb7922994e468b9942f81f320f71ab"
+        },
+        "build/CompareTool/localpycs/struct.pyc": {
+          "bytes": 305,
+          "sha256": "ca4e611e0bb2404d8ae2b6baf0818c23c01c36f91cbf2ef51c64c9404a9c5634"
+        }
+      },
+      "exe_retained_copies": {
+        "binary/CompareTool.exe": [
+          "D:\\AI\\project\\compareTool_myself\\dist\\archive\\20261025_010008_release_build_o0a9dqli\\CompareTool.exe",
+          "D:\\java\\applications\\CompareTool\\archive\\20261025_010534_before_0fa255b445a2\\CompareTool.exe"
+        ]
+      }
+    },
+    {
+      "path": ".tmp/release_build_o0a9dqli",
+      "files": 17,
+      "bytes": 48086330,
+      "reason": "本轮失败空目录、已交付构建中间物、已退出的隔离冒烟副本或空运行目录；原始验证证据另行保留",
+      "file_manifest": {
+        "build_info.json": {
+          "bytes": 270,
+          "sha256": "6cd31ad28b109a5450d0b1ae970ee5d1aab21af87036d512c213a48e54ae1e7a"
+        },
+        "CompareTool.spec": {
+          "bytes": 1004,
+          "sha256": "fb6ca08a040c03adbbf01a492419c8c31458b4630632b4b149d754b33555b37a"
+        },
+        "binary/CompareTool.exe": {
+          "bytes": 21510724,
+          "sha256": "dd2f01916e28311fa65c466ced13038d0579c856dfe2579450ecaf06e58bc041"
+        },
+        "build/CompareTool/Analysis-00.toc": {
+          "bytes": 223428,
+          "sha256": "901c7371c8d488ba50c113d1336775e135af6ce554f2f96bece693f5e5de16b7"
+        },
+        "build/CompareTool/base_library.zip": {
+          "bytes": 1333717,
+          "sha256": "beed72bd8d5e82e4060ed4604f799d3cc0f99be334f41956427d2f7b2ac69fa9"
+        },
+        "build/CompareTool/CompareTool.pkg": {
+          "bytes": 21111876,
+          "sha256": "f4c627b7e9c1cf5af7f4183e8e2a9efac5cbc5907cb3f888827eea6b99f88b3d"
+        },
+        "build/CompareTool/EXE-00.toc": {
+          "bytes": 166166,
+          "sha256": "01d5847a591f6a7db34fac5526943e0337c0e32a40fac135df3cfe78af853a93"
+        },
+        "build/CompareTool/PKG-00.toc": {
+          "bytes": 164463,
+          "sha256": "b306234d7f05b35b765581007c144cb35a441863722188c3340b45e9895b764c"
+        },
+        "build/CompareTool/PYZ-00.pyz": {
+          "bytes": 3005235,
+          "sha256": "ef262526bd335c82a0ba8fcf73b94bc58104c2c40b1da154cd7324a861935452"
+        },
+        "build/CompareTool/PYZ-00.toc": {
+          "bytes": 35808,
+          "sha256": "b82e25c00201335ca1f7c5b539a0ca90cf3d08a0ef8a7f5ec07589f240e17565"
+        },
+        "build/CompareTool/warn-CompareTool.txt": {
+          "bytes": 4111,
+          "sha256": "0620dded80f6b1a7e77989bfd1fec12649920579aa8d97826a31a4f5e7c3e4a7"
+        },
+        "build/CompareTool/xref-CompareTool.html": {
+          "bytes": 484475,
+          "sha256": "5c05f43fa4d66b72bf52d3c9ede3741805edbc7fb1566c4cca19d5940a76fcd1"
+        },
+        "build/CompareTool/localpycs/pyimod01_archive.pyc": {
+          "bytes": 4842,
+          "sha256": "475bc1508c68fd99819f6caaa9d342fe16c9c79d3007975733ac24d866cecc45"
+        },
+        "build/CompareTool/localpycs/pyimod02_importers.pyc": {
+          "bytes": 32130,
+          "sha256": "a330656688eb6f2c24c50be4d571208bc24b1769fc0931040c57d373acddae79"
+        },
+        "build/CompareTool/localpycs/pyimod03_ctypes.pyc": {
+          "bytes": 6146,
+          "sha256": "878041d96ab96be30048b2c805f601440982f75514884de05ed678c5489bb81c"
+        },
+        "build/CompareTool/localpycs/pyimod04_pywin32.pyc": {
+          "bytes": 1630,
+          "sha256": "a9181526bcd0fe65904496297930e3bb9edb7922994e468b9942f81f320f71ab"
+        },
+        "build/CompareTool/localpycs/struct.pyc": {
+          "bytes": 305,
+          "sha256": "ca4e611e0bb2404d8ae2b6baf0818c23c01c36f91cbf2ef51c64c9404a9c5634"
+        }
+      },
+      "exe_retained_copies": {
+        "binary/CompareTool.exe": [
+          "D:\\AI\\project\\compareTool_myself\\dist\\archive\\20261025_012249_release_build_zg71x3j9\\CompareTool.exe",
+          "D:\\java\\applications\\CompareTool\\archive\\20261025_012443_before_dd2f01916e28\\CompareTool.exe"
+        ]
+      }
+    },
+    {
+      "path": ".tmp/release_build_zg71x3j9",
+      "files": 17,
+      "bytes": 48082917,
+      "reason": "本轮失败空目录、已交付构建中间物、已退出的隔离冒烟副本或空运行目录；原始验证证据另行保留",
+      "file_manifest": {
+        "build_info.json": {
+          "bytes": 270,
+          "sha256": "90f6cb5c3666abc0373fdc4c6caeebf5c8a41fec35b2571587014a64930923b3"
+        },
+        "CompareTool.spec": {
+          "bytes": 1004,
+          "sha256": "71541928580ef9210ab24552470fbb0d7805203563715872fce91ab2d68b7689"
+        },
+        "binary/CompareTool.exe": {
+          "bytes": 21508958,
+          "sha256": "8ec280cf2c1c5abd1d25cbece6ed2b6e0536fde3ac025d81444c09648f361287"
+        },
+        "build/CompareTool/Analysis-00.toc": {
+          "bytes": 223428,
+          "sha256": "ac51b42150baa3a48592287c4ae1a1c95198889248c224f89464ab6ba3dc132b"
+        },
+        "build/CompareTool/base_library.zip": {
+          "bytes": 1333717,
+          "sha256": "fa225ea1aa1d5ce76e7400e54c39fa9adcbb390cd5465ade2b0e6753528a1a42"
+        },
+        "build/CompareTool/CompareTool.pkg": {
+          "bytes": 21110110,
+          "sha256": "587f77d6e0b921d060fb647d611df428ca8edf03d374a4bdfe04889bf77d04d0"
+        },
+        "build/CompareTool/EXE-00.toc": {
+          "bytes": 166166,
+          "sha256": "498fdafd04a67fb01b2692355208cde29ad77b4095bb0e2b6211cd8c30d65b8b"
+        },
+        "build/CompareTool/PKG-00.toc": {
+          "bytes": 164463,
+          "sha256": "cf4caf3a9175e7ac8c3a28f0070281c2a8f0189442b31e949c0db9d390de5daf"
+        },
+        "build/CompareTool/PYZ-00.pyz": {
+          "bytes": 3005240,
+          "sha256": "f9e2a2900c24e7d176d3f5af8ed42d0fe0319b9473e931bd6aa3481d807bac02"
+        },
+        "build/CompareTool/PYZ-00.toc": {
+          "bytes": 35808,
+          "sha256": "2ac03677cc29500328ee4623e983ae3431bfb3c044c31f174285477a58db4423"
+        },
+        "build/CompareTool/warn-CompareTool.txt": {
+          "bytes": 4111,
+          "sha256": "a885819d22be17b9977c7d157ff971028e9faa31d955e7634f123a8e9d743504"
+        },
+        "build/CompareTool/xref-CompareTool.html": {
+          "bytes": 484589,
+          "sha256": "e4d99747163696a066e89b063e8b82d85cd515536e0f2ba48c5a6be52da0f36d"
+        },
+        "build/CompareTool/localpycs/pyimod01_archive.pyc": {
+          "bytes": 4842,
+          "sha256": "475bc1508c68fd99819f6caaa9d342fe16c9c79d3007975733ac24d866cecc45"
+        },
+        "build/CompareTool/localpycs/pyimod02_importers.pyc": {
+          "bytes": 32130,
+          "sha256": "a330656688eb6f2c24c50be4d571208bc24b1769fc0931040c57d373acddae79"
+        },
+        "build/CompareTool/localpycs/pyimod03_ctypes.pyc": {
+          "bytes": 6146,
+          "sha256": "878041d96ab96be30048b2c805f601440982f75514884de05ed678c5489bb81c"
+        },
+        "build/CompareTool/localpycs/pyimod04_pywin32.pyc": {
+          "bytes": 1630,
+          "sha256": "a9181526bcd0fe65904496297930e3bb9edb7922994e468b9942f81f320f71ab"
+        },
+        "build/CompareTool/localpycs/struct.pyc": {
+          "bytes": 305,
+          "sha256": "ca4e611e0bb2404d8ae2b6baf0818c23c01c36f91cbf2ef51c64c9404a9c5634"
+        }
+      },
+      "exe_retained_copies": {
+        "binary/CompareTool.exe": [
+          "D:\\java\\applications\\CompareTool\\CompareTool.exe"
+        ]
+      }
+    },
+    {
+      "path": ".tmp/external-release-20261025/exe-smoke",
+      "files": 4,
+      "bytes": 22014605,
+      "reason": "本轮失败空目录、已交付构建中间物、已退出的隔离冒烟副本或空运行目录；原始验证证据另行保留",
+      "file_manifest": {
+        "CompareTool.exe": {
+          "bytes": 21512005,
+          "sha256": "f90bf69248bf4b8c4a49c6b4c178ee27e55631245e0c399c6be9eda88f1af37d"
+        },
+        "CompareTool_build.json": {
+          "bytes": 355,
+          "sha256": "da71956baff3cd28a9a6dd9fe8bbe94b6858dc9b756991545d34232f15166188"
+        },
+        "compareTool_config.json": {
+          "bytes": 280,
+          "sha256": "90e5b27166ce5d3c00a59615a87863fe343d78dea23dbb0c614e417f1b7323d0"
+        },
+        "CompareTool_使用说明书.pdf": {
+          "bytes": 501965,
+          "sha256": "27b15ddf8fe186929ea552f264119c29b7b8e359c332bbb03d50b2b18265fb7c"
+        }
+      },
+      "exe_retained_copies": {
+        "CompareTool.exe": [
+          "D:\\AI\\project\\compareTool_myself\\dist\\archive\\20261025_004323_release_build_xgn2vi2h\\CompareTool.exe",
+          "D:\\java\\applications\\CompareTool\\archive\\20261025_004618_before_f90bf69248bf\\CompareTool.exe"
+        ]
+      }
+    },
+    {
+      "path": ".tmp/external-release-20261025/runtime",
+      "files": 0,
+      "bytes": 0,
+      "reason": "本轮失败空目录、已交付构建中间物、已退出的隔离冒烟副本或空运行目录；原始验证证据另行保留",
+      "file_manifest": {},
+      "exe_retained_copies": {}
+    },
+    {
+      "path": ".tmp/simple-exclusions-20261025/exe-smoke",
+      "files": 4,
+      "bytes": 22006532,
+      "reason": "本轮失败空目录、已交付构建中间物、已退出的隔离冒烟副本或空运行目录；原始验证证据另行保留",
+      "file_manifest": {
+        "CompareTool.exe": {
+          "bytes": 21510666,
+          "sha256": "0fa255b445a206d09c8e083e288c1e7d883db7ca8b43cc0139f059aa9ce5e84d"
+        },
+        "CompareTool_build.json": {
+          "bytes": 355,
+          "sha256": "178c454ea1e197864c84ddff3eb6ab40268c926379056e12262b5760cdda7a33"
+        },
+        "compareTool_config.json": {
+          "bytes": 249,
+          "sha256": "581495d3966b9f3489c791f5e88ad705ffd6f80fdb8fe89358dd23d4c0d799e9"
+        },
+        "CompareTool_使用说明书.pdf": {
+          "bytes": 495262,
+          "sha256": "cde48674049027f53dfa9e2d37676cf694f000ac83a091e2cdf9d1f853c3121c"
+        }
+      },
+      "exe_retained_copies": {
+        "CompareTool.exe": [
+          "D:\\AI\\project\\compareTool_myself\\dist\\archive\\20261025_010008_release_build_o0a9dqli\\CompareTool.exe",
+          "D:\\java\\applications\\CompareTool\\archive\\20261025_010534_before_0fa255b445a2\\CompareTool.exe"
+        ]
+      }
+    },
+    {
+      "path": ".tmp/simple-exclusions-20261025/runtime",
+      "files": 0,
+      "bytes": 0,
+      "reason": "本轮失败空目录、已交付构建中间物、已退出的隔离冒烟副本或空运行目录；原始验证证据另行保留",
+      "file_manifest": {},
+      "exe_retained_copies": {}
+    },
+    {
+      "path": ".tmp/exclusion-clear-20261025/exe-smoke",
+      "files": 4,
+      "bytes": 22007205,
+      "reason": "本轮失败空目录、已交付构建中间物、已退出的隔离冒烟副本或空运行目录；原始验证证据另行保留",
+      "file_manifest": {
+        "CompareTool.exe": {
+          "bytes": 21510724,
+          "sha256": "dd2f01916e28311fa65c466ced13038d0579c856dfe2579450ecaf06e58bc041"
+        },
+        "CompareTool_build.json": {
+          "bytes": 355,
+          "sha256": "32c939f5e5b40f03a5e631a864c9eff487d8516294c332a90571bf9852d9e8ea"
+        },
+        "compareTool_config.json": {
+          "bytes": 249,
+          "sha256": "581495d3966b9f3489c791f5e88ad705ffd6f80fdb8fe89358dd23d4c0d799e9"
+        },
+        "CompareTool_使用说明书.pdf": {
+          "bytes": 495877,
+          "sha256": "89b205f0dd5cbf233ed2cc0971f7d15fe1457e1f6d366277613c01b983901f94"
+        }
+      },
+      "exe_retained_copies": {
+        "CompareTool.exe": [
+          "D:\\AI\\project\\compareTool_myself\\dist\\archive\\20261025_012249_release_build_zg71x3j9\\CompareTool.exe",
+          "D:\\java\\applications\\CompareTool\\archive\\20261025_012443_before_dd2f01916e28\\CompareTool.exe"
+        ]
+      }
+    },
+    {
+      "path": ".tmp/exclusion-clear-20261025/runtime",
+      "files": 0,
+      "bytes": 0,
+      "reason": "本轮失败空目录、已交付构建中间物、已退出的隔离冒烟副本或空运行目录；原始验证证据另行保留",
+      "file_manifest": {},
+      "exe_retained_copies": {}
+    },
+    {
+      "path": ".tmp/exclusion-label-20261025/exe-smoke",
+      "files": 4,
+      "bytes": 22005450,
+      "reason": "本轮失败空目录、已交付构建中间物、已退出的隔离冒烟副本或空运行目录；原始验证证据另行保留",
+      "file_manifest": {
+        "CompareTool.exe": {
+          "bytes": 21508958,
+          "sha256": "8ec280cf2c1c5abd1d25cbece6ed2b6e0536fde3ac025d81444c09648f361287"
+        },
+        "CompareTool_build.json": {
+          "bytes": 355,
+          "sha256": "92f24722ed4fbfddb1ef9eb2155096f3fcdf077bb387398fde02863d05084fd1"
+        },
+        "compareTool_config.json": {
+          "bytes": 249,
+          "sha256": "581495d3966b9f3489c791f5e88ad705ffd6f80fdb8fe89358dd23d4c0d799e9"
+        },
+        "CompareTool_使用说明书.pdf": {
+          "bytes": 495888,
+          "sha256": "97125ecdf5c0dd8c9f284d0acfc4d39613205693d23a7f96d4607e8ff1204a85"
+        }
+      },
+      "exe_retained_copies": {
+        "CompareTool.exe": [
+          "D:\\java\\applications\\CompareTool\\CompareTool.exe"
+        ]
+      }
+    },
+    {
+      "path": ".tmp/exclusion-label-20261025/runtime",
+      "files": 0,
+      "bytes": 0,
+      "reason": "本轮失败空目录、已交付构建中间物、已退出的隔离冒烟副本或空运行目录；原始验证证据另行保留",
+      "file_manifest": {},
+      "exe_retained_copies": {}
+    }
+  ],
+  "totals": {
+    "targets": 13,
+    "files": 84,
+    "bytes": 280380095
+  },
+  "safeguards": {
+    "contained_in_project_tmp": true,
+    "reparse_points": false,
+    "tracked_files": false,
+    "candidate_process_references": [],
+    "process_scope": "仅检查进程路径与命令行引用，不代表打开句柄穷举"
+  },
+  "retained": [
+    "原始完整回归与最终专项日志、对应源码副本",
+    "四次发布的截图、PDF 渲染及包内核验凭证",
+    "docs/dist/已安装正式三件套",
+    "dist/archive 和安装目录 archive 全部旧版及配置",
+    "用户输入、外置规则文件及安装目录运行中的 .tmp"
+  ],
+  "preflight_required_before_deletion": [
+    "用户在完整汇报后明确确认并记录授权",
+    "重新验证本清单逐文件 SHA-256、边界、无重解析点及无新增文件",
+    "复核进程引用及保护文件哈希；任何变化停止删除"
+  ],
+  "protected_hashes": ".tmp/exclusions-neat-20261025/protected-hashes.json"
+}

@@ -1,0 +1,108 @@
+{
+  "status": "KNOWLEDGE_CLOSED_CLEANUP_PENDING",
+  "checked_at": "2026-10-25T01:36:25+08:00",
+  "baseline_commit": "923c850e725bad9d36f0c0a5cc5437d2663b9499",
+  "markdown_count": 37,
+  "source_file_count": 247,
+  "build": {
+    "version": "2026.10.25.4",
+    "build_id": "eafbd9586c",
+    "built_at": "2026-10-25T01:22:49+08:00",
+    "commit": "65765f76ffefbf29a65e635bc3c69b5baeee8c9c",
+    "dirty": false,
+    "source_sha256": "eafbd9586ca10905ed3bce612f6b81941f8df30e0bd4d1f661fe9adf41129e31",
+    "exe_sha256": "8ec280cf2c1c5abd1d25cbece6ed2b6e0536fde3ac025d81444c09648f361287"
+  },
+  "installed_files_match_dist": {
+    "CompareTool.exe": {
+      "bytes": 21508958,
+      "sha256": "8ec280cf2c1c5abd1d25cbece6ed2b6e0536fde3ac025d81444c09648f361287"
+    },
+    "CompareTool_build.json": {
+      "bytes": 355,
+      "sha256": "92f24722ed4fbfddb1ef9eb2155096f3fcdf077bb387398fde02863d05084fd1"
+    },
+    "CompareTool_使用说明书.pdf": {
+      "bytes": 495888,
+      "sha256": "97125ecdf5c0dd8c9f284d0acfc4d39613205693d23a7f96d4607e8ff1204a85"
+    }
+  },
+  "embedded_metadata_matches": true,
+  "current_source_fingerprint_matches": true,
+  "config_matches_installation_receipt": false,
+  "config_observation": "当前配置哈希与安装时凭证不同；本次只读记录，不推断变化原因、不改写配置",
+  "runtime_check": {
+    "checked_at": "2026-10-25T01:34:00.5894156+08:00",
+    "candidate_process_references": [],
+    "installed_processes": [
+      {
+        "Id": 53200,
+        "Path": "D:\\java\\applications\\CompareTool\\CompareTool.exe",
+        "MainWindowTitle": "代码比对报告工具 v2026.10.25.4 [eafbd9586c]",
+        "WindowHandle": 2758832,
+        "Responding": true
+      },
+      {
+        "Id": 64056,
+        "Path": "D:\\java\\applications\\CompareTool\\CompareTool.exe",
+        "MainWindowTitle": "",
+        "WindowHandle": 0,
+        "Responding": true
+      }
+    ],
+    "scope": "ExecutablePath and CommandLine path references only; no exhaustive handle scan"
+  },
+  "rule_chain": {
+    "authority": "AGENTS.md",
+    "claude_import": "@AGENTS.md",
+    "project_bytes": 28916,
+    "budget_bytes": 32768,
+    "configured_budget_override": false,
+    "config_instruction_settings": {
+      "C:\\Users\\12939\\.codex\\config.toml": []
+    },
+    "active_hooks": []
+  },
+  "faces": {
+    "code": "verified-current",
+    "runtime": "verified-current",
+    "docs": "changed-and-verified",
+    "rules": "verified-current",
+    "memory": "out-of-scope",
+    "workspace": "pending"
+  },
+  "memory_mode": "generated-read-only; 未获记忆写入授权",
+  "evidence": ".tmp/exclusions-neat-20261025",
+  "cleanup_preview": "artifacts/external-exclusions-closeout-preview-20261025.json",
+  "validation_scope": "仅知识收尾：源码指纹、已安装三件套、内嵌身份、现有窗口、文档链接及清场预览；未修改业务代码、未重跑业务回归、未重新打包",
+  "pending": [
+    "清场待完整汇报后用户确认"
+  ],
+  "out_of_scope": [
+    "生成记忆写入",
+    "GitHub Release、标签及发行附件",
+    "其他项目及历史全盘清理",
+    "正式 EXE 比较界面端到端自动化"
+  ],
+  "warnings": [
+    "AGENTS.md 占默认 32KiB 项目指令预算的 88.2%；本轮未增加规则",
+    "早期 825 项全量回归出现 4 错误，修复后完成专项复验，未重新全量；原始 Tk after 回调警告保留"
+  ],
+  "documentation_validation": {
+    "markdown_files": 37,
+    "local_links": 192,
+    "markdown_anchors": 38,
+    "errors": [],
+    "scope": "local Markdown targets and heading anchors; external URLs not fetched"
+  },
+  "documentation_changes": [
+    "README 将最新收尾与清场预览改为四次发布的完整范围",
+    "外置规则说明压缩重复验收叙事，以 README 为唯一现役版本入口",
+    "首版复杂界面源码记录明确标为历史，保留真实失败及复验边界"
+  ],
+  "rules_observation": "项目 AGENTS.md 为真身，CLAUDE.md 仅导入；未发现上级/项目 override、额外 fallback 配置或活动 Git hook；原规则不改写",
+  "memory_observation": "仅使用只读历史索引定位发布核验惯例；当前版本、哈希和窗口均重新验证",
+  "baseline_remote_master": "923c850e725bad9d36f0c0a5cc5437d2663b9499",
+  "protected_files_unchanged_during_closeout": true,
+  "protected_file_count": 18
+}
