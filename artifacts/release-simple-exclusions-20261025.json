@@ -1,0 +1,97 @@
+{
+  "status": "INSTALLED_VERIFIED",
+  "build": {
+    "version": "2026.10.25.2",
+    "build_id": "5703d8703e",
+    "built_at": "2026-10-25T00:43:23+08:00",
+    "commit": "3e7dd383ff7445d6df32df59ac24684d5f81c2a4",
+    "dirty": false,
+    "source_sha256": "5703d8703efb1df5471735eb026d3eebe5d0ea80bf320951e84ed1a02168e73d",
+    "exe_sha256": "0fa255b445a206d09c8e083e288c1e7d883db7ca8b43cc0139f059aa9ce5e84d"
+  },
+  "source_pushed_before_build": true,
+  "installation": {
+    "install_dir": "D:\\java\\applications\\CompareTool",
+    "backup": "D:\\java\\applications\\CompareTool\\archive\\20261025_004618_before_f90bf69248bf",
+    "before": {
+      "CompareTool.exe": "f90bf69248bf4b8c4a49c6b4c178ee27e55631245e0c399c6be9eda88f1af37d",
+      "CompareTool_build.json": "da71956baff3cd28a9a6dd9fe8bbe94b6858dc9b756991545d34232f15166188",
+      "CompareTool_使用说明书.pdf": "27b15ddf8fe186929ea552f264119c29b7b8e359c332bbb03d50b2b18265fb7c",
+      "compareTool_config.json": "fb515042c83a05012a136f2b6e67ff5dd875dfbb622248867db09f1487fb3d50"
+    },
+    "after": {
+      "CompareTool.exe": "0fa255b445a206d09c8e083e288c1e7d883db7ca8b43cc0139f059aa9ce5e84d",
+      "CompareTool_build.json": "178c454ea1e197864c84ddff3eb6ab40268c926379056e12262b5760cdda7a33",
+      "CompareTool_使用说明书.pdf": "cde48674049027f53dfa9e2d37676cf694f000ac83a091e2cdf9d1f853c3121c",
+      "compareTool_config.json": "fb515042c83a05012a136f2b6e67ff5dd875dfbb622248867db09f1487fb3d50"
+    },
+    "config_preserved": true,
+    "copied_files": [
+      "CompareTool.exe",
+      "CompareTool_build.json",
+      "CompareTool_使用说明书.pdf"
+    ],
+    "other_install_files_modified": false,
+    "build": {
+      "version": "2026.10.25.2",
+      "build_id": "5703d8703e",
+      "built_at": "2026-10-25T00:43:23+08:00",
+      "commit": "3e7dd383ff7445d6df32df59ac24684d5f81c2a4",
+      "dirty": false,
+      "source_sha256": "5703d8703efb1df5471735eb026d3eebe5d0ea80bf320951e84ed1a02168e73d",
+      "exe_sha256": "0fa255b445a206d09c8e083e288c1e7d883db7ca8b43cc0139f059aa9ce5e84d"
+    }
+  },
+  "native_window": {
+    "actual_exe": "D:\\java\\applications\\CompareTool\\CompareTool.exe",
+    "process_id": 53956,
+    "parent_process_id": 63312,
+    "title": "代码比对报告工具 v2026.10.25.2 [5703d8703e]",
+    "responding": true,
+    "main_window_handle": 1579036,
+    "config_sha256": "fb515042c83a05012a136f2b6e67ff5dd875dfbb622248867db09f1487fb3d50",
+    "config_preserved": true,
+    "running_for_user": true,
+    "comparison_ui_automated": false
+  },
+  "isolated_window": {
+    "actual_exe": "D:\\AI\\project\\compareTool_myself\\.tmp\\simple-exclusions-20261025\\exe-smoke\\CompareTool.exe",
+    "process_id": 20400,
+    "title": "代码比对报告工具 v2026.10.25.2 [5703d8703e]",
+    "responding": true,
+    "main_window_handle": 5248818,
+    "isolated_config": true,
+    "comparison_ui_automated": false
+  },
+  "package": {
+    "modules": 31,
+    "resources": 24,
+    "tests": 19,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "code_resources_and_embedded_metadata_match": true,
+    "mode": "packaged_application_code_on_host_python",
+    "formal_exe_comparison_ui_automated": false
+  },
+  "source_tests": 93,
+  "source_receipt": "artifacts/simple-external-exclusions-20261025.json",
+  "manual": {
+    "pages": 18,
+    "bookmarks": 18,
+    "toc_links": 12,
+    "missing_glyphs": [],
+    "embedded_fonts": {
+      "/AAAAAA+MicrosoftYaHei-0": true,
+      "/AAAAAB+MicrosoftYaHei-0": true,
+      "/AAAAAC+MicrosoftYaHei-0": true,
+      "/AAAAAA+MicrosoftYaHei-Bold-0": true,
+      "/AAAAAB+MicrosoftYaHei-Bold-0": true
+    },
+    "out_of_bounds_characters": 0,
+    "bytes": 495262,
+    "sha256": "cde48674049027f53dfa9e2d37676cf694f000ac83a091e2cdf9d1f853c3121c"
+  },
+  "evidence": ".tmp/simple-exclusions-20261025",
+  "scope": "Current project and local installation; no GitHub Release, generated-memory edits or historical cleanup"
+}

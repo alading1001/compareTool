@@ -15,3 +15,11 @@
 - 说明书保持 18 页、18 个书签及 12 个目录链接；字体、字形、文字边界及 docs/dist 副本一致性检查通过，18 页缩略图和修改页已检查。
 
 证据见 [源码与界面验收](../artifacts/simple-external-exclusions-20261025.json)。正式 EXE 版本和安装状态统一见 [README 正式入口](../README.md#正式入口版本与任务进度)；源码验收不能替代新 EXE 的启动验证。
+
+## 正式发布与程序目录更新
+
+正式版本 `2026.10.25.2 [5703d8703e]`，构建源码提交 `3e7dd383ff7445d6df32df59ac24684d5f81c2a4`，构建时工作区干净；后续文档提交不改变运行代码指纹。EXE SHA-256 为 `0fa255b445a206d09c8e083e288c1e7d883db7ca8b43cc0139f059aa9ce5e84d`。
+
+包内 31 个应用模块、24 项模板及资源、内嵌元数据与源码/sidecar 一致，包内应用代码在宿主 Python 中完成 19 项外置规则回归，全部通过。新 EXE 在隔离目录及实际程序目录真实启动，版本标题和响应性通过；未自动操作正式 EXE 的比较流程。
+
+`D:/java/applications/CompareTool` 的 EXE、构建信息及说明书已更新，配置在更新和启动前后字节一致，旧三件套与配置保留于 `D:\java\applications\CompareTool\archive\20261025_004618_before_f90bf69248bf`。docs/dist/安装目录的说明书字节一致。来源凭证见 [发布安装验收](../artifacts/release-simple-exclusions-20261025.json)。本轮没有执行历史清场、生成记忆写入或创建 GitHub Release。
