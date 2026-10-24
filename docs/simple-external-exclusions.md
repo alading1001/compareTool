@@ -16,7 +16,7 @@
 
 说明书为 18 页、18 个书签、12 个目录链接；字体、字形、文字边界及修改页视觉检查通过，docs/dist/安装目录三份字节一致。最后文案发布未重跑业务回归，正式 EXE 的比较界面未做端到端自动化；启动、源码测试和包内代码测试的证据范围分别保留。
 
-2026-10-25 [知识收尾](../artifacts/external-exclusions-closeout-20261025.json)复核现有窗口、安装三件套和源码指纹，并将旧版记录明确标为历史；本次不改代码或重打包。生成记忆未写入，[清场预览](../artifacts/external-exclusions-closeout-preview-20261025.json)中的目录等待汇报后确认，全部验证现场仍保留。
+2026-10-25 [知识收尾](../artifacts/external-exclusions-closeout-20261025.json)复核现有窗口、安装三件套和源码指纹，并将旧版记录明确标为历史；本次不改代码或重打包。生成记忆未写入；用户在完整汇报后确认，已按[清场预览](../artifacts/external-exclusions-closeout-preview-20261025.json)删除 13 个临时目录，原始验证记录、截图、交付物及旧版备份保留，见[清场核验](../artifacts/cleanup-external-exclusions-20261025.json)。
 
 ## 历史验收索引
 

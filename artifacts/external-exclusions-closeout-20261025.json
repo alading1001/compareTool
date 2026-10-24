@@ -1,5 +1,5 @@
 {
-  "status": "KNOWLEDGE_CLOSED_CLEANUP_PENDING",
+  "status": "KNOWLEDGE_CLOSED_AND_CLEANED",
   "checked_at": "2026-10-25T01:36:25+08:00",
   "baseline_commit": "923c850e725bad9d36f0c0a5cc5437d2663b9499",
   "markdown_count": 37,
@@ -69,15 +69,13 @@
     "docs": "changed-and-verified",
     "rules": "verified-current",
     "memory": "out-of-scope",
-    "workspace": "pending"
+    "workspace": "changed-and-verified"
   },
   "memory_mode": "generated-read-only; 未获记忆写入授权",
   "evidence": ".tmp/exclusions-neat-20261025",
   "cleanup_preview": "artifacts/external-exclusions-closeout-preview-20261025.json",
   "validation_scope": "仅知识收尾：源码指纹、已安装三件套、内嵌身份、现有窗口、文档链接及清场预览；未修改业务代码、未重跑业务回归、未重新打包",
-  "pending": [
-    "清场待完整汇报后用户确认"
-  ],
+  "pending": [],
   "out_of_scope": [
     "生成记忆写入",
     "GitHub Release、标签及发行附件",
@@ -90,7 +88,7 @@
   ],
   "documentation_validation": {
     "markdown_files": 37,
-    "local_links": 192,
+    "local_links": 194,
     "markdown_anchors": 38,
     "errors": [],
     "scope": "local Markdown targets and heading anchors; external URLs not fetched"
@@ -104,5 +102,15 @@
   "memory_observation": "仅使用只读历史索引定位发布核验惯例；当前版本、哈希和窗口均重新验证",
   "baseline_remote_master": "923c850e725bad9d36f0c0a5cc5437d2663b9499",
   "protected_files_unchanged_during_closeout": true,
-  "protected_file_count": 18
+  "protected_file_count": 18,
+  "cleanup": {
+    "status": "CLEANED_AND_VERIFIED",
+    "finished_at": "2026-10-25T01:41:43.3611048+08:00",
+    "receipt": "artifacts/cleanup-external-exclusions-20261025.json",
+    "deleted_targets": 13,
+    "deleted_files": 84,
+    "logical_bytes": 280380095,
+    "protected_unchanged": true,
+    "retained_evidence_verified": true
+  }
 }

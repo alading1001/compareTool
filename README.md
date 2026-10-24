@@ -178,7 +178,7 @@ Windows 文件夹扫描的重复元数据查询和比较根路径解析也已优
 
 特殊头部文本的真实文件、原始导出字节及此前安装验证见 [2026-10-23 发布记录](docs/release-20261023-prefixed-text.md)，相关行为继续保留。P 仅权限展示、完整构建身份及下载校验记录见 [2026-10-22 发布凭证](artifacts/release-permission-closeout-20261022.json)。[v2026.10.22.1](https://github.com/alading1001/compareTool/releases/tag/v2026.10.22.1) 是此前的 GitHub 发行版；本轮未创建新 Release、标签或发行附件。
 
-2026-10-25 [知识收尾复核](artifacts/external-exclusions-closeout-20261025.json)再次核对源码指纹、安装三件套和现有窗口，不改业务代码、不重新打包。[最新清场预览](artifacts/external-exclusions-closeout-preview-20261025.json)覆盖本轮四次发布的 13 个目录、84 个文件，共 280,380,095 字节（约 267.4 MiB），取代首版仅 4 项的预览。未删除候选；复核现场仍保留，等待用户确认后清场。原始回归、交付物及旧版备份保留，生成记忆只读。历史已批准清理见 [2026-10-23 清场凭证](artifacts/cleanup-prefixed-text-20261023.json)、[2026-10-22 清场凭证](artifacts/cleanup-permission-closeout-20261022.json) 和 [补存证据](artifacts/cleanup-permission-evidence-20261022.zip)。
+2026-10-25 [知识收尾复核](artifacts/external-exclusions-closeout-20261025.json)再次核对源码指纹、安装三件套和现有窗口，不改业务代码、不重新打包。用户查看[完整清场预览](artifacts/external-exclusions-closeout-preview-20261025.json)后明确确认，已删除本轮四次发布的 13 个临时目录、84 个文件，共 280,380,095 字节（约 267.4 MiB），实际删除与白名单一致，18 个保护文件哈希未变，见 [清场核验](artifacts/cleanup-external-exclusions-20261025.json)。原始回归、截图、交付物、配置及旧版备份保留，生成记忆只读。历史已批准清理见 [2026-10-23 清场凭证](artifacts/cleanup-prefixed-text-20261023.json)、[2026-10-22 清场凭证](artifacts/cleanup-permission-closeout-20261022.json) 和 [补存证据](artifacts/cleanup-permission-evidence-20261022.zip)。
 
 使用 `dist/CompareTool.exe`；标题中的版本和构建号用于区分不同构建，底部“版本信息”可查看构建时间、源码指纹和实际运行路径。`build.bat` 通过 `tools/build_release.py` 生成并嵌入构建信息，附带 `CompareTool_build.json`；请使用此入口打包，而非旧的手工 spec。
 
