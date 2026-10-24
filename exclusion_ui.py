@@ -37,7 +37,7 @@ class ExclusionRulesUI:
         self.exclude_text.config(yscrollcommand=scroll.set)
         bar = ttk.Frame(parent)
         bar.pack(fill=tk.X, pady=(4, 0))
-        ttk.Checkbutton(bar, text="使用外置排除文件", variable=self.exclude_enabled_var,
+        ttk.Checkbutton(bar, text="追加外置排除规则", variable=self.exclude_enabled_var,
                         command=self._refresh_file_preview).pack(side=tk.LEFT)
         ttk.Button(bar, text="清空文件", command=self._clear_rule_file).pack(side=tk.RIGHT, padx=(4, 0))
         ttk.Button(bar, text="选择文件", command=self._choose_rule_file).pack(side=tk.RIGHT, padx=(4, 0))
