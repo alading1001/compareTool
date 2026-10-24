@@ -95,6 +95,8 @@ from app_version import window_title
 from ui_progress import TaskProgressUI
 from task_progress import task_metrics
 from path_safety import sanitize_windows_component, windows_path_key
+from exclusion_rules import freeze_tasks, manual_snapshot, normalize_source, restore_snapshot
+from exclusion_ui import ExclusionRulesUI
 
 
 def _load_config():
@@ -156,7 +158,7 @@ class _RepositoryUnavailableError(ValueError):
     """无法读取项目仓库身份；区别于已经确认的输出边界冲突。"""
 
 
-class CompareToolApp(TaskProgressUI):
+class CompareToolApp(ExclusionRulesUI, TaskProgressUI):
     def __init__(self):
         self.root = tk.Tk()
         self.root.title(window_title())
@@ -195,6 +197,7 @@ class CompareToolApp(TaskProgressUI):
         raw_exclude_rules = self._config.get("project_exclude_rules", {})
         raw_display_options = self._config.get("project_display_options", {})
         self._project_exclude_rules = self._normalize_project_exclude_rules(raw_exclude_rules)
+        self._init_exclusion_settings(self._config, CONFIG_DIR)
         self._project_display_options = self._normalize_project_display_options(raw_display_options)
         self._recent_projects = self._normalize_recent_projects(self._config.get("recent_projects", []))
         self._recent_project_value_map = {}
@@ -342,12 +345,7 @@ class CompareToolApp(TaskProgressUI):
         ttk.Label(main, text="排除规则 (每行一个，支持 * 和 ** 通配符):", font=("", 10)).grid(row=6, column=0, sticky=tk.W, pady=(0, 3))
         exclude_frame = ttk.Frame(main)
         exclude_frame.grid(row=7, column=0, columnspan=3, sticky=tk.EW, pady=(0, 6))
-        self.exclude_text = tk.Text(exclude_frame, height=4, wrap=tk.NONE)
-        self.exclude_text.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.exclude_text.insert("1.0", self._default_exclude_rules)
-        exclude_scroll = ttk.Scrollbar(exclude_frame, orient=tk.VERTICAL, command=self.exclude_text.yview)
-        exclude_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        self.exclude_text.config(yscrollcommand=exclude_scroll.set)
+        self._build_exclusion_controls(exclude_frame)
 
         # ── 版本 / 文件夹选择 ──
         self.old_version_var = tk.StringVar()
@@ -502,7 +500,7 @@ class CompareToolApp(TaskProgressUI):
         multi_list_frame.grid(row=26, column=0, columnspan=3, sticky=tk.EW, pady=(0, 5))
         self.multi_task_tree = ttk.Treeview(
             multi_list_frame,
-            columns=("name", "type", "source", "versions"),
+            columns=("name", "type", "source", "versions", "rules"),
             show="headings",
             height=4
         )
@@ -510,10 +508,12 @@ class CompareToolApp(TaskProgressUI):
         self.multi_task_tree.heading("type", text="类型")
         self.multi_task_tree.heading("source", text="项目路径/来源")
         self.multi_task_tree.heading("versions", text="版本")
+        self.multi_task_tree.heading("rules", text="排除规则")
         self.multi_task_tree.column("name", width=120, stretch=False)
         self.multi_task_tree.column("type", width=90, stretch=False)
-        self.multi_task_tree.column("source", width=260, stretch=True)
-        self.multi_task_tree.column("versions", width=220, stretch=True)
+        self.multi_task_tree.column("source", width=220, stretch=True)
+        self.multi_task_tree.column("versions", width=200, stretch=True)
+        self.multi_task_tree.column("rules", width=85, stretch=False)
         self.multi_task_tree.pack(side=tk.LEFT, fill=tk.X, expand=True)
         multi_scroll = ttk.Scrollbar(multi_list_frame, orient=tk.VERTICAL, command=self.multi_task_tree.yview)
         multi_scroll.pack(side=tk.RIGHT, fill=tk.Y)
@@ -625,6 +625,19 @@ class CompareToolApp(TaskProgressUI):
                 continue
             if "exclude_rules" not in item:
                 warn(f"旧多项目任务 #{index} 未保存排除规则，已使用默认模板")
+            try:
+                source = normalize_source(item.get("exclude_source", {"kind": "manual"}), CONFIG_DIR)
+                snapshot = None
+                if "exclude_snapshot" in item:
+                    snapshot = restore_snapshot(item["exclude_snapshot"])
+                if source["kind"] == "file" and not source["follow"] and snapshot is None:
+                    raise ValueError("固定文件规则缺少快照")
+                if source["kind"] == "file" and snapshot is not None:
+                    if (snapshot.kind, snapshot.path, snapshot.encoding) != ("file", source["path"], source["encoding"]):
+                        raise ValueError("文件规则快照与来源不一致")
+            except ValueError as exc:
+                warn(f"忽略损坏的多项目任务 #{index}: {exc}")
+                continue
             name_key = self._project_name_key(project_name)
             if name_key in seen_names:
                 warn(f"忽略重复项目名的多项目任务 #{index}: {project_name}")
@@ -638,6 +651,8 @@ class CompareToolApp(TaskProgressUI):
                 "new_version": self._version_input(vcs_type, new_version),
                 "exclude_key": item.get("exclude_key", "") if isinstance(item.get("exclude_key", ""), str) else "",
                 "exclude_rules": exclude_rules,
+                "exclude_source": source,
+                **({"exclude_snapshot": snapshot.to_dict()} if snapshot is not None else {}),
                 "show_project_root": self._option_bool(item.get("show_project_root"), default=True),
                 "show_full_context": self._option_bool(item.get("show_full_context"), default=True),
                 "recursive_archives": vcs_type in SUPPORTED_VCS_TYPES and self._option_bool(
@@ -1176,11 +1191,12 @@ class CompareToolApp(TaskProgressUI):
     @staticmethod
     def _task_source_directories(task: dict) -> list:
         vcs_type = task.get("vcs_type", "")
-        if vcs_type == "folder":
-            return [task.get("old_version", ""), task.get("new_version", "")]
-        if vcs_type == "archive":
-            return [task.get("old_version", ""), task.get("new_version", "")]
-        return [task.get("project_path", "")]
+        sources = ([task.get("old_version", ""), task.get("new_version", "")]
+                   if vcs_type in ("folder", "archive") else [task.get("project_path", "")])
+        source = task.get("exclude_source", {})
+        if isinstance(source, dict) and source.get("kind") == "file" and isinstance(source.get("path"), str):
+            sources.append(source["path"])
+        return sources
 
     @staticmethod
     def _should_skip_main_mousewheel(widget) -> bool:
@@ -1192,8 +1208,11 @@ class CompareToolApp(TaskProgressUI):
         return False
 
     def _replace_exclude_text(self, text: str):
+        self.exclude_text.config(state=tk.NORMAL)
         self.exclude_text.delete("1.0", tk.END)
         self.exclude_text.insert("1.0", text or "")
+        if hasattr(self, "exclude_source_var") and self.exclude_source_var.get() != "manual":
+            self.exclude_text.config(state=tk.DISABLED)
 
     def _current_exclude_rules(self) -> str:
         return self.exclude_text.get("1.0", tk.END).strip()
@@ -1314,7 +1333,8 @@ class CompareToolApp(TaskProgressUI):
     def _save_current_project_settings_for_current_key(self):
         key = self._current_project_key()
         if key:
-            self._project_exclude_rules[key] = self._current_exclude_rules()
+            self._cache_current_rule_text(key)
+            self._save_rule_binding(key)
             self._project_display_options[key] = self._current_display_options()
 
     def _switch_exclude_rules_for_current_source(self, save_previous: bool = True):
@@ -1323,11 +1343,13 @@ class CompareToolApp(TaskProgressUI):
         if key == old_key:
             return
         if save_previous and old_key:
-            self._project_exclude_rules[old_key] = self._current_exclude_rules()
+            self._cache_current_rule_text(old_key)
+            self._save_rule_binding(old_key)
             self._project_display_options[old_key] = self._current_display_options()
         rules = self._project_exclude_rules.get(key, self._default_exclude_rules) if key else self._default_exclude_rules
         options = self._project_display_options.get(key, {}) if key else {}
-        self._replace_exclude_text(rules)
+        source = getattr(self, "_project_exclude_sources", {}).get(key)
+        self._restore_rule_binding(source, rules)
         self._apply_display_options(options)
         self._last_exclude_key = key
 
@@ -1902,6 +1924,7 @@ class CompareToolApp(TaskProgressUI):
                     self._vcs_label(task.get("vcs_type", "")),
                     self._task_source_text(task),
                     self._task_versions_text(task),
+                    "跟随文件" if task.get("exclude_source", {}).get("follow") else "固定快照",
                 )
             )
         self._sync_multi_task_buttons()
@@ -1981,9 +2004,11 @@ class CompareToolApp(TaskProgressUI):
         project_name = self._require_project_name()
 
         exclude_key = self._project_key_for_values(vcs_type, project_path, old_version, new_version)
-        exclude_rules = self._current_exclude_rules()
+        snapshot = self._current_rule_snapshot(for_task=True)
+        exclude_rules = snapshot.effective_text
         if exclude_key:
             self._project_exclude_rules[exclude_key] = exclude_rules
+            self._save_rule_binding(exclude_key)
             self._project_display_options[exclude_key] = self._current_display_options()
 
         return {
@@ -1994,6 +2019,8 @@ class CompareToolApp(TaskProgressUI):
             "new_version": new_version,
             "exclude_key": exclude_key,
             "exclude_rules": exclude_rules,
+            "exclude_source": self._current_rule_source() if hasattr(self, "exclude_source_var") else {"kind": "manual"},
+            "exclude_snapshot": snapshot.to_dict(),
             "show_project_root": self.show_project_root_var.get() == "yes",
             "show_full_context": self.show_full_context_var.get() == "yes",
             "ignore_archive_root": self._ignore_archive_root(),
@@ -2062,7 +2089,10 @@ class CompareToolApp(TaskProgressUI):
         if hasattr(self, "recursive_archives_var"):
             self.recursive_archives_var.set(self._option_bool(task.get("recursive_archives"), default=False))
         self._project_name_manual = True
-        self._replace_exclude_text(task.get("exclude_rules", self._default_exclude_rules))
+        source = dict(task.get("exclude_source", {"kind": "manual"}))
+        if "exclude_snapshot" in task:
+            source["snapshot"] = task["exclude_snapshot"]
+        self._restore_rule_binding(source, task.get("exclude_rules", self._default_exclude_rules))
         # exclude_key 是可重建的定位信息；旧任务可能缺失或保留旧路径。
         # 按已经回填的来源绑定任务快照，避免下一次刷新把它当成项目切换。
         self._last_exclude_key = self._current_project_key()
@@ -2207,6 +2237,8 @@ class CompareToolApp(TaskProgressUI):
         vcs = None
         cleanup_needed = False
         try:
+            if task.get("_exclude_error"):
+                raise ValueError(task["_exclude_error"])
             if preflight_error is not None:
                 raise preflight_error
             vcs, cleanup_needed = self._create_vcs_for_task(task)
@@ -2232,6 +2264,7 @@ class CompareToolApp(TaskProgressUI):
                 retain_text_contents=False, detail_store=detail_store, best_effort=True,
             )
             diff_result = engine.generate_diff(task["old_version"], task["new_version"])
+            diff_result.exclude_snapshot = task.get("exclude_snapshot", {})
             diff_result.project_name = task["project_name"]
             diff_result.vcs_type = self._vcs_label(task["vcs_type"])
             if task["vcs_type"] == "archive":
@@ -2257,7 +2290,8 @@ class CompareToolApp(TaskProgressUI):
                     warn(f'项目临时文件清理失败: {cleanup_error}')
             result = DiffResult(task.get('project_path', ''), task['project_name'],
                 self._vcs_label(task['vcs_type']), task['old_version'], task['new_version'])
-            result.add_issue('项目读取', '', exc, delivery=True)
+            result.exclude_snapshot = task.get("exclude_snapshot", {})
+            result.add_issue('排除规则' if task.get('_exclude_error') else '项目读取', '', exc, delivery=True)
             return dict(task=task, vcs=None, cleanup_needed=False,
                 project_name=task['project_name'], vcs_type=self._vcs_label(task['vcs_type']),
                 show_project_root=self._option_bool(task.get('show_project_root'), default=True),
@@ -2395,14 +2429,19 @@ class CompareToolApp(TaskProgressUI):
             messagebox.showwarning("提示", str(exc))
             return
 
+        try:
+            rule_snapshot = self._current_rule_snapshot()
+            if rule_snapshot.kind == "file":
+                self._validate_source_output_separation(
+                    [rule_snapshot.path], [old_export, new_export], [report_path, instruction_path])
+        except ValueError as exc:
+            messagebox.showerror("排除规则读取失败", str(exc))
+            return
+
         if not self._confirm_output_batch():
             return
 
-        exclude_patterns = [
-            line.strip()
-            for line in self.exclude_text.get("1.0", tk.END).splitlines()
-            if line.strip()
-        ]
+        exclude_patterns = list(rule_snapshot.patterns)
         show_full = self.show_full_context_var.get() == "yes"
         show_project_root = self.show_project_root_var.get() == "yes"
         ignore_archive_root = self._ignore_archive_root()
@@ -2418,7 +2457,8 @@ class CompareToolApp(TaskProgressUI):
             report_path, old_export, new_export,
             os.path.abspath(self.output_dir_var.get()),
             ignore_archive_root,
-        ), kwargs={"recursive_archives": recursive_archives}, daemon=True)
+        ), kwargs={"recursive_archives": recursive_archives,
+                   "exclude_snapshot": rule_snapshot.to_dict()}, daemon=True)
         thread.start()
 
     def _generate_multi(self):
@@ -2460,6 +2500,11 @@ class CompareToolApp(TaskProgressUI):
         except ValueError as exc:
             messagebox.showwarning("提示", str(exc))
             return
+        try:
+            tasks = freeze_tasks(self._multi_tasks, best_effort=True)
+        except ValueError as exc:
+            messagebox.showerror("排除规则读取失败", str(exc))
+            return
         if not self._confirm_output_batch(run_dir):
             return
 
@@ -2469,7 +2514,6 @@ class CompareToolApp(TaskProgressUI):
         self.progress.start()
         self.status_var.set("正在生成多项目总报告...")
 
-        tasks = [dict(task) for task in self._multi_tasks]
         thread = threading.Thread(
             target=self._do_generate_multi,
             args=(
@@ -2488,7 +2532,7 @@ class CompareToolApp(TaskProgressUI):
             self, project_path, vcs_type, old_version, new_version, project_name,
             exclude_patterns, show_full, show_project_root,
             report_path, old_export, new_export, trusted_output_root="",
-            ignore_archive_root=False, recursive_archives=False):
+            ignore_archive_root=False, recursive_archives=False, exclude_snapshot=None):
         cleanup_vcs = None  # 持有引用以便 finally 清理临时目录
         detail_store = None
         output_stack = ExitStack()
@@ -2502,6 +2546,8 @@ class CompareToolApp(TaskProgressUI):
                 if vcs_type in ("folder", "archive")
                 else [project_path]
             )
+            if exclude_snapshot and exclude_snapshot.get("kind") == "file":
+                source_paths.append(exclude_snapshot["path"])
             instruction_target = os.path.join(
                 os.path.dirname(os.path.abspath(report_path)),
                 single_delivery_instructions_filename(project_name),
@@ -2541,7 +2587,8 @@ class CompareToolApp(TaskProgressUI):
             task = dict(project_path=project_path, vcs_type=vcs_type,
                 old_version=old_version, new_version=new_version, project_name=project_name,
                 exclude_rules='\n'.join(exclude_patterns), show_full_context=show_full,
-                show_project_root=show_project_root, ignore_archive_root=ignore_archive_root)
+                show_project_root=show_project_root, ignore_archive_root=ignore_archive_root,
+                exclude_snapshot=exclude_snapshot or manual_snapshot('\n'.join(exclude_patterns)).to_dict())
             prepared = self._prepare_task_result(task, detail_store=detail_store)
             vcs, diff_result = prepared['vcs'], prepared['diff_result']
             cleanup_vcs = vcs
@@ -2649,6 +2696,7 @@ class CompareToolApp(TaskProgressUI):
         report_stage = ""
         instruction_stage = ""
         try:
+            tasks = freeze_tasks(tasks, best_effort=True)
             trusted_output_root = (
                 trusted_output_root
                 or os.path.dirname(os.path.abspath(report_path))
@@ -2861,6 +2909,8 @@ class CompareToolApp(TaskProgressUI):
             "project_path": self.dir_entry.get(),
             "vcs_type": self.vcs_var.get(),
             "project_exclude_rules": self._project_exclude_rules,
+            "project_exclude_sources": getattr(self, "_project_exclude_sources", {}),
+            "recent_exclude_files": getattr(self, "_recent_exclude_files", []),
             "project_display_options": self._project_display_options,
             "recent_projects": self._recent_projects,
             "last_comparison_paths": getattr(self, "_last_comparison_paths", {}),

@@ -11,11 +11,11 @@ work.mkdir(parents=True, exist_ok=True)
 path = root / 'docs' / 'CompareTool_使用说明书.pdf'
 assert path.read_bytes() == (root / 'dist' / path.name).read_bytes(), 'docs/dist manual mismatch'
 reader = PdfReader(path)
-assert len(reader.pages) == 17
-assert len(reader.outline) == 17
+assert len(reader.pages) == 18
+assert len(reader.outline) == 18
 links = [a.get_object() for a in reader.pages[0].get('/Annots', [])]
-assert len(links) == 11
-for target_page, link in zip([2,3,4,5,6,7,8,14,15,16,17], links):
+assert len(links) == 12
+for target_page, link in zip([2,3,4,5,6,7,8,14,15,16,17,18], links):
     assert link['/Subtype'] == '/Link'
     ref = link['/Dest'][0]
     assert reader._get_page_number_by_indirect(ref) == target_page - 1
@@ -24,7 +24,7 @@ font = TTFont('CheckYaHei', 'C:/Windows/Fonts/msyh.ttc', subfontIndex=0)
 text = '\n'.join(page.extract_text() or '' for page in reader.pages)
 for phrase in ['app/classes/**/*.class', 'BOOT-INF/classes/**/*.class',
                '不支持', '区分大小写', '任意一条命中', '重命名只排除一侧',
-               '特殊头部', '新旧十六进制值']:
+               '特殊头部', '新旧十六进制值', '关联外部文件', '固定快照', '跟随文件', '测试相对路径']:
     assert phrase in text, f'Missing exclusion guidance: {phrase}'
 missing = sorted({c for c in text if not c.isspace() and ord(c) not in font.face.charToGlyph})
 assert not missing, f'Missing glyphs: {missing}'
@@ -45,7 +45,7 @@ with pdfplumber.open(path) as pdf:
                 bound_issues.append((n,c['text'],c['x0'],c['x1'],c['top'],c['bottom']))
 assert not bound_issues, bound_issues[:15]
 result = {
-    'pages':17, 'bookmarks':17, 'toc_links':11, 'missing_glyphs':missing,
+    'pages':18, 'bookmarks':18, 'toc_links':12, 'missing_glyphs':missing,
     'embedded_fonts':embedded, 'out_of_bounds_characters':len(bound_issues),
     'bytes':path.stat().st_size,
     'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),

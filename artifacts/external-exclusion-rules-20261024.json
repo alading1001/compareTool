@@ -1,0 +1,59 @@
+{
+  "tests": 89,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "source_sha256": {
+    "main.py": "753f7fef06aabdc716cfde1dd9a0b4900b90490f14938a33694b7830f3e5175a",
+    "exclusion_rules.py": "d5a3a30441cff655d925ea0b28624dd5b638d79244194824db9fe19df1bf5671",
+    "exclusion_ui.py": "e5371cb78c948ebc6a1588d9540f7cc8599c27d7213c7da79d68985eae489279",
+    "diff_engine.py": "5fdd5b3c336da52a83edb95c1bc63936f8bb254ca52ab5824cc9ee4c043823cd",
+    "report_generator.py": "596b9405b08b095893394428ca5ee30aad7396990ab03f6b50f6a040bb251a56",
+    "templates/report.html": "fea6551553e9b72316a06d2e45bedbe02730c432bfd440caab377b7a4b9ae55b",
+    "templates/multi_report.html": "4023dc313d821a136a0760b86df13675fa1306dfb442d0f31ad03874225be51d",
+    "templates/exclusion_snapshot.html": "386d080569735a30a1b8801cee56a4c1c9c3280cbbe1c4c58e98a24d2b4631c8",
+    "tests/test_external_exclusion_rules.py": "d17124a3ffdfbb3aad1de98acd26854330d9b8a8011c0a0f468dbe18b55e9501"
+  },
+  "patterns": [
+    "test_external_exclusion_rules.py",
+    "test_review_configuration_and_report_semantics.py",
+    "test_recent_project_name_persistence.py",
+    "test_review_externals_config_cleanup.py",
+    "test_exclusion_path_flow.py",
+    "test_adversarial_regressions.py",
+    "test_format_changes.py"
+  ],
+  "status": "SOURCE_VERIFIED_EXE_NOT_BUILT",
+  "parent_commit": "71583cf95d1b60d69d91f98971e65051a241f06a",
+  "full_regression": {
+    "tests": 825,
+    "initial_errors": 4,
+    "skipped": 1,
+    "seconds": 2624.898,
+    "log": ".tmp\\external_rules_validation_5355cfd3\\full-regression.log",
+    "note": "全量执行于开发中段独立源码副本。末轮 89 项基于最终源码，包含修复后的 4 个兼容用例；本轮未执行第二次完整回归。"
+  },
+  "final_regression_log": ".tmp\\external_rules_final_bd5f5857\\final-compatibility-regression.log",
+  "manual_qa": {
+    "pages": 18,
+    "bookmarks": 18,
+    "toc_links": 12,
+    "missing_glyphs": [],
+    "embedded_fonts": {
+      "/AAAAAA+MicrosoftYaHei-0": true,
+      "/AAAAAB+MicrosoftYaHei-0": true,
+      "/AAAAAC+MicrosoftYaHei-0": true,
+      "/AAAAAA+MicrosoftYaHei-Bold-0": true,
+      "/AAAAAB+MicrosoftYaHei-Bold-0": true
+    },
+    "out_of_bounds_characters": 0,
+    "bytes": 501965,
+    "sha256": "27b15ddf8fe186929ea552f264119c29b7b8e359c332bbb03d50b2b18265fb7c"
+  },
+  "source_window_smoke": {
+    "source_window": true,
+    "width": 600,
+    "hidden_rule_controls": [],
+    "screenshot": "D:\\AI\\project\\compareTool_myself\\.tmp\\external-rule-window-smoke\\window-final-600.png"
+  }
+}

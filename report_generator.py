@@ -137,6 +137,11 @@ class ReportGenerator:
             yield '<h2>' + escaped(result.project_name) + '</h2><p>'
             yield ('交付未完成，请先核对下面问题清单。' if result.delivery_incomplete else '已导出文件清单。')
             yield '</p><pre>' + escaped(result.comparison_note) + '</pre>'
+            snapshot = getattr(result, 'exclude_snapshot', {})
+            if snapshot:
+                yield '<details><summary>本次排除规则：' + escaped(snapshot.get('path') or '手工填写') + '</summary>'
+                yield '<p>SHA-256：' + escaped(snapshot.get('sha256', '')) + '</p><pre>'
+                yield escaped(snapshot.get('text', '')) + '</pre></details>'
             yield f'<p>变更文件：{len(result.files) + len(result.permission_changes)} 个（其中仅权限变化：{len(result.permission_changes)} 个）。</p>'
             for issue in result.issues:
                 yield '<p>' + escaped(f"[{issue['stage']}] {issue_path_text(issue)} {issue['message']}") + '</p>'

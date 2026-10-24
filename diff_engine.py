@@ -85,6 +85,7 @@ class DiffResult:
     issues: List[dict] = field(default_factory=list)
     replacement_dependency_roots: List[str] = field(default_factory=list)
     permission_changes: List[FilePermissionChange] = field(default_factory=list)
+    exclude_snapshot: dict = field(default_factory=dict)
 
     def add_issue(self, stage, path, message, *, delivery=False, old_path=""):
         issue = dict(stage=stage, path=path, message=str(message), delivery=delivery)

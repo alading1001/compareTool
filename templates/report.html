@@ -131,6 +131,7 @@ table.diff span { white-space: pre; }
 </div>
 
 {% if comparison_note %}<div class="delivery-note">{{ comparison_note }}</div>{% endif %}
+{% with result=diff_result %}{% include "exclusion_snapshot.html" %}{% endwith %}
 
 {% with result=diff_result %}{% include "result_issues.html" %}{% endwith %}
 <div class="summary">

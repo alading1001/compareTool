@@ -1,0 +1,8 @@
+{% if result is defined and result.exclude_snapshot %}
+{% set rules = result.exclude_snapshot %}
+<details style="flex-shrink:0;padding:5px 20px;background:#f3f6f9;font-size:12px;overflow:auto;max-height:220px">
+    <summary style="cursor:pointer">本次排除规则{% if multi_rules | default(false) %} · {{ result.project_name }}{% endif %}：{{ rules.path if rules.kind == 'file' else '手工填写' }}（点击查看快照）</summary>
+    <p>编码：{{ rules.encoding }} · SHA-256：{{ rules.sha256 }}<br>规则相对比较根；外部文件的 # 整行注释不参与匹配。运行期间固定使用以下内容。</p>
+    <pre style="white-space:pre-wrap;overflow-wrap:anywhere">{{ rules.text if rules.text else '（空规则，不做路径排除）' }}</pre>
+</details>
+{% endif %}
