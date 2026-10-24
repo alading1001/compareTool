@@ -117,11 +117,12 @@ class ExternalRulesTests(WorkflowCase):
             self.assertEqual("*.class\n*.log", app._current_exclude_rules())
             self.assertEqual("normal", app.exclude_text.cget("state"))
             self.assertEqual("disabled", app.exclude_file_text.cget("state"))
-            self.assertIn("# 只排日志", app.exclude_file_text.get("1.0", "end"))
+            self.assertEqual('', app._exclude_preview_frame.winfo_manager())
             app.exclude_enabled_var.set(True)
             snapshot = app._current_rule_snapshot()
             self.assertEqual(("*.class", "*.log"), snapshot.patterns)
             self.assertIn("已启用", app._exclude_preview_title.get())
+            self.assertIn("# 只排日志", app.exclude_file_text.get("1.0", "end"))
             self.assertTrue(app._save_current_config())
             release = self.root / "release_next"
             release.mkdir()
@@ -148,7 +149,44 @@ class ExternalRulesTests(WorkflowCase):
         with self.window(None) as app:
             self.assertFalse(app.exclude_enabled_var.get())
             self.assertEqual(file['path'], app.exclude_file_var.get())
+            self.assertEqual('', app._exclude_preview_frame.winfo_manager())
+
+    def test_preview_only_opens_when_checked_and_clear_preserves_manual_rules_and_file(self):
+        task = self.folder_task()
+        file = self.file_source()
+        path = Path(file['path'])
+        original = path.read_bytes()
+        config = dict(vcs_type='folder', last_comparison_paths={'folder': {
+            k: task[k] for k in ('old_version', 'new_version')}})
+        with self.window(config) as app:
+            app._replace_exclude_text('bin/**')
+            with mock.patch('exclusion_ui.read_rule_file', side_effect=AssertionError('unchecked file was read')):
+                app._link_rule_file(str(path))
+                self.assertEqual('', app._exclude_preview_frame.winfo_manager())
+                self.assertEqual(('bin/**',), app._current_rule_snapshot().patterns)
+            bar = app.exclude_text.master.master.winfo_children()[1]
+            check = next(w for w in bar.winfo_children() if w.winfo_class() == 'TCheckbutton')
+            clear = next(w for w in bar.winfo_children() if w.winfo_class() == 'TButton' and w.cget('text') == '清空文件')
+            check.invoke()
+            self.assertEqual('pack', app._exclude_preview_frame.winfo_manager())
             self.assertIn('*.log', app.exclude_file_text.get('1.0', 'end'))
+            check.invoke()
+            self.assertEqual('', app._exclude_preview_frame.winfo_manager())
+            self.assertEqual(str(path), app.exclude_file_var.get())
+            check.invoke()
+            clear.invoke()
+            self.assertFalse(app.exclude_enabled_var.get())
+            self.assertEqual('', app.exclude_file_var.get())
+            self.assertEqual('', app._exclude_preview_frame.winfo_manager())
+            self.assertEqual('', app.exclude_file_text.get('1.0', 'end-1c'))
+            self.assertEqual('bin/**', app._current_exclude_rules())
+            self.assertEqual(original, path.read_bytes())
+            self.assertTrue(app._save_current_config())
+        with self.window(None) as app:
+            self.assertFalse(app.exclude_enabled_var.get())
+            self.assertEqual('', app.exclude_file_var.get())
+            self.assertEqual(('bin/**',), app._current_rule_snapshot().patterns)
+            self.assertEqual('', app._exclude_preview_frame.winfo_manager())
 
     def test_single_gui_freezes_current_file_then_uses_same_bytes_for_report_and_export(self):
         task = self.folder_task()

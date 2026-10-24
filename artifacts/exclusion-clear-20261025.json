@@ -1,0 +1,51 @@
+{
+  "tests": 20,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "source": "D:\\AI\\project\\compareTool_myself\\.tmp\\exclusion-clear-20261025\\source",
+  "patterns": [
+    "test_external_exclusion_rules.py"
+  ],
+  "source_sha256": {
+    "main.py": "bfe5cb87c6950ac0e14d5ca96ef52201de896bb3f148fc089cc6772bef074919",
+    "exclusion_ui.py": "b972d4a3c53e4935df9a699208a2e806bd334ffe5bfa4663ae1115d6f583d66f",
+    "exclusion_rules.py": "fd69895269ca6dbcf6443f5fb46a421923638c6ad30597be5a14376c62e90471",
+    "report_generator.py": "12bae82e24af20269029d703f7a1ef40e5b51bc2a4b801198eed406e69af121c",
+    "templates/exclusion_snapshot.html": "74468cb275f7cafe384b7b282a90845fe9a95dfc1b45ec2431e2d2c8832b7432",
+    "tests/test_external_exclusion_rules.py": "73dd7605cb2c875f94fec26eb0eb817118feb13a36d8d5c020860e5adc6af928"
+  },
+  "manual": {
+    "pages": 18,
+    "bookmarks": 18,
+    "toc_links": 12,
+    "missing_glyphs": [],
+    "embedded_fonts": {
+      "/AAAAAA+MicrosoftYaHei-0": true,
+      "/AAAAAB+MicrosoftYaHei-0": true,
+      "/AAAAAC+MicrosoftYaHei-0": true,
+      "/AAAAAA+MicrosoftYaHei-Bold-0": true,
+      "/AAAAAB+MicrosoftYaHei-Bold-0": true
+    },
+    "out_of_bounds_characters": 0,
+    "bytes": 495931,
+    "sha256": "77162ef6c94976430199514e575467f041d925f7d039f4918422df114fce2e02"
+  },
+  "window": [
+    {
+      "width": 760,
+      "preview_visible": true,
+      "toggle_works": true,
+      "manual_unchanged": true
+    },
+    {
+      "width": 600,
+      "preview_visible": true,
+      "toggle_works": true,
+      "manual_unchanged": true
+    }
+  ],
+  "behavior": "Clear removes association and disables without changing manual rules or disk file; only checked files are read and previewed",
+  "log": ".tmp/exclusion-clear-20261025/regression.log",
+  "status": "SOURCE_VERIFIED"
+}

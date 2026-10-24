@@ -38,7 +38,8 @@ class ExclusionRulesUI:
         bar = ttk.Frame(parent)
         bar.pack(fill=tk.X, pady=(4, 0))
         ttk.Checkbutton(bar, text="使用外置排除文件", variable=self.exclude_enabled_var,
-                        command=self._update_file_preview_title).pack(side=tk.LEFT)
+                        command=self._refresh_file_preview).pack(side=tk.LEFT)
+        ttk.Button(bar, text="清空文件", command=self._clear_rule_file).pack(side=tk.RIGHT, padx=(4, 0))
         ttk.Button(bar, text="选择文件", command=self._choose_rule_file).pack(side=tk.RIGHT, padx=(4, 0))
         ttk.Entry(bar, textvariable=self.exclude_file_var, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0))
         self._exclude_preview_frame = ttk.Frame(parent)
@@ -57,6 +58,9 @@ class ExclusionRulesUI:
         self._exclude_preview_title.set(f"外置文件内容（只读，{state}）")
 
     def _show_file_preview(self, text):
+        if not self.exclude_enabled_var.get() or not self.exclude_file_var.get():
+            self._hide_file_preview()
+            return
         self._exclude_preview_frame.pack(fill=tk.X, pady=(4, 0))
         self.exclude_file_text.configure(state=tk.NORMAL)
         self.exclude_file_text.delete("1.0", tk.END)
@@ -65,16 +69,23 @@ class ExclusionRulesUI:
         self.exclude_file_text.configure(state=tk.DISABLED)
         self._update_file_preview_title()
 
+    def _hide_file_preview(self):
+        if not hasattr(self, "_exclude_preview_frame"):
+            return
+        self._exclude_preview_frame.pack_forget()
+        self.exclude_file_text.configure(state=tk.NORMAL)
+        self.exclude_file_text.delete("1.0", tk.END)
+        self.exclude_file_text.configure(state=tk.DISABLED)
+
     def _refresh_file_preview(self):
         path = self.exclude_file_var.get()
-        if not path:
-            self._exclude_preview_frame.pack_forget()
+        if not self.exclude_enabled_var.get() or not path:
+            self._hide_file_preview()
             return
         try:
             source = normalize_source(dict(kind="file", path=path, enabled=True, combine=True), self._rule_base_dir)
             self._show_file_preview(read_rule_file(source).text)
         except ValueError as exc:
-            # 未勾选时仅显示读取问题，不影响手工规则生成。
             self._show_file_preview(str(exc))
 
     def _choose_rule_file(self):
@@ -84,10 +95,16 @@ class ExclusionRulesUI:
             self._link_rule_file(path)
 
     def _link_rule_file(self, path):
-        # 选择后只读展示文件；勾选才参与排除，不替换手工文本。
+        # 选择只记录路径；勾选后才读取、展示并参与排除。
         self.exclude_file_var.set(path)
         self._invalid_rule_source = False
         self._refresh_file_preview()
+
+    def _clear_rule_file(self):
+        self.exclude_enabled_var.set(False)
+        self.exclude_file_var.set("")
+        self._invalid_rule_source = False
+        self._hide_file_preview()
 
     def _current_rule_source(self):
         if not hasattr(self, "exclude_enabled_var"):
@@ -104,6 +121,7 @@ class ExclusionRulesUI:
         text = self._current_exclude_rules()
         source = self._current_rule_source()
         if source["kind"] == "manual" or not source["enabled"]:
+            self._hide_file_preview()
             return manual_snapshot(text)
         try:
             external = read_rule_file(source)

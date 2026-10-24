@@ -104,7 +104,7 @@ Git/SVN 可执行文件路径均自动探测：先查 `shutil.which`，再查 Wi
 
 ### 排除规则
 
-`exclusion_ui.py` 只提供手工规则、外置文件选择/开关及只读预览；手工文本与文件内容分开保存。启用时由 `exclusion_rules.py` 合并去重，生成前固定内容，整批同一文件只读一次；关闭只用手工规则，路径仍按项目保留。旧任务维持原行为，编辑后使用新设置。读取或配置损坏不能静默少用规则，报告保留两份原文和合并结果。合同见 [排除规则贯穿流程](docs/report-and-export-contract.md#排除规则贯穿流程)，回归见 `tests/test_external_exclusion_rules.py`。
+`exclusion_ui.py` 提供手工规则、外置文件选择/清空/开关及只读预览；手工文本与文件内容分开保存，仅勾选时展示文件内容。启用时由 `exclusion_rules.py` 合并去重，生成前固定内容，整批同一文件只读一次；关闭隐藏预览、只用手工规则，路径仍按项目保留。清空只解除关联，不修改原文件或手工规则。旧任务维持原行为，编辑后使用新设置。读取或配置损坏不能静默少用规则，报告保留两份原文和合并结果。合同见 [排除规则贯穿流程](docs/report-and-export-contract.md#排除规则贯穿流程)，回归见 `tests/test_external_exclusion_rules.py`。
 
 内置默认排除规则定义在 `main.py` 的 `DEFAULT_EXCLUDE_RULES`。界面中的 glob 模式在 `base._match_glob()` 中转正则：
 - 不含 `/` 的模式（如 `*.class`）自动匹配任意深度 → 添加 `**/` 前缀
