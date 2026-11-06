@@ -1,0 +1,25 @@
+{
+  "status": "PUBLISHED_VERIFIED",
+  "verified_on": "2026-11-06",
+  "repository": "alading1001/compareTool",
+  "release": "https://github.com/alading1001/compareTool/releases/tag/v2026.10.25.4",
+  "tag": "v2026.10.25.4",
+  "latest": true,
+  "source_commit": "65765f76ffefbf29a65e635bc3c69b5baeee8c9c",
+  "build_id": "eafbd9586c",
+  "rebuilt": false,
+  "validation": {
+    "source_fingerprint_matches_original_build": true,
+    "exe_hash_matches_original_metadata": true,
+    "docs_and_dist_manual_bytes_match": true,
+    "all_server_asset_sha256_match_local": true,
+    "original_windows_validation": "artifacts/release-exclusion-label-20261025.json",
+    "business_tests_rerun_for_upload": false
+  },
+  "assets_sha256": {
+    "CompareTool.exe": "8ec280cf2c1c5abd1d25cbece6ed2b6e0536fde3ac025d81444c09648f361287",
+    "CompareTool_build.json": "92f24722ed4fbfddb1ef9eb2155096f3fcdf077bb387398fde02863d05084fd1",
+    "CompareTool_User_Manual.pdf": "97125ecdf5c0dd8c9f284d0acfc4d39613205693d23a7f96d4607e8ff1204a85",
+    "SHA256SUMS.txt": "d94e5a8443838a825f8936ea3aa2bddef934d954a6905884cb903b4761819679"
+  }
+}

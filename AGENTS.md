@@ -2,6 +2,12 @@
 
 This file is the shared source of truth for AI coding agents working in this repository.
 
+## GitHub 同步与完整备份
+
+- 用户已明确授权本项目后续开发成果在完成必要验证后提交并普通推送到 GitHub；结束时核对远端分支与提交，不能把本地提交成功当作已推送。强制推送等破坏性操作仍遵守审批要求。
+- 日常源码、测试、文档和可公开的必要验证记录维护在 `alading1001/compareTool`。完整本地工作区、个人配置、历史构建及 `.tmp` 保存在用户指定的私有仓库 `alading1001/compareTool-backup`，不取消现有忽略规则将其原样公开。
+- 完整备份和恢复方法见 `docs/workspace-backup.md`。备份完成须核对文件清单、归档内容与 GitHub 附件校验值；删除本地项目须另行获得明确授权。
+
 ## Overview
 
 代码比对报告工具 — Windows 桌面应用，输入 Git/SVN/文件夹/压缩包路径和版本信息，生成 HTML 差异报告并导出变更文件。通过 PyInstaller 打包成单文件 exe，无需 Python 环境。

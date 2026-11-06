@@ -176,7 +176,7 @@ Windows 文件夹扫描的重复元数据查询和比较根路径解析也已优
 
 本轮仅将勾选文案改为“追加外置排除规则”，并同步说明书；运行代码除该字符串外保持一致。新文案在 600/760 像素窗口可见，说明书结构及修改页渲染通过，包内代码/资源/构建信息与源码一致，正式 EXE 启动验证通过。本轮没有重跑业务回归，相关行为此前验收记录见 [外置排除文件](docs/simple-external-exclusions.md)。
 
-特殊头部文本的真实文件、原始导出字节及此前安装验证见 [2026-10-23 发布记录](docs/release-20261023-prefixed-text.md)，相关行为继续保留。P 仅权限展示、完整构建身份及下载校验记录见 [2026-10-22 发布凭证](artifacts/release-permission-closeout-20261022.json)。[v2026.10.22.1](https://github.com/alading1001/compareTool/releases/tag/v2026.10.22.1) 是此前的 GitHub 发行版；本轮未创建新 Release、标签或发行附件。
+特殊头部文本的真实文件、原始导出字节及此前安装验证见 [2026-10-23 发布记录](docs/release-20261023-prefixed-text.md)，相关行为继续保留。P 仅权限展示、完整构建身份及下载校验记录见 [2026-10-22 发布凭证](artifacts/release-permission-closeout-20261022.json)。最新 GitHub 发行版为 [v2026.10.25.4](https://github.com/alading1001/compareTool/releases/tag/v2026.10.25.4)，于 2026-11-06 上传原始已验证构建，提供 EXE、构建信息、说明书和 SHA-256 清单，未重新打包。完整本地工作区及 `.tmp` 使用私有备份，存放与恢复约定见 [工作区备份](docs/workspace-backup.md)。
 
 2026-10-25 [知识收尾复核](artifacts/external-exclusions-closeout-20261025.json)再次核对源码指纹、安装三件套和现有窗口，不改业务代码、不重新打包。用户查看[完整清场预览](artifacts/external-exclusions-closeout-preview-20261025.json)后明确确认，已删除本轮四次发布的 13 个临时目录、84 个文件，共 280,380,095 字节（约 267.4 MiB），实际删除与白名单一致，18 个保护文件哈希未变，见 [清场核验](artifacts/cleanup-external-exclusions-20261025.json)。原始回归、截图、交付物、配置及旧版备份保留，生成记忆只读。历史已批准清理见 [2026-10-23 清场凭证](artifacts/cleanup-prefixed-text-20261023.json)、[2026-10-22 清场凭证](artifacts/cleanup-permission-closeout-20261022.json) 和 [补存证据](artifacts/cleanup-permission-evidence-20261022.zip)。
 
