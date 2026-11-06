@@ -1,0 +1,41 @@
+{
+  "status": "PUBLISHED_ALL_ASSETS_VERIFIED",
+  "verified_on": "2026-11-06",
+  "source_repository": "alading1001/compareTool",
+  "backup_repository": "alading1001/compareTool-backup",
+  "backup_repository_private": true,
+  "release": "https://github.com/alading1001/compareTool-backup/releases/tag/workspace-backup-2026-11-06-xz",
+  "source_snapshot_commit": "fca2add77934e8f858e30d40df67262bbe95a6a4",
+  "files": 82442,
+  "directories": 19144,
+  "original_file_bytes": 12281428613,
+  "tmp_files": 75395,
+  "tmp_bytes": 11248745730,
+  "tmp_junction_materialized": true,
+  "compression": "tar.xz",
+  "compressed_bytes": 2037335348,
+  "volume_count": 2,
+  "release_asset_count": 13,
+  "excluded_generated_task_directory": "build/cloud-migration-20261106/",
+  "validation": {
+    "all_source_files_and_directories_in_manifest": true,
+    "every_archived_file_sha256_and_size_verified": true,
+    "original_and_recompressed_tar_stream_sha256_match": true,
+    "all_github_asset_sha256_and_sizes_match": true,
+    "multi_volume_restore_round_trip_passed": true,
+    "chinese_long_paths_empty_files_and_directories_passed": true,
+    "corrupt_volume_and_overwrite_rejected": true,
+    "actual_windows_unicode_filename_restore_passed": true,
+    "full_real_workspace_restored_to_disk": false
+  },
+  "local_cleanup": {
+    "scope": "only the 10 generated redundant GZIP volumes",
+    "removed_files": 10,
+    "removed_bytes": 9864484999,
+    "paths_sizes_and_sha256_checked_before_removal": true,
+    "original_project_and_tmp_retained": true,
+    "verified_xz_archive_retained": true,
+    "d_free_bytes_before": 6338871296,
+    "d_free_bytes_after": 16203354112
+  }
+}
