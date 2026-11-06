@@ -1,0 +1,33 @@
+{
+  "status": "CURRENT_PROJECT_FILE_CONTENT_COVERED_BY_GITHUB",
+  "checked_at": "2026-11-06T12:26:27+08:00",
+  "verified_source_commit": "0c0c3ab52e8c81cf17c840e92963f48a08084e95",
+  "source_and_backup_repository_heads_match": true,
+  "git_worktree_was_clean": true,
+  "current_files_hashed": 82449,
+  "tmp_files_matched": 75395,
+  "tmp_bytes_matched": 11248745730,
+  "uncovered_project_data_files": 0,
+  "post_snapshot_receipts_saved_in_both_git_repositories": [
+    "artifacts/github-workspace-backup-20261106.json",
+    "docs/workspace-backup.md"
+  ],
+  "codex_session_refs_classified": 2,
+  "codex_refs_point_to_already_pushed_tree": true,
+  "backup_release": "https://github.com/alading1001/compareTool-backup/releases/tag/workspace-backup-2026-11-06-xz",
+  "backup_repository_private": true,
+  "verified_release_assets": 13,
+  "all_local_and_server_asset_sha256_match": true,
+  "stream_download_verified_recovery_files": [
+    "restore_workspace.py",
+    "README_RESTORE.md"
+  ],
+  "verified_archive_range_samples": 4,
+  "all_six_archive_range_requests_completed": false,
+  "full_archive_download_or_full_restore_repeated": false,
+  "new_complete_archive_or_project_copy_created": false,
+  "original_project_or_tmp_deleted": false,
+  "tmp_actual_target": "E:/AI/project/compareTool_myself/.tmp",
+  "D_free_bytes": 16204152832,
+  "generated_task_directory_not_part_of_original_snapshot": "build/cloud-migration-20261106/"
+}
