@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import stat
 import tarfile
+import unittest
 import zipfile
 from unittest import mock
 
@@ -16,6 +17,39 @@ from file_exporter import FileExporter
 
 
 class ArchiveStreamingTests(WorkflowCase):
+    @unittest.skipUnless(os.name == "nt", "Windows legacy path limit")
+    def test_long_archive_paths_from_default_runtime_directory(self):
+        runtime = self.root / ("installed-tool-" * 4)
+        cache = "web/node_modules/.cache/uglifyjs-webpack-plugin/content-v2/sha512/2f/fa/" + "a" * 126
+        kept = "web/" + "module-" * 11 + "/main.js"
+        old, new = self.archives({cache: b"cache 1", kept: b"old"}, {cache: b"cache 2", kept: b"new"})
+        task = dict(project_name="Web", vcs_type="archive", old_version=old, new_version=new,
+                    exclude_rules="**/node_modules/**")
+        real_open = open
+        long_members = set()
+
+        def legacy_open(path, mode="r", *args, **kwargs):
+            if mode == "xb" and not isinstance(path, int):
+                absolute = os.path.abspath(path)
+                if len(absolute.removeprefix("\\\\?\\")) >= 260:
+                    if not absolute.startswith("\\\\?\\"):
+                        raise FileNotFoundError(2, "Legacy Windows path limit", absolute)
+                    long_members.add(os.path.basename(absolute))
+            return real_open(path, mode, *args, **kwargs)
+
+        with mock.patch.dict(os.environ, {"COMPARETOOL_TEMP_DIR": ""}), \
+                mock.patch("vcs.temp_storage._runtime_base_dir", return_value=str(runtime)), \
+                mock.patch("vcs.temp_storage._system_drive", return_value=""), \
+                mock.patch("builtins.open", side_effect=legacy_open):
+            app, result, out = self.generate(task, enabled=False)
+        self.assert_success(app)
+        self.assertEqual([kept], [f.file_path for f in result.files])
+        self.assertIn(os.path.basename(cache), long_members)
+        for side, expected in (("oldVersion", b"old"), ("newVersion", b"new")):
+            self.assertEqual(expected, (out / side / "Web" / kept).read_bytes())
+            self.assertFalse((out / side / "Web/web/node_modules").exists())
+        self.assertEqual([], list((runtime / ".tmp/comparetool_runtime").iterdir()))
+
     def archives(self, old, new, suffix='.zip'):
         mode = {'.tar': 'w', '.tar.gz': 'w:gz', '.tgz': 'w:gz',
                 '.tar.bz2': 'w:bz2', '.tbz2': 'w:bz2'}

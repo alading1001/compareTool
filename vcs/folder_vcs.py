@@ -483,8 +483,10 @@ class FolderVCS(BaseVCS):
 
             for f in old_files & new_files:
                 # snapshot=False 只用于已经由上层固定的端点目录。
+                native_path = f.replace("/", os.sep)
                 if not self._same_file_content(
-                    os.path.join(self.old_dir, f), os.path.join(self.new_dir, f)
+                    os.path.join(self.old_dir, native_path),
+                    os.path.join(self.new_dir, native_path),
                 ):
                     result.append(ChangedFile(path=f, change_type=ChangeType.MODIFIED))
 

@@ -169,10 +169,12 @@ class ArchiveVCS(BaseVCS):
                 self._tmp_old = create_temp_dir(
                     prefix="cmp_old_",
                     required_free_bytes=old_required + new_required,
+                    long_paths=True,
                 )
                 self._tmp_new = create_temp_dir(
                     prefix="cmp_new_",
                     required_free_bytes=new_required,
+                    long_paths=True,
                 )
                 self._extract(old_source, self._tmp_old, self._old_metadata)
                 self._extract(new_source, self._tmp_new, self._new_metadata)

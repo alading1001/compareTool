@@ -44,6 +44,18 @@ def _drive(path: str) -> str:
     return os.path.normcase(os.path.splitdrive(os.path.abspath(path))[0])
 
 
+def _temp_io_root(path: str) -> str:
+    """给可信临时根使用 Windows 扩展路径；包内相对名称仍单独校验。"""
+    path = os.path.realpath(path)
+    if os.name != "nt":
+        return path
+    if path.startswith(("\\\\?\\", "\\\\.\\")):
+        return path
+    if path.startswith("\\\\"):
+        return "\\\\?\\UNC\\" + path[2:]
+    return "\\\\?\\" + path
+
+
 def _dedupe_paths(paths: List[str]) -> List[str]:
     result = []
     seen = set()
@@ -87,8 +99,8 @@ def candidate_temp_roots() -> List[str]:
 
 
 def _path_is_within(path: str, root: str) -> bool:
-    path_real = os.path.normcase(os.path.realpath(os.path.abspath(path)))
-    root_real = os.path.normcase(os.path.realpath(os.path.abspath(root)))
+    path_real = os.path.normcase(_temp_io_root(path))
+    root_real = os.path.normcase(_temp_io_root(root))
     try:
         return os.path.normcase(os.path.commonpath([path_real, root_real])) == root_real
     except ValueError:
@@ -103,7 +115,8 @@ def _unsafe_temp_root(root: str, avoid_paths) -> str:
 
 
 def create_temp_dir(
-        prefix: str, avoid_paths=None, required_free_bytes: int = 0) -> str:
+        prefix: str, avoid_paths=None, required_free_bytes: int = 0, *,
+        long_paths: bool = False) -> str:
     """创建临时工作目录；不可写或空间不足时继续尝试下一候选。"""
     errors = []
     avoid_paths = tuple(avoid_paths or ())
@@ -122,10 +135,11 @@ def create_temp_dir(
             )
             continue
         try:
-            os.makedirs(root, exist_ok=True)
-            _cleanup_stale_temp_dirs(root)
+            io_root = _temp_io_root(root) if long_paths and os.name == "nt" else root
+            os.makedirs(io_root, exist_ok=True)
+            _cleanup_stale_temp_dirs(io_root)
             if required_free_bytes:
-                free_bytes = shutil.disk_usage(root).free
+                free_bytes = shutil.disk_usage(io_root).free
                 if free_bytes < required_free_bytes:
                     errors.append(
                         f"{root}: 可用空间不足，需要 {required_free_bytes} 字节，"
@@ -137,7 +151,7 @@ def create_temp_dir(
                     ):
                         break
                     continue
-            path = tempfile.mkdtemp(prefix=prefix, dir=root)
+            path = tempfile.mkdtemp(prefix=prefix, dir=io_root)
             unsafe_input = _unsafe_temp_root(path, avoid_paths)
             if unsafe_input:
                 shutil.rmtree(path, ignore_errors=True)
@@ -147,7 +161,7 @@ def create_temp_dir(
                 )
                 continue
             _mark_temp_dir(path)
-            if os.name == "nt" and _drive(path) == _system_drive():
+            if os.name == "nt" and _drive(root) == _system_drive():
                 warn(f"CompareTool 临时目录回退到系统盘: {path}")
             return path
         except OSError as exc:
@@ -231,6 +245,8 @@ def _mark_temp_dir(path: str):
 
 
 def _cleanup_stale_temp_dirs(root: str):
+    # 即便由其他模式首先触发回收，也能遍历归档留下的长路径后代。
+    root = _temp_io_root(root)
     key = os.path.normcase(os.path.abspath(root))
     if key in _CLEANED_ROOTS:
         return

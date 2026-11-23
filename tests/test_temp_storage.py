@@ -59,8 +59,7 @@ class TempStorageTests(unittest.TestCase):
             real_usage = shutil.disk_usage(root)
 
             def disk_usage(path):
-                path = os.path.abspath(path)
-                free = 1 if os.path.commonpath([path, low]) == low else 4096
+                free = 1 if os.path.samefile(path, low) else 4096
                 return real_usage._replace(free=free)
 
             with mock.patch.dict(os.environ, {TEMP_DIR_ENV: ""}), mock.patch(
@@ -71,9 +70,8 @@ class TempStorageTests(unittest.TestCase):
             ):
                 vcs = ArchiveVCS(old_zip, new_zip)
             try:
-                expected = os.path.normcase(os.path.abspath(enough))
-                self.assertEqual(expected, os.path.normcase(os.path.dirname(vcs._tmp_old)))
-                self.assertEqual(expected, os.path.normcase(os.path.dirname(vcs._tmp_new)))
+                self.assertTrue(os.path.samefile(enough, os.path.dirname(vcs._tmp_old)))
+                self.assertTrue(os.path.samefile(enough, os.path.dirname(vcs._tmp_new)))
             finally:
                 vcs.cleanup()
 
@@ -123,10 +121,8 @@ class TempStorageTests(unittest.TestCase):
                 archive_vcs = ArchiveVCS(old_zip, new_zip)
                 multi_vcs = _MultiVersionFolderDelegate("source", ["v1"], "multi_")
             try:
-                expected = os.path.normcase(os.path.abspath(configured))
-                self.assertEqual(expected, os.path.normcase(os.path.dirname(archive_vcs._tmp_old)))
-                self.assertEqual(expected, os.path.normcase(os.path.dirname(archive_vcs._tmp_new)))
-                self.assertEqual(expected, os.path.normcase(os.path.dirname(multi_vcs._tmp_root)))
+                for path in (archive_vcs._tmp_old, archive_vcs._tmp_new, multi_vcs._tmp_root):
+                    self.assertTrue(os.path.samefile(configured, os.path.dirname(path)))
             finally:
                 archive_vcs.cleanup()
                 multi_vcs.cleanup()
