@@ -1,0 +1,43 @@
+{
+  "status": "PUBLISHED_VERIFIED",
+  "repository": "alading1001/compareTool",
+  "release": "https://github.com/alading1001/compareTool/releases/tag/v2026.11.23.1",
+  "tag": "v2026.11.23.1",
+  "published_at": "2026-11-24T15:18:49+08:00",
+  "latest": true,
+  "source_commit": "7f22d9c4e98bea6c9fc1ce94a10b4a266e7b6518",
+  "build_id": "02106c9d0d",
+  "exe_rebuilt_for_release": false,
+  "validation": {
+    "source_fingerprint_matches_build": true,
+    "manual_matches_tracked_pdf": true,
+    "windows_exe_smoke": {
+      "verified_on": "2026-11-23",
+      "archive_temp_path_characters": 345,
+      "excluded_node_modules": true,
+      "old_and_new_export_bytes_verified": true,
+      "temporary_tree_cleaned": true
+    },
+    "isolated_source_tests": {
+      "total": 76,
+      "passed": 75,
+      "skipped": 1,
+      "skip_reason": "测试卷未启用 NTFS 8.3 短文件名",
+      "failed": 0
+    },
+    "zip_members_crc_and_bytes_verified": true,
+    "remote_tag_matches_build_commit": true,
+    "server_asset_digests_match_local": true,
+    "public_downloads_match_local": true
+  },
+  "assets_sha256": {
+    "CompareTool-v2026.11.23.1-win.zip": "d7023c372315ff09503d356a300f42f71d320da3ccb04ca71dbbffeda851b5de",
+    "CompareTool-v2026.11.23.1-win.zip.sha256": "b6f5f891a36f246fb2225954903ef503dc622b0b9c1f46c702b2a67a4e6d66b2"
+  },
+  "zip_members_sha256": {
+    "CompareTool.exe": "8d69a23106263693302edee975d6981e199221f917be0d5fc2293e43d57d9647",
+    "CompareTool_build.json": "1d9f2ae523e2692e51e77969181942775a477976cc7519e43f2ec9a97bd4c361",
+    "CompareTool_使用说明书.pdf": "97125ecdf5c0dd8c9f284d0acfc4d39613205693d23a7f96d4607e8ff1204a85",
+    "SHA256SUMS.txt": "305710d408f6c19e44fdaf99e5cfe8bee700b5c7e3648ac37e4e52bad4afbe7f"
+  }
+}

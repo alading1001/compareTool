@@ -172,11 +172,11 @@ Windows 文件夹扫描的重复元数据查询和比较根路径解析也已优
 
 ## 正式入口、版本与任务进度
 
-当前项目及常用程序目录的正式入口为 **`2026.10.25.4 [eafbd9586c]`**，从已推送的干净源码提交 `65765f7` 构建。`D:/java/applications/CompareTool` 已同步 EXE、构建信息和 18 页说明书，旧版及配置已备份。真实窗口版本、响应性和配置字节保留已核对，见 [发布安装凭证](artifacts/release-exclusion-label-20261025.json)。
+当前正式构建为 **`2026.11.23.1 [02106c9d0d]`**，从干净源码提交 `7f22d9c` 构建。Windows 压缩包比对自动使用扩展长度的临时路径。真实 EXE 窗口使用 345 字符的临时路径完成 ZIP 比对，核对了排除结果、新旧导出文件的原始字节和临时目录清理。实现边界见 [归档输入与临时目录](docs/report-and-export-contract.md#归档输入与临时目录)。
 
-本轮仅将勾选文案改为“追加外置排除规则”，并同步说明书；运行代码除该字符串外保持一致。新文案在 600/760 像素窗口可见，说明书结构及修改页渲染通过，包内代码/资源/构建信息与源码一致，正式 EXE 启动验证通过。本轮没有重跑业务回归，相关行为此前验收记录见 [外置排除文件](docs/simple-external-exclusions.md)。
+从 [GitHub Release](https://github.com/alading1001/compareTool/releases/tag/v2026.11.23.1) 下载 `CompareTool-v2026.11.23.1-win.zip`，完整解压后双击 `CompareTool.exe`。发行 ZIP 包含 EXE、构建信息、18 页中文说明书和包内校验清单，发行页面同时提供 ZIP 的 SHA-256 校验文件。构建身份和校验结果见 [发行凭证](artifacts/github-release-20261124.json)。
 
-特殊头部文本的真实文件、原始导出字节及此前安装验证见 [2026-10-23 发布记录](docs/release-20261023-prefixed-text.md)，相关行为继续保留。P 仅权限展示、完整构建身份及下载校验记录见 [2026-10-22 发布凭证](artifacts/release-permission-closeout-20261022.json)。最新 GitHub 发行版为 [v2026.10.25.4](https://github.com/alading1001/compareTool/releases/tag/v2026.10.25.4)，于 2026-11-06 上传原始已验证构建，提供 EXE、构建信息、说明书和 SHA-256 清单，未重新打包。完整本地工作区及 `.tmp` 使用私有备份，存放与恢复约定见 [工作区备份](docs/workspace-backup.md)。
+此前的外置排除规则发布与安装验收见 [2026-10-25 记录](docs/release-20261025-external-exclusions.md) 和 [GitHub 发行凭证](artifacts/github-release-20261106.json)。特殊头部文本及仅权限变化的历史验收见 [2026-10-23 发布记录](docs/release-20261023-prefixed-text.md) 和 [2026-10-22 发布凭证](artifacts/release-permission-closeout-20261022.json)。完整本地工作区的私有备份与恢复约定见 [工作区备份](docs/workspace-backup.md)。
 
 2026-10-25 [知识收尾复核](artifacts/external-exclusions-closeout-20261025.json)再次核对源码指纹、安装三件套和现有窗口，不改业务代码、不重新打包。用户查看[完整清场预览](artifacts/external-exclusions-closeout-preview-20261025.json)后明确确认，已删除本轮四次发布的 13 个临时目录、84 个文件，共 280,380,095 字节（约 267.4 MiB），实际删除与白名单一致，18 个保护文件哈希未变，见 [清场核验](artifacts/cleanup-external-exclusions-20261025.json)。原始回归、截图、交付物、配置及旧版备份保留，生成记忆只读。历史已批准清理见 [2026-10-23 清场凭证](artifacts/cleanup-prefixed-text-20261023.json)、[2026-10-22 清场凭证](artifacts/cleanup-permission-closeout-20261022.json) 和 [补存证据](artifacts/cleanup-permission-evidence-20261022.zip)。
 
